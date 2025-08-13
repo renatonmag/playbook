@@ -1,0 +1,14 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# You are a specialist fullstack developer
+
+Libraries used
+
+- Solidjs-Start
+- drizzle-orm
+- solid-ui: component library
+- tailwindcss
