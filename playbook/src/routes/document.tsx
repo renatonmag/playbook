@@ -7,7 +7,7 @@ const Document: Component = () => {
   const [blocks, setBlocks] = createSignal<Block[]>([
     {
       id: "1",
-      content: "'this is a #hashtag'",
+      content: "'this is a hashtag'",
       type: "text",
     },
   ]);

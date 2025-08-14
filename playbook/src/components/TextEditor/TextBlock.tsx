@@ -24,6 +24,20 @@ interface TextBlockProps {
   setSavedCaretPosition: any;
   isFocused: boolean;
   isNavigation: boolean;
+  onFormatChange?: (format: string, value?: any) => void;
+  formattingState?: {
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    color: string;
+  };
+  formatTrigger?: { format: string; value?: any } | null;
+  onFormatApplied?: () => void;
+  onFormattingChange?: (formatting: {
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+  }) => void;
 }
 
 export const TextBlock: Component<TextBlockProps> = (props) => {
@@ -34,7 +48,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   let blockRef: HTMLDivElement | undefined;
 
   createEffect(() => {
-    console.log({ savedCaretPosition: savedCaretPosition() });
+    console.log({ localContent: localContent() });
   });
 
   const saveCaretPosition = () => {
@@ -113,7 +127,158 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     return rects?.length && rects[0].bottom >= bottom - 2;
   }
 
+  const getSelectedText = () => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      // console.log({ range: range.startOffset });
+      return {
+        text: range.toString(),
+        range: range,
+        hasSelection: range.toString().length > 0,
+      };
+    }
+    return { text: "", range: null, hasSelection: false };
+  };
+
+  const applyFormatting = (format: string) => {
+    const selection = getSelectedText();
+    if (!selection.hasSelection || !selection.range) return;
+
+    const selectedText = selection.text;
+    let formattedText = selectedText;
+
+    // Check if the selected text already has the specific formatting we're toggling
+    const hasBold =
+      selectedText.startsWith("**") && selectedText.endsWith("**");
+    const hasItalic =
+      selectedText.startsWith("*") && selectedText.endsWith("*") && !hasBold;
+    const hasUnderline =
+      selectedText.startsWith("_") && selectedText.endsWith("_");
+
+    // Handle the specific format being toggled
+    switch (format) {
+      case "bold":
+        if (hasBold) {
+          // Remove bold formatting - strip ** markers
+          formattedText = selectedText.slice(2, -2);
+        } else {
+          formattedText = `**${selectedText}**`;
+        }
+        break;
+      case "italic":
+        if (hasItalic) {
+          // Remove italic formatting - strip * markers
+          formattedText = selectedText.slice(1, -1);
+        } else {
+          formattedText = `*${selectedText}*`;
+        }
+        break;
+      case "underline":
+        if (hasUnderline) {
+          // Remove underline formatting - strip _ markers
+          formattedText = selectedText.slice(1, -1);
+        } else {
+          formattedText = `_${selectedText}_`;
+        }
+        break;
+    }
+
+    // Replace the selected text with formatted text
+    selection.range.deleteContents();
+    const textNode = document.createTextNode(formattedText);
+    selection.range.insertNode(textNode);
+
+    // Update local content
+    setLocalContent(blockRef?.textContent || "");
+
+    // Clear selection
+    window.getSelection()?.removeAllRanges();
+
+    // Notify parent of content change
+    props.onContentChange(blockRef?.textContent || "");
+  };
+
+  // Handle formatting from toolbar
+  const handleFormatChange = (format: string, value?: any) => {
+    if (format === "color") {
+      // Handle color changes through the parent
+      props.onFormatChange?.(format, value);
+    } else {
+      // Apply text formatting directly
+      applyFormatting(format);
+    }
+  };
+
+  const getSelectedTextFormatting = () => {
+    const selection = getSelectedText();
+    if (!selection.hasSelection) {
+      return { bold: false, italic: false, underline: false };
+    }
+
+    const selectedText = selection.text;
+    console.log("Selected text:", selectedText);
+
+    const hasBold =
+      selectedText.startsWith("**") && selectedText.endsWith("**");
+    const hasItalic =
+      selectedText.startsWith("*") && selectedText.endsWith("*") && !hasBold;
+    const hasUnderline =
+      selectedText.startsWith("_") && selectedText.endsWith("_");
+
+    // Check for nested formatting
+    let innerText = selectedText;
+    if (hasBold) {
+      innerText = innerText.slice(2, -2);
+    } else if (hasItalic) {
+      innerText = innerText.slice(1, -1);
+    }
+    if (hasUnderline) {
+      innerText = innerText.slice(1, -1);
+    }
+
+    // Check for additional formatting within
+    const hasInnerItalic = innerText.startsWith("*") && innerText.endsWith("*");
+    const hasInnerUnderline =
+      innerText.startsWith("_") && innerText.endsWith("_");
+
+    const result = {
+      bold: hasBold,
+      italic: hasItalic || hasInnerItalic,
+      underline: hasUnderline || hasInnerUnderline,
+    };
+
+    console.log("Detected formatting:", result);
+    return result;
+  };
+
+  // Expose formatting state to parent
+  createEffect(() => {
+    if (props.isFocused) {
+      const formatting = getSelectedTextFormatting();
+      props.onFormattingChange?.(formatting);
+    }
+  });
+
   const handleKeyDown = (e: KeyboardEvent) => {
+    // Formatting shortcuts
+    if (e.ctrlKey || e.metaKey) {
+      switch (e.key.toLowerCase()) {
+        case "b":
+          e.preventDefault();
+          handleFormatChange("bold");
+          return;
+        case "i":
+          e.preventDefault();
+          handleFormatChange("italic");
+          return;
+        case "u":
+          e.preventDefault();
+          handleFormatChange("underline");
+          return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       props.onBlockCreate(props.id);
@@ -145,19 +310,131 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     props.onBlockFocus(props.id);
   };
 
+  // Restore caret position when block becomes focused
   createEffect(() => {
     if (props.isFocused) {
       blockRef?.focus();
     }
-  });
 
-  // Restore caret position when block becomes focused
-  createEffect(() => {
-    if (savedCaretPosition() >= 0) {
+    if (!props.isFocused) {
+      setIsEditing(false);
+    }
+
+    if (!isEditing() && props.isFocused && savedCaretPosition() >= 0) {
       restoreCaretPosition();
       setIsEditing(true);
     }
   });
+
+  // Handle format trigger from toolbar
+  createEffect(() => {
+    if (props.formatTrigger && props.isFocused) {
+      const { format, value } = props.formatTrigger;
+      if (format !== "color") {
+        applyFormatting(format);
+        props.onFormatApplied?.();
+      }
+    }
+  });
+
+  const renderFormattedText = (text: string) => {
+    // Parse markdown-style formatting with support for multiple formats
+    const parts: Array<{
+      text: string;
+      type: "normal" | "bold" | "italic" | "underline";
+      formats: string[];
+    }> = [];
+    let currentIndex = 0;
+
+    while (currentIndex < text.length) {
+      // Check for bold (**text**)
+      if (text.slice(currentIndex, currentIndex + 2) === "**") {
+        const endIndex = text.indexOf("**", currentIndex + 2);
+        if (endIndex !== -1) {
+          const boldText = text.slice(currentIndex + 2, endIndex);
+          // Check if this bold text also has other formatting
+          const innerFormats = [];
+          let innerText = boldText;
+
+          // Check for italic within bold
+          if (boldText.startsWith("*") && boldText.endsWith("*")) {
+            innerFormats.push("italic");
+            innerText = boldText.slice(1, -1);
+          }
+
+          // Check for underline within bold
+          if (innerText.startsWith("_") && innerText.endsWith("_")) {
+            innerFormats.push("underline");
+            innerText = innerText.slice(1, -1);
+          }
+
+          parts.push({
+            text: innerText,
+            type: "bold",
+            formats: ["bold", ...innerFormats],
+          });
+          currentIndex = endIndex + 2;
+          continue;
+        }
+      }
+
+      // Check for italic (*text*)
+      if (text[currentIndex] === "*") {
+        const endIndex = text.indexOf("*", currentIndex + 1);
+        if (endIndex !== -1 && endIndex > currentIndex + 1) {
+          const italicText = text.slice(currentIndex + 1, endIndex);
+          // Check if this italic text also has underline
+          const innerFormats = [];
+          let innerText = italicText;
+
+          if (italicText.startsWith("_") && italicText.endsWith("_")) {
+            innerFormats.push("underline");
+            innerText = italicText.slice(1, -1);
+          }
+
+          parts.push({
+            text: innerText,
+            type: "italic",
+            formats: ["italic", ...innerFormats],
+          });
+          currentIndex = endIndex + 1;
+          continue;
+        }
+      }
+
+      // Check for underline (_text_)
+      if (text[currentIndex] === "_") {
+        const endIndex = text.indexOf("_", currentIndex + 1);
+        if (endIndex !== -1 && endIndex > currentIndex + 1) {
+          const underlineText = text.slice(currentIndex + 1, endIndex);
+          parts.push({
+            text: underlineText,
+            type: "underline",
+            formats: ["underline"],
+          });
+          currentIndex = endIndex + 1;
+          continue;
+        }
+      }
+
+      // Regular text
+      let regularText = "";
+      while (
+        currentIndex < text.length &&
+        text[currentIndex] !== "*" &&
+        text[currentIndex] !== "_"
+      ) {
+        regularText += text[currentIndex];
+        currentIndex++;
+      }
+
+      if (regularText) {
+        parts.push({ text: regularText, type: "normal", formats: [] });
+      }
+    }
+
+    return parts;
+  };
 
   return (
     <ContentEditable
@@ -167,21 +444,59 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       onFocus={handleFocus}
       textContent={localContent()}
       onTextContent={setLocalContent}
-      render={(textContent) => (
-        <For each={textContent().split(" ")}>
-          {(word, wordIndex) => (
-            <>
-              <Show when={word.startsWith("#")} fallback={word}>
-                <Button onClick={() => console.log("clicked!")}>{word}</Button>
-              </Show>
-              <Show
-                when={textContent().split(" ").length - 1 !== wordIndex()}
-                children=" "
-              />
-            </>
-          )}
-        </For>
-      )}
+      render={(textContent) => {
+        const content = textContent();
+        const formattedParts = renderFormattedText(content);
+
+        return (
+          <For each={formattedParts}>
+            {(part) => {
+              const style = {
+                "font-weight": part.formats.includes("bold")
+                  ? "bold"
+                  : "normal",
+                "font-style": part.formats.includes("italic")
+                  ? "italic"
+                  : "normal",
+                "text-decoration": part.formats.includes("underline")
+                  ? "underline"
+                  : "none",
+                color: props.formattingState?.color || "inherit",
+              };
+
+              // Check if this part contains hashtags
+              if (part.text.includes("#")) {
+                const words = part.text.split(" ");
+                return (
+                  <For each={words}>
+                    {(word, wordIndex) => {
+                      const isHashtag = word.startsWith("#");
+                      return (
+                        <>
+                          <Show
+                            when={isHashtag}
+                            fallback={<span style={style}>{word}</span>}
+                          >
+                            <Button onClick={() => console.log("clicked!")}>
+                              {word}
+                            </Button>
+                          </Show>
+                          <Show
+                            when={words.length - 1 !== wordIndex()}
+                            children=" "
+                          />
+                        </>
+                      );
+                    }}
+                  </For>
+                );
+              }
+
+              return <span style={style}>{part.text}</span>;
+            }}
+          </For>
+        );
+      }}
     />
   );
 };

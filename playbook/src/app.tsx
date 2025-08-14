@@ -13,6 +13,7 @@ export default function App() {
           <Title>SolidStart - Basic</Title>
           <a href="/">Index</a>
           <a href="/document">Document</a>
+          <a href="/trade">Trade</a>
           <Suspense>{props.children}</Suspense>
         </MetaProvider>
       )}

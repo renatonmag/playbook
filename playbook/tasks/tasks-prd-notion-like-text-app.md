@@ -30,15 +30,15 @@
   - [x] 2.5 Implement block focus management and navigation
   - [x] 2.6 Add visual styling for blocks using Tailwind CSS
 
-- [ ] 3.0 Add Rich Text Formatting Capabilities
+- [x] 3.0 Add Rich Text Formatting Capabilities
 
-  - [ ] 3.1 Create FormattingToolbar component with solid-ui components
-  - [ ] 3.2 Implement bold text formatting functionality
-  - [ ] 3.3 Implement italic text formatting functionality
-  - [ ] 3.4 Implement underline text formatting functionality
-  - [ ] 3.5 Implement text color selection functionality
-  - [ ] 3.6 Integrate formatting toolbar with text blocks
-  - [ ] 3.7 Add keyboard shortcuts for common formatting actions
+  - [x] 3.1 Create FormattingToolbar component with solid-ui components
+  - [x] 3.2 Implement bold text formatting functionality
+  - [x] 3.3 Implement italic text formatting functionality
+  - [x] 3.4 Implement underline text formatting functionality
+  - [x] 3.5 Implement text color selection functionality
+  - [x] 3.6 Integrate formatting toolbar with text blocks
+  - [x] 3.7 Add keyboard shortcuts for common formatting actions
 
 - [ ] 4.0 Implement List Block Support
 
