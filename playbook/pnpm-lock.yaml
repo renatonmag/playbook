@@ -38,6 +38,12 @@ importers:
       drizzle-orm:
         specifier: ^0.44.4
         version: 0.44.4(@types/pg@8.15.5)(pg@8.16.3)
+      overlayscrollbars:
+        specifier: ^2.11.5
+        version: 2.11.5
+      overlayscrollbars-solid:
+        specifier: ^0.5.6
+        version: 0.5.6(overlayscrollbars@2.11.5)(solid-js@1.9.9)
       pg:
         specifier: ^8.16.3
         version: 8.16.3
@@ -2840,6 +2846,15 @@ packages:
   open@8.4.2:
     resolution: {integrity: sha512-7x81NCL719oNbsq/3mh+hVrAWmFuEYUqrq/Iw3kUzH8ReypT9QQ0BLoJS7/G9k6N81XjW4qHWtjWwe/9eLy1EQ==}
     engines: {node: '>=12'}
+
+  overlayscrollbars-solid@0.5.6:
+    resolution: {integrity: sha512-n1iaIT5vLxT7TSum9f80BDfIpXX53CcCxWyqWid9doJDDPPPzEMv+QbDM8I5sctbeExUqc9WAgNnu3W9/M2Q3g==}
+    peerDependencies:
+      overlayscrollbars: ^2.0.0
+      solid-js: ^1.7.0
+
+  overlayscrollbars@2.11.5:
+    resolution: {integrity: sha512-vTUfCtjJbTjiarrxl9qdK04ZxlQdB4ugXfiqctVZytYDXH259OM4whROMGDE6T8uCYmSYPqiOFIKZ1erVkJnFg==}
 
   p-event@6.0.1:
     resolution: {integrity: sha512-Q6Bekk5wpzW5qIyUP4gdMEujObYstZl6DMMOSenwBvV0BlE5LkDwkjs5yHbZmdCEq2o4RJx4tE1vwxFVf2FG1w==}
@@ -6619,6 +6634,13 @@ snapshots:
       define-lazy-prop: 2.0.0
       is-docker: 2.2.1
       is-wsl: 2.2.0
+
+  overlayscrollbars-solid@0.5.6(overlayscrollbars@2.11.5)(solid-js@1.9.9):
+    dependencies:
+      overlayscrollbars: 2.11.5
+      solid-js: 1.9.9
+
+  overlayscrollbars@2.11.5: {}
 
   p-event@6.0.1:
     dependencies:

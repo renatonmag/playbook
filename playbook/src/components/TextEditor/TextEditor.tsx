@@ -1,6 +1,16 @@
-import { Component, createSignal, createEffect, For } from "solid-js";
+import { Component, createSignal, createEffect, For, Show } from "solid-js";
 import { TextBlock } from "./TextBlock";
 import FormattingToolbar from "./FormattingToolbar";
+import { Button } from "../ui/button";
+import { deleteLane } from "~/stores/tradeStore";
+// import {
+//   tradeStore,
+//   addLane,
+//   deleteLane,
+//   updateLaneContent,
+//   setLaneFocus,
+//   updateLaneTitle,
+// } from "../stores/tradeStore";
 
 export interface Block {
   id: string;
@@ -17,6 +27,7 @@ export interface Block {
 interface TextEditorProps {
   initialBlocks?: Block[];
   onContentChange?: (blocks: Block[]) => void;
+  laneID: string;
 }
 
 export const TextEditor: Component<TextEditorProps> = (props) => {
@@ -104,30 +115,6 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
     setFocusedBlockId(blockId);
   };
 
-  const handleFormatChange = (blockId: string, format: string, value?: any) => {
-    // For the new selection-based formatting, we don't need to update the formatting state
-    // The formatting is applied directly to the text content in the TextBlock
-    if (format === "color") {
-      setBlocks((prev) =>
-        prev.map((block) => {
-          if (block.id === blockId) {
-            const currentFormatting = block.formatting || {
-              bold: false,
-              italic: false,
-              underline: false,
-              color: "inherit",
-            };
-            return {
-              ...block,
-              formatting: { ...currentFormatting, color: value },
-            };
-          }
-          return block;
-        })
-      );
-    }
-  };
-
   const navigateToBlock = (blockId: string) => {
     setFocusedBlockId(blockId);
   };
@@ -157,43 +144,12 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
     props.onContentChange?.(blocks());
   });
 
-  const getCurrentFormattingState = () => {
-    const focusedBlock = blocks().find(
-      (block) => block.id === focusedBlockId()
-    );
-    return (
-      focusedBlock?.formatting || {
-        bold: false,
-        italic: false,
-        underline: false,
-        color: "inherit",
-      }
-    );
-  };
-
-  const getActiveFormats = () => {
-    return currentFormatting();
-  };
-
   return (
-    <div class="w-full max-w-4xl mx-auto bg-white border border-gray-200 rounded-lg">
-      <FormattingToolbar
-        onFormatChange={(format, value) => {
-          if (focusedBlockId()) {
-            if (format === "color") {
-              handleFormatChange(focusedBlockId(), format, value);
-            } else {
-              // Trigger formatting in the focused TextBlock
-              setFormatTrigger({ format, value });
-            }
-          }
-        }}
-        isActive={(format) => {
-          const activeFormats = getActiveFormats();
-          return activeFormats[format as keyof typeof activeFormats] || false;
-        }}
-      />
-      <div class="min-h-[500px] p-4">
+    <div class="min-w-[450px] w-[450px] mx-auto bg-white border border-gray-200 rounded-lg">
+      <div class="min-h-[500px] h-full p-4">
+        <Button class="float-right" onClick={() => deleteLane(props.laneID)}>
+          -
+        </Button>
         <For each={blocks()}>
           {(block) => (
             <TextBlock
@@ -208,21 +164,8 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
               onNavigateUp={() => handleNavigateUp(block.id)}
               onNavigateDown={() => handleNavigateDown(block.id)}
               isFocused={focusedBlockId() === block.id}
-              isNavigation={false}
               savedCaretPosition={savedCaretPosition}
               setSavedCaretPosition={setSavedCaretPosition}
-              onFormatChange={(format, value) => {
-                if (format === "color") {
-                  handleFormatChange(block.id, format, value);
-                } else {
-                  // For text formatting, pass it directly to the TextBlock
-                  // The TextBlock will handle applying the formatting to selected text
-                }
-              }}
-              formattingState={block.formatting}
-              formatTrigger={formatTrigger()}
-              onFormatApplied={() => setFormatTrigger(null)}
-              onFormattingChange={setCurrentFormatting}
             />
           )}
         </For>

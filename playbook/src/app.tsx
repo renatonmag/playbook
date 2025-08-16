@@ -4,6 +4,7 @@ import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 import "@fontsource/inter";
 import "./app.css";
+import "overlayscrollbars/styles/overlayscrollbars.css";
 
 export default function App() {
   return (
