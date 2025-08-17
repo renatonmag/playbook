@@ -3,14 +3,37 @@ import { TextBlock } from "./TextBlock";
 import FormattingToolbar from "./FormattingToolbar";
 import { Button } from "../ui/button";
 import { deleteLane } from "~/stores/tradeStore";
-// import {
-//   tradeStore,
-//   addLane,
-//   deleteLane,
-//   updateLaneContent,
-//   setLaneFocus,
-//   updateLaneTitle,
-// } from "../stores/tradeStore";
+import GripVertical from "lucide-solid/icons/grip-vertical";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "../ui/command";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import {
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Dialog } from "../ui/dialog";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "../ui/carousel";
 
 export interface Block {
   id: string;
@@ -27,10 +50,12 @@ export interface Block {
 interface TextEditorProps {
   initialBlocks?: Block[];
   onContentChange?: (blocks: Block[]) => void;
-  laneID: string;
+  laneID?: string;
 }
 
 export const TextEditor: Component<TextEditorProps> = (props) => {
+  const [dialogOpen, setDialogOpen] = createSignal(false);
+  const [dropdownOpen, setDropdownOpen] = createSignal(false);
   const [blocks, setBlocks] = createSignal<Block[]>(
     props.initialBlocks || [
       {
@@ -145,28 +170,72 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
   });
 
   return (
-    <div class="min-w-[450px] w-[450px] mx-auto bg-white border border-gray-200 rounded-lg">
-      <div class="min-h-[500px] h-full p-4">
-        <Button class="float-right" onClick={() => deleteLane(props.laneID)}>
-          -
-        </Button>
+    <div class="w-[700px] mx-auto">
+      <div class="p-4 min-h-[calc(100vh-2rem)]">
+        <Show when={props.laneID}>
+          <Button class="float-right" onClick={() => deleteLane(props.laneID)}>
+            -
+          </Button>
+        </Show>
         <For each={blocks()}>
           {(block) => (
-            <TextBlock
-              id={block.id}
-              content={block.content}
-              onContentChange={(content) =>
-                handleContentChange(block.id, content)
-              }
-              onBlockCreate={handleBlockCreate}
-              onBlockDelete={handleBlockDelete}
-              onBlockFocus={handleBlockFocus}
-              onNavigateUp={() => handleNavigateUp(block.id)}
-              onNavigateDown={() => handleNavigateDown(block.id)}
-              isFocused={focusedBlockId() === block.id}
-              savedCaretPosition={savedCaretPosition}
-              setSavedCaretPosition={setSavedCaretPosition}
-            />
+            <div class="flex relative">
+              <Show when={focusedBlockId() === block.id}>
+                <DropdownMenu>
+                  <DropdownMenuTrigger>
+                    <GripVertical
+                      onClick={() => setDropdownOpen(true)}
+                      class="text-gray-300 absolute top-0 left-[-35px] cursor-pointer"
+                    />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent class="top-[-50px] left-[-170px]">
+                    <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
+                      Galeria
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
+                      Team
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </Show>
+              <TextBlock
+                id={block.id}
+                content={block.content}
+                onContentChange={(content) =>
+                  handleContentChange(block.id, content)
+                }
+                onBlockCreate={handleBlockCreate}
+                onBlockDelete={handleBlockDelete}
+                onBlockFocus={handleBlockFocus}
+                onNavigateUp={() => handleNavigateUp(block.id)}
+                onNavigateDown={() => handleNavigateDown(block.id)}
+                isFocused={focusedBlockId() === block.id}
+                savedCaretPosition={savedCaretPosition}
+                setSavedCaretPosition={setSavedCaretPosition}
+              />
+              <Dialog open={dialogOpen()} onOpenChange={setDialogOpen}>
+                <DialogContent class="min-w-[650px]">
+                  <DialogHeader>
+                    <DialogTitle>Galeria de exemplos.</DialogTitle>
+                  </DialogHeader>
+                  <Carousel class="w-full max-w-lg mx-auto">
+                    <CarouselContent>
+                      <CarouselItem>
+                        <img src="https://placehold.co/600x400" alt="Galeria" />
+                      </CarouselItem>
+                      <CarouselItem>
+                        <img src="https://placehold.co/600x400" alt="Galeria" />
+                      </CarouselItem>
+                      <CarouselItem>
+                        <img src="https://placehold.co/600x400" alt="Galeria" />
+                      </CarouselItem>
+                    </CarouselContent>
+                    <CarouselPrevious />
+                    <CarouselNext />
+                  </Carousel>
+                </DialogContent>
+              </Dialog>
+            </div>
           )}
         </For>
       </div>

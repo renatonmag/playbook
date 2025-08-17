@@ -66,7 +66,7 @@ const Document: Component = () => {
   }
 
   return (
-    <div class="min-h-screen bg-gray-50">
+    <div class="min-h-screen">
       <div class="bg-white border-b border-gray-200 px-6 py-4">
         <h1 class="text-2xl font-semibold text-gray-900">
           Trading Strategy Rules

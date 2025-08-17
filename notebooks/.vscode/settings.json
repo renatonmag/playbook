@@ -1,0 +1,8 @@
+{
+    "python.venvPath": "",
+    "python.pythonPath": "/home/rnm/.cache/pypoetry/virtualenvs/playbook--NCxUMzo-py3.12/bin/python",
+    // "editor.codeActionsOnSave": {
+    //     "source.organizeImports": true,
+    //     "source.fixAll": true
+    // }
+}

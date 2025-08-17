@@ -9,7 +9,6 @@ import {
   createEffect,
 } from "solid-js";
 import { ContentEditable } from "@bigmistqke/solid-contenteditable";
-import { Button } from "../ui/button";
 
 interface TextBlockProps {
   id: string;
@@ -47,10 +46,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
 
   let blockRef: HTMLDivElement | undefined;
 
-  createEffect(() => {
-    console.log({ localContent: localContent() });
-  });
-
   const saveCaretPosition = () => {
     if (blockRef) {
       const selection = window.getSelection();
@@ -65,7 +60,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   };
 
   const restoreCaretPosition = () => {
-    console.log({ savedCaretPosition: savedCaretPosition() });
     if (blockRef && savedCaretPosition() > 0) {
       setTimeout(() => {
         if (blockRef) {
@@ -131,7 +125,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
-      // console.log({ range: range.startOffset });
       return {
         text: range.toString(),
         range: range,
