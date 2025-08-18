@@ -8,8 +8,7 @@ export interface TextBlock {
 export interface ListBlock {
   id: string;
   content: string;
-  type: "list";
-  listType: "ordered" | "unordered";
+  type: "ul" | "ol";
   level: number;
   formatting?: TextFormatting;
 }

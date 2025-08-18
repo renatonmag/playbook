@@ -9,10 +9,10 @@ import {
   createEffect,
 } from "solid-js";
 import { ContentEditable } from "@bigmistqke/solid-contenteditable";
+import { Block } from "~/types/document";
 
 interface TextBlockProps {
-  id: string;
-  content: string;
+  block: Block;
   onContentChange: (content: string) => void;
   onBlockCreate: (afterId: string) => void;
   onBlockDelete: (id: string) => void;
@@ -41,8 +41,10 @@ interface TextBlockProps {
 
 export const TextBlock: Component<TextBlockProps> = (props) => {
   const [isEditing, setIsEditing] = createSignal(false);
-  const [localContent, setLocalContent] = createSignal(props.content);
   const [savedCaretPosition, setSavedCaretPosition] = createSignal<number>(0);
+  const [textContent, setTextContent] = createSignal<string>(
+    props.block.content
+  );
 
   let blockRef: HTMLDivElement | undefined;
 
@@ -155,23 +157,23 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      props.onBlockCreate(props.id);
-    } else if (e.key === "Backspace" && localContent() === "") {
+      props.onBlockCreate(props.block.id);
+    } else if (e.key === "Backspace" && props.block.content === "") {
       e.preventDefault();
-      props.onBlockDelete(props.id);
+      props.onBlockDelete(props.block.id);
     } else if (
       e.key === "ArrowUp" &&
-      (caretIsAtTop() || localContent() === "")
+      (caretIsAtTop() || props.block.content === "")
     ) {
       e.preventDefault();
-      if (localContent() !== "") saveCaretPosition();
+      if (props.block.content !== "") saveCaretPosition();
       props.onNavigateUp?.();
     } else if (
       e.key === "ArrowDown" &&
-      (caretIsAtBottom() || localContent() === "")
+      (caretIsAtBottom() || props.block.content === "")
     ) {
       e.preventDefault();
-      if (localContent() !== "") saveCaretPosition();
+      if (props.block.content !== "") saveCaretPosition();
       props.onNavigateDown?.();
     } else if (e.key === "ArrowLeft") {
       saveCaretPosition();
@@ -181,7 +183,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   };
 
   const handleFocus = () => {
-    props.onBlockFocus(props.id);
+    props.onBlockFocus(props.block.id);
   };
 
   // Restore caret position when block becomes focused
@@ -300,13 +302,40 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   // };
 
   return (
-    <ContentEditable
-      ref={blockRef}
-      class="min-h-[1.5rem] outline-none cursor-text"
-      onKeyDown={handleKeyDown}
-      onFocus={handleFocus}
-      textContent={localContent()}
-      onTextContent={setLocalContent}
-    />
+    <div class="flex">
+      <Show when={props.block.type == "ol"}>
+        <span class="mr-2">1.</span>
+      </Show>
+      <Show when={props.block.type == "ul"}>
+        <span class="mr-2">🞄</span>
+      </Show>
+      <ContentEditable
+        ref={blockRef}
+        class="min-h-[1.5rem] w-full outline-none cursor-text"
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        textContent={props.block.content}
+        onTextContent={props.onContentChange}
+        render={(textContent) => {
+          return (
+            <For each={textContent().split(" ")}>
+              {(word, wordIndex) => (
+                <>
+                  <Show when={word.startsWith("#")} fallback={word}>
+                    <button onClick={() => console.log("clicked!")}>
+                      {word}
+                    </button>
+                  </Show>
+                  <Show
+                    when={textContent().split(" ").length - 1 !== wordIndex()}
+                    children=" "
+                  />
+                </>
+              )}
+            </For>
+          );
+        }}
+      />
+    </div>
   );
 };

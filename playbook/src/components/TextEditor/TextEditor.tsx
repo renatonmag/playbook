@@ -34,17 +34,12 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "../ui/carousel";
+import { createStore } from "solid-js/store";
 
 export interface Block {
   id: string;
   content: string;
-  type: "text" | "list";
-  formatting?: {
-    bold: boolean;
-    italic: boolean;
-    underline: boolean;
-    color: string;
-  };
+  type: "text" | "ol" | "ul";
 }
 
 interface TextEditorProps {
@@ -56,18 +51,12 @@ interface TextEditorProps {
 export const TextEditor: Component<TextEditorProps> = (props) => {
   const [dialogOpen, setDialogOpen] = createSignal(false);
   const [dropdownOpen, setDropdownOpen] = createSignal(false);
-  const [blocks, setBlocks] = createSignal<Block[]>(
+  const [blocks, setBlocks] = createStore<Block[]>(
     props.initialBlocks || [
       {
         id: "1",
         content: "",
         type: "text",
-        formatting: {
-          bold: false,
-          italic: false,
-          underline: false,
-          color: "inherit",
-        },
       },
     ]
   );
@@ -87,12 +76,30 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
     `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   const handleContentChange = (blockId: string, content: string) => {
-    setBlocks((prev) =>
-      prev.map((block) =>
-        block.id === blockId ? { ...block, content } : block
-      )
-    );
-    props.onContentChange?.(blocks());
+    const blockIdx = blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx < 0) return;
+
+    const block = blocks[blockIdx];
+
+    // Check for type switch triggers
+    if (content.startsWith("1. ") && block.type !== "ol") {
+      setTimeout(
+        () => setBlocks(blockIdx, { content: content.slice(3), type: "ol" }),
+        0
+      );
+      return;
+    }
+    if (content.startsWith("- ") && block.type !== "ul") {
+      setTimeout(
+        () => setBlocks(blockIdx, { content: content.slice(2), type: "ul" }),
+        0
+      );
+      return;
+    }
+
+    // Otherwise, just update content
+    setBlocks(blockIdx, "content", content);
+    props.onContentChange?.(blocks);
   };
 
   const handleBlockCreate = (afterId: string) => {
@@ -100,12 +107,6 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
       id: generateId(),
       content: "",
       type: "text",
-      formatting: {
-        bold: false,
-        italic: false,
-        underline: false,
-        color: "inherit",
-      },
     };
     setBlocks((prev) => {
       const index = prev.findIndex((block) => block.id === afterId);
@@ -123,12 +124,12 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
   };
 
   const handleBlockDelete = (blockId: string) => {
-    if (blocks().length <= 1) return; // Keep at least one block
+    if (blocks.length <= 1) return; // Keep at least one block
 
     // Focus the previous block or the first available block
-    const currentIndex = blocks().findIndex((block) => block.id === blockId);
+    const currentIndex = blocks.findIndex((block) => block.id === blockId);
     const newFocusedIndex = Math.max(0, currentIndex - 1);
-    const newFocusedBlock = blocks()[newFocusedIndex];
+    const newFocusedBlock = blocks[newFocusedIndex];
     if (newFocusedBlock) {
       setFocusedBlockId(newFocusedBlock.id);
     }
@@ -145,28 +146,28 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
   };
 
   const handleNavigateUp = (currentBlockId: string) => {
-    const currentIndex = blocks().findIndex(
+    const currentIndex = blocks.findIndex(
       (block) => block.id === currentBlockId
     );
     if (currentIndex > 0) {
-      const previousBlock = blocks()[currentIndex - 1];
+      const previousBlock = blocks[currentIndex - 1];
       navigateToBlock(previousBlock.id);
     }
   };
 
   const handleNavigateDown = (currentBlockId: string) => {
-    const currentIndex = blocks().findIndex(
+    const currentIndex = blocks.findIndex(
       (block) => block.id === currentBlockId
     );
-    if (currentIndex < blocks().length - 1) {
-      const nextBlock = blocks()[currentIndex + 1];
+    if (currentIndex < blocks.length - 1) {
+      const nextBlock = blocks[currentIndex + 1];
       navigateToBlock(nextBlock.id);
     }
   };
 
   // Notify parent of content changes
   createEffect(() => {
-    props.onContentChange?.(blocks());
+    props.onContentChange?.(blocks);
   });
 
   return (
@@ -177,7 +178,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
             -
           </Button>
         </Show>
-        <For each={blocks()}>
+        <For each={blocks}>
           {(block) => (
             <div class="flex relative">
               <Show when={focusedBlockId() === block.id}>
@@ -199,8 +200,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
                 </DropdownMenu>
               </Show>
               <TextBlock
-                id={block.id}
-                content={block.content}
+                block={block}
                 onContentChange={(content) =>
                   handleContentChange(block.id, content)
                 }
