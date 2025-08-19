@@ -15,6 +15,7 @@ export default function App() {
           <a href="/">Index</a>
           <a href="/document">Document</a>
           <a href="/trade">Trade</a>
+          <script src="https://apis.google.com/js/api.js" defer></script>
           <Suspense>{props.children}</Suspense>
         </MetaProvider>
       )}

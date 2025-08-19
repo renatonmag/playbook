@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 const { fontFamily } = require("tailwindcss/defaultTheme");
-export default {
+import { withUt } from "uploadthing/tw";
+export default withUt({
   darkMode: ["variant", [".dark &", '[data-kb-theme="dark"] &']],
   content: ["./src/**/*.{ts,tsx}"],
   prefix: "",
@@ -105,4 +106,4 @@ export default {
     },
   },
   plugins: [require("tailwindcss-animate")],
-};
+});

@@ -2,6 +2,7 @@ import { Component, createSignal, onMount } from "solid-js";
 import { TextEditor } from "../components/TextEditor/TextEditor";
 import type { Block } from "../components/TextEditor/TextEditor";
 import { loadCurrentDocument, saveCurrentDocument } from "~/lib/storage";
+import { UploadButton, UploadDropzone } from "~/ut/utUtils";
 
 const Document: Component = () => {
   const [blocks, setBlocks] = createSignal<Block[]>([
@@ -64,6 +65,8 @@ const Document: Component = () => {
       </div>
     );
   }
+
+  const dz = null;
 
   return (
     <div class="min-h-screen">

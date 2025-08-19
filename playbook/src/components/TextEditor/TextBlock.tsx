@@ -300,9 +300,20 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
 
   //   return parts;
   // };
+  function getFilesFromClipboardEvent(event: ClipboardEvent) {
+    const dataTransferItems = event.clipboardData?.items;
+    if (!dataTransferItems) return;
+
+    const files = Array.from(dataTransferItems).reduce<File[]>((acc, curr) => {
+      const f = curr.getAsFile();
+      return f ? [...acc, f] : acc;
+    }, []);
+
+    return files;
+  }
 
   return (
-    <div class="flex">
+    <div class="flex w-full">
       <Show when={props.block.type == "ol"}>
         <span class="mr-2">1.</span>
       </Show>
@@ -315,6 +326,10 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         onKeyDown={handleKeyDown}
         onFocus={handleFocus}
         textContent={props.block.content}
+        onPaste={(e) => {
+          const files = getFilesFromClipboardEvent(e);
+          console.log(files);
+        }}
         onTextContent={props.onContentChange}
         render={(textContent) => {
           return (

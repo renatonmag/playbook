@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Image to Google Drive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f0f4f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 2.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-label {
+            display: inline-block;
+            background-color: #4f46e5;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            margin-top: 1rem;
+            transition: background-color 0.2s ease-in-out;
+        }
+
+        .file-label:hover {
+            background-color: #4338ca;
+        }
+
+        .btn {
+            background-color: #10b981;
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            border: none;
+            font-weight: 600;
+            transition: background-color 0.2s ease-in-out;
+            margin-top: 1rem;
+        }
+
+        .btn:hover {
+            background-color: #059669;
+        }
+
+        .btn-authorize {
+            background-color: #ef4444;
+        }
+
+        .btn-authorize:hover {
+            background-color: #dc2626;
+        }
+
+        .status-message {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            background-color: #e0f2fe;
+            color: #0c4a6e;
+            font-size: 0.9rem;
+            text-align: left;
+            word-wrap: break-word;
+            /* Ensure long IDs wrap */
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1 class="text-3xl font-bold text-gray-800 mb-4">Upload to Google Drive</h1>
+
+        <p class="text-gray-600 mb-6">
+            Por favor, autorize sua conta Google e selecione uma imagem para upload.
+        </p>
+
+        <div id="auth-buttons" class="space-x-4 mb-4">
+            <button id="authorize_button" class="btn btn-authorize">Autorizar Google Drive</button>
+            <button id="signout_button" class="btn hidden">Sair</button>
+        </div>
+
+        <div id="upload-area" class="hidden">
+            <input type="file" id="filePicker" accept="image/*">
+            <label for="filePicker" class="file-label">Selecionar Imagem</label>
+            <button id="upload_button" class="btn ml-4" disabled>Fazer Upload da Imagem</button>
+        </div>
+
+        <div id="status" class="status-message hidden"></div>
+    </div>
+
+    <script>
+        // IMPORTANTE: Substitua pelo seu ID de Cliente real do Google Cloud Console
+        // Vá para Google Cloud Console -> APIs e serviços -> Credenciais -> IDs de Cliente OAuth 2.0
+        const CLIENT_ID = '993531551747-5tqikhcvaipoku5gpnsal2qc40dqqin3.apps.googleusercontent.com'; // <--- SUBSTITUA ISTO
+        const DISCOVERY_DOCS = ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'];
+        const SCOPES = 'https://www.googleapis.com/auth/drive.file'; // Escopo específico para arquivos enviados por este aplicativo
+
+        let tokenClient;
+        let gapiInited = false;
+        let gisInited = false;
+        let selectedFile = null;
+
+        const authButton = document.getElementById('authorize_button');
+        const signoutButton = document.getElementById('signout_button');
+        const uploadButton = document.getElementById('upload_button');
+        const filePicker = document.getElementById('filePicker');
+        const authArea = document.getElementById('auth-buttons');
+        const uploadArea = document.getElementById('upload-area');
+        const statusDiv = document.getElementById('status');
+
+        function updateStatus(message, isError = false) {
+            statusDiv.classList.remove('hidden');
+            statusDiv.style.backgroundColor = isError ? '#fee2e2' : '#e0f2fe';
+            statusDiv.style.color = isError ? '#991b1b' : '#0c4a6e';
+            statusDiv.textContent = message;
+        }
+
+        // --- Inicialização GAPI e GIS ---
+
+        function gapiLoaded() {
+            gapi.load('client', initializeGapiClient);
+        }
+
+        async function initializeGapiClient() {
+            await gapi.client.init({
+                discoveryDocs: DISCOVERY_DOCS,
+            });
+            gapiInited = true;
+            maybeEnableButtons();
+        }
+
+        function gisLoaded() {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: (tokenResponse) => {
+                    if (tokenResponse && tokenResponse.access_token) {
+                        gapi.client.setToken(tokenResponse);
+                        updateAuthUi(true);
+                        updateStatus('Autorização bem-sucedida!');
+                    } else {
+                        updateStatus('Autorização falhou.', true);
+                        updateAuthUi(false);
+                    }
+                },
+                error_callback: (error) => {
+                    updateStatus(`Erro de autorização: ${error.details || error}`, true);
+                    updateAuthUi(false);
+                }
+            });
+            gisInited = true;
+            maybeEnableButtons();
+        }
+
+        function maybeEnableButtons() {
+            if (gapiInited && gisInited) {
+                // Verificar se já está logado de uma sessão anterior
+                if (gapi.client.getToken() !== null) {
+                    updateAuthUi(true);
+                } else {
+                    updateAuthUi(false);
+                }
+                authButton.disabled = false;
+                signoutButton.disabled = false;
+            }
+        }
+
+        // --- Funções de Autenticação ---
+
+        function handleAuthClick() {
+            if (gapi.client.getToken() === null) {
+                // Solicitar ao usuário para selecionar uma conta Google e pedir consentimento para compartilhar seus dados
+                // ao estabelecer uma nova sessão.
+                tokenClient.requestAccessToken();
+            }
+        }
+
+        function handleSignoutClick() {
+            const token = gapi.client.getToken();
+            if (token !== null) {
+                google.accounts.oauth2.revoke(token.access_token, () => {
+                    gapi.client.setToken(null);
+                    updateAuthUi(false);
+                    updateStatus('Saiu com sucesso.');
+                });
+            }
+        }
+
+        function updateAuthUi(isSignedIn) {
+            if (isSignedIn) {
+                authArea.classList.add('hidden');
+                uploadArea.classList.remove('hidden');
+            } else {
+                authArea.classList.remove('hidden');
+                uploadArea.classList.add('hidden');
+            }
+        }
+
+        // --- Lógica de Upload de Arquivo ---
+
+        filePicker.addEventListener('change', (event) => {
+            selectedFile = event.target.files[0];
+            if (selectedFile) {
+                uploadButton.disabled = false;
+                updateStatus(`Arquivo selecionado: ${selectedFile.name}`);
+            } else {
+                uploadButton.disabled = true;
+                updateStatus('Nenhum arquivo selecionado.');
+            }
+        });
+
+        uploadButton.addEventListener('click', async () => {
+            if (!selectedFile) {
+                updateStatus('Por favor, selecione um arquivo primeiro.', true);
+                return;
+            }
+
+            updateStatus('Fazendo upload do arquivo...');
+            uploadButton.disabled = true;
+
+            try {
+                const form = new FormData();
+                const metadata = {
+                    name: selectedFile.name,
+                    mimeType: selectedFile.type,
+                    // Você pode especificar o ID da pasta pai, se necessário:
+                    // 'parents': ['YOUR_GOOGLE_DRIVE_FOLDER_ID'] // <--- OPCIONAL: SUBSTITUA ISTO
+                };
+
+                form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+                form.append('file', selectedFile);
+
+                const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                    method: 'POST',
+                    headers: new Headers({ 'Authorization': `Bearer ${gapi.client.getToken().access_token}` }),
+                    body: form,
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    updateStatus(`Arquivo enviado com sucesso! ID do arquivo: ${result.id}`);
+                } else {
+                    const errorText = await response.text();
+                    updateStatus(`Falha no upload: ${errorText}`, true);
+                }
+            } catch (error) {
+                updateStatus(`Ocorreu um erro durante o upload: ${error.message}`, true);
+            } finally {
+                uploadButton.disabled = false;
+            }
+        });
+    </script>
+    <!-- Google Platform Library (gapi.js) and Google Identity Services (GIS) -->
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+</body>
+
+</html>
