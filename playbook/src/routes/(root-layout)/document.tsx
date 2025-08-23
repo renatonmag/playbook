@@ -1,8 +1,15 @@
 import { Component, createSignal, onMount } from "solid-js";
-import { TextEditor } from "../components/TextEditor/TextEditor";
-import type { Block } from "../components/TextEditor/TextEditor";
+import { TextEditor } from "../../components/TextEditor/TextEditor";
+import type { Block } from "../../components/TextEditor/TextEditor";
 import { loadCurrentDocument, saveCurrentDocument } from "~/lib/storage";
 import { UploadButton, UploadDropzone } from "~/ut/utUtils";
+import { SidebarTrigger } from "~/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "~/components/ui/collapsible";
+import { IconChevronDown } from "~/components/app-sidebar";
 
 const Document: Component = () => {
   const [blocks, setBlocks] = createSignal<Block[]>([
@@ -66,19 +73,9 @@ const Document: Component = () => {
     );
   }
 
-  const dz = null;
-
   return (
     <div class="min-h-screen">
-      <div class="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 class="text-2xl font-semibold text-gray-900">
-          Trading Strategy Rules
-        </h1>
-        <p class="text-gray-600 mt-1">
-          Document your trading strategy rules and guidelines
-        </p>
-      </div>
-
+      <SidebarTrigger />
       <div class="py-8">
         <TextEditor
           initialBlocks={blocks()}

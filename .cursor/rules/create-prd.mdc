@@ -15,12 +15,12 @@ To guide an AI assistant in creating a detailed Product Requirements Document (P
 1.  **Receive Initial Prompt:** The user provides a brief description or request for a new feature or functionality.
 2.  **Ask Clarifying Questions:** Before writing the PRD, the AI _must_ ask clarifying questions to gather sufficient detail. The goal is to understand the "what" and "why" of the feature, not necessarily the "how" (which the developer will figure out). Format the clarifying questions like
 
-3.  Area 1
-    1.1 Area 1 sub topic 1
-    1.2 Area 1 sub topic 2
-4.  Area 2
-    1.1 Area 2 sub topic 1
-    1.2 Area 2 sub topic 2
+Area 1
+1.1 Area 1 sub topic 1
+1.2 Area 1 sub topic 2
+Area 2
+1.1 Area 2 sub topic 1
+1.2 Area 2 sub topic 2
 
 5.  **Generate PRD:** Based on the initial prompt and the user's answers to the clarifying questions, generate a PRD using the structure outlined below.
 6.  **Save PRD:** Save the generated document as `prd-[feature-name].md` inside the `/tasks` directory.
