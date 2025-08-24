@@ -1,5 +1,4 @@
 import { Title } from "@solidjs/meta";
-import Counter from "~/components/Counter";
 import { Button } from "~/components/ui/button";
 
 export default function Home() {
@@ -7,7 +6,6 @@ export default function Home() {
     <main>
       <Title>Hello World</Title>
       <h1>Hello world!</h1>
-      <Counter />
       <p>
         Visit{" "}
         <a href="https://start.solidjs.com" target="_blank">

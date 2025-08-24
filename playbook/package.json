@@ -21,6 +21,8 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk-solid": "^1.1.2",
+    "convex": "^1.26.1",
+    "convex-solidjs": "^0.0.2",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.44.4",
     "embla-carousel-solid": "^8.6.0",

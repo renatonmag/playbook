@@ -1,4 +1,11 @@
-import { Component, createSignal, createEffect, For, Show } from "solid-js";
+import {
+  Component,
+  createSignal,
+  createEffect,
+  For,
+  Show,
+  createComputed,
+} from "solid-js";
 import { TextBlock } from "./TextBlock";
 import FormattingToolbar from "./FormattingToolbar";
 import { Button } from "../ui/button";
@@ -175,9 +182,6 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
     props.onContentChange?.(blocks);
   });
 
-  const isFocused = (block: any) =>
-    gStore.documents.focusedBlockId === block.id;
-
   return (
     <div class="w-[700px] mx-auto">
       <div class="">
@@ -192,15 +196,12 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
         <For each={gStore.documents.blocks}>
           {(block) => (
             <div class="flex relative">
-              <Show when={isFocused(block)}>
+              <Show when={gStore.documents.focusedBlockId === block.id}>
                 <DropdownMenu>
-                  <DropdownMenuTrigger>
-                    <GripVertical
-                      onClick={() => setDropdownOpen(true)}
-                      class="text-gray-300 absolute top-0 left-[-35px] cursor-pointer"
-                    />
+                  <DropdownMenuTrigger class="text-gray-300 absolute top-0 left-[-35px] cursor-pointer">
+                    <GripVertical />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent class="top-[-50px] left-[-170px]">
+                  <DropdownMenuContent class="left-[-110px]">
                     <DropdownMenuItem onSelect={() => setDialogOpen(true)}>
                       Galeria
                     </DropdownMenuItem>
@@ -218,9 +219,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
                 onBlockCreate={addBlock}
                 onBlockDelete={removeBlock}
                 onBlockFocus={handleBlockFocus}
-                onNavigateUp={() => handleNavigateUp(block.id)}
-                onNavigateDown={() => handleNavigateDown(block.id)}
-                isFocused={isFocused(block)}
+                isFocused={gStore.documents.focusedBlockId === block.id}
                 isNavigation={false}
                 setSavedCaretPosition={setCaretPosition}
               />
