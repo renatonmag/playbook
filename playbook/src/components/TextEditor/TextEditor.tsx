@@ -35,6 +35,7 @@ import {
   CarouselPrevious,
 } from "../ui/carousel";
 import { createStore } from "solid-js/store";
+import { useGlobalStore } from "~/stores/storeContext";
 
 export interface Block {
   id: string;
@@ -49,6 +50,11 @@ interface TextEditorProps {
 }
 
 export const TextEditor: Component<TextEditorProps> = (props) => {
+  const [
+    gStore,
+    { addBlock, removeBlock, updateBlockContent, setCaretPosition },
+  ] = useGlobalStore();
+
   const [dialogOpen, setDialogOpen] = createSignal(false);
   const [dropdownOpen, setDropdownOpen] = createSignal(false);
   const [blocks, setBlocks] = createStore<Block[]>(
@@ -61,7 +67,6 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
     ]
   );
   const [focusedBlockId, setFocusedBlockId] = createSignal<string>("1");
-  const [savedCaretPosition, setSavedCaretPosition] = createSignal<number>(0);
   const [formatTrigger, setFormatTrigger] = createSignal<{
     format: string;
     value?: any;
@@ -99,7 +104,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
 
     // Otherwise, just update content
     setBlocks(blockIdx, "content", content);
-    props.onContentChange?.(blocks);
+    // props.onContentChange?.(blocks);
   };
 
   const handleBlockCreate = (afterId: string) => {
@@ -170,18 +175,24 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
     props.onContentChange?.(blocks);
   });
 
+  const isFocused = (block: any) =>
+    gStore.documents.focusedBlockId === block.id;
+
   return (
     <div class="w-[700px] mx-auto">
-      <div class="p-4 min-h-[calc(100vh-2rem)]">
+      <div class="">
         <Show when={props.laneID}>
-          <Button class="float-right" onClick={() => deleteLane(props.laneID)}>
+          <Button
+            class="float-right"
+            onClick={() => props.laneID && deleteLane(props.laneID)}
+          >
             -
           </Button>
         </Show>
-        <For each={blocks}>
+        <For each={gStore.documents.blocks}>
           {(block) => (
             <div class="flex relative">
-              <Show when={focusedBlockId() === block.id}>
+              <Show when={isFocused(block)}>
                 <DropdownMenu>
                   <DropdownMenuTrigger>
                     <GripVertical
@@ -202,16 +213,16 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
               <TextBlock
                 block={block}
                 onContentChange={(content) =>
-                  handleContentChange(block.id, content)
+                  updateBlockContent(block.id, content)
                 }
-                onBlockCreate={handleBlockCreate}
-                onBlockDelete={handleBlockDelete}
+                onBlockCreate={addBlock}
+                onBlockDelete={removeBlock}
                 onBlockFocus={handleBlockFocus}
                 onNavigateUp={() => handleNavigateUp(block.id)}
                 onNavigateDown={() => handleNavigateDown(block.id)}
-                isFocused={focusedBlockId() === block.id}
-                savedCaretPosition={savedCaretPosition}
-                setSavedCaretPosition={setSavedCaretPosition}
+                isFocused={isFocused(block)}
+                isNavigation={false}
+                setSavedCaretPosition={setCaretPosition}
               />
               <Dialog open={dialogOpen()} onOpenChange={setDialogOpen}>
                 <DialogContent class="min-w-[650px]">

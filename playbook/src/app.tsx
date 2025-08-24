@@ -5,21 +5,25 @@ import { Suspense } from "solid-js";
 import "@fontsource/inter";
 import "./app.css";
 import "overlayscrollbars/styles/overlayscrollbars.css";
-import { SidebarProvider, SidebarTrigger } from "./components/ui/sidebar";
-import { AppSidebar } from "./components/app-sidebar";
+import {
+  createApplicationStore,
+  GlobalStoreContext,
+} from "./stores/storeContext";
 
 export default function App() {
+  const store = createApplicationStore();
   return (
-    <Router
-      root={(props) => (
-        <MetaProvider>
-          <Title>SolidStart - Basic</Title>
-          <script src="https://apis.google.com/js/api.js" defer></script>
-          <Suspense>{props.children}</Suspense>
-        </MetaProvider>
-      )}
-    >
-      <FileRoutes />
-    </Router>
+    <GlobalStoreContext.Provider value={store}>
+      <Router
+        root={(props) => (
+          <MetaProvider>
+            <Title>Playbook</Title>
+            <Suspense>{props.children}</Suspense>
+          </MetaProvider>
+        )}
+      >
+        <FileRoutes />
+      </Router>
+    </GlobalStoreContext.Provider>
   );
 }

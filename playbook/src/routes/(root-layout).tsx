@@ -1,12 +1,5 @@
 import { createSignal } from "solid-js";
-import {
-  AppSidebar,
-  IconArchive,
-  IconFile,
-  IconInbox,
-  IconSend,
-  IconTrash,
-} from "~/components/app-sidebar";
+
 import {
   SidebarInset,
   SidebarProvider,
@@ -19,8 +12,7 @@ export default function RootLayout(props: any) {
     <SidebarProvider>
       <div class="flex flex-col">
         <div class="min-h-8 flex-1 bg-white"></div>
-        {/* <AppSidebar /> */}
-        <SidebarInset>{props.children}</SidebarInset>
+        {props.children}
       </div>
     </SidebarProvider>
   );

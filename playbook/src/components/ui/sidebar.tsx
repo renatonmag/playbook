@@ -297,6 +297,7 @@ const SidebarTrigger = <T extends ValidComponent = "button">(
       class={cn("size-7", local.class)}
       onClick={(event: MouseEvent) => {
         local.onClick?.(event);
+        console.log("click");
         toggleSidebar();
       }}
       {...others}

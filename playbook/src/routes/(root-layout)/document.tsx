@@ -3,7 +3,7 @@ import { TextEditor } from "../../components/TextEditor/TextEditor";
 import type { Block } from "../../components/TextEditor/TextEditor";
 import { loadCurrentDocument, saveCurrentDocument } from "~/lib/storage";
 import { UploadButton, UploadDropzone } from "~/ut/utUtils";
-import { SidebarTrigger } from "~/components/ui/sidebar";
+import { SidebarInset, SidebarTrigger } from "~/components/ui/sidebar";
 import {
   Collapsible,
   CollapsibleContent,
@@ -75,13 +75,14 @@ const Document: Component = () => {
 
   return (
     <div class="min-h-screen">
-      <SidebarTrigger />
-      <div class="py-8">
-        <TextEditor
-          initialBlocks={blocks()}
-          onContentChange={handleContentChange}
-        />
-      </div>
+      <SidebarInset>
+        <div class="py-8">
+          <TextEditor
+            initialBlocks={blocks()}
+            onContentChange={handleContentChange}
+          />
+        </div>
+      </SidebarInset>
     </div>
   );
 };

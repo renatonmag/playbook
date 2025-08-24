@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import { ContentEditable } from "@bigmistqke/solid-contenteditable";
 import { Block } from "~/types/document";
+import { useGlobalStore } from "~/stores/storeContext";
 
 interface TextBlockProps {
   block: Block;
@@ -40,6 +41,16 @@ interface TextBlockProps {
 }
 
 export const TextBlock: Component<TextBlockProps> = (props) => {
+  const [
+    gStore,
+    {
+      addBlock,
+      removeBlock,
+      updateBlockContent,
+      setCaretPosition,
+      resetBlockType,
+    },
+  ] = useGlobalStore();
   const [isEditing, setIsEditing] = createSignal(false);
   const [savedCaretPosition, setSavedCaretPosition] = createSignal<number>(0);
   const [textContent, setTextContent] = createSignal<string>(
@@ -56,7 +67,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         const preCaretRange = range.cloneRange();
         preCaretRange.selectNodeContents(blockRef);
         preCaretRange.setEnd(range.endContainer, range.endOffset);
-        setSavedCaretPosition(preCaretRange.toString().length);
+        props.setSavedCaretPosition(preCaretRange.toString().length);
       }
     }
   };
@@ -175,12 +186,16 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       e.preventDefault();
       if (props.block.content !== "") saveCaretPosition();
       props.onNavigateDown?.();
-    } else if (e.key === "ArrowLeft") {
-      saveCaretPosition();
-    } else if (e.key === "ArrowRight") {
+    } else if (
+      e.key === "ArrowRight" ||
+      e.key === "ArrowLeft" ||
+      e.key === "Backspace"
+    ) {
       saveCaretPosition();
     }
   };
+
+  createEffect(() => console.log(props.block.type));
 
   const handleFocus = () => {
     props.onBlockFocus(props.block.id);
@@ -324,6 +339,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         ref={blockRef}
         class="min-h-[1.5rem] w-full outline-none cursor-text"
         onKeyDown={handleKeyDown}
+        onClick={() => saveCaretPosition()}
         onFocus={handleFocus}
         textContent={props.block.content}
         onPaste={(e) => {
