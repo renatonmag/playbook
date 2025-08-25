@@ -1,5 +1,5 @@
-import { For } from "solid-js";
-import { A, useParams } from "@solidjs/router";
+import { createEffect, For, Match, Show, Switch } from "solid-js";
+import { A, useNavigate, useParams } from "@solidjs/router";
 import Ellipsis from "lucide-solid/icons/ellipsis";
 import NotepadText from "lucide-solid/icons/notebook-text";
 
@@ -43,6 +43,10 @@ import {
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import Document from "~/components/document";
+import { api } from "../../../convex/_generated/api";
+import { useQuery } from "convex-solidjs";
+import { createQuery } from "../../../cvxsolid";
+import { useGlobalStore } from "~/stores/storeContext";
 
 const items = [
   {
@@ -80,6 +84,9 @@ const items = [
 ];
 
 export default function AppSidebar(props: any) {
+  // const query = useQuery(api.documents.get, { id: params.documentId });
+  const navigate = useNavigate();
+  const [gStore, actions] = useGlobalStore();
   const params = useParams();
   return (
     <SidebarProvider class="bg-gray-50">
@@ -110,6 +117,16 @@ export default function AppSidebar(props: any) {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent class="w-48">
                                 <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const id =
+                                      actions.createDocument("Untitled");
+                                    navigate(`/sidebar/${id}`);
+                                  }}
+                                >
+                                  <span>Create document</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   <span>Commit</span>
@@ -125,12 +142,16 @@ export default function AppSidebar(props: any) {
                         </CollapsibleTrigger>
                         <CollapsibleContent>
                           <SidebarMenuSub>
-                            <For each={item.items}>
-                              {(subItem) => (
+                            <For each={gStore.documents.documents}>
+                              {(doc) => (
                                 <SidebarMenuSubItem>
-                                  <SidebarMenuSubButton>
-                                    <subItem.icon />
-                                    <a href={subItem.url}>{subItem.title}</a>
+                                  <SidebarMenuSubButton
+                                    as={A}
+                                    href={`/sidebar/${doc.id}`}
+                                    isActive={params.documentId === doc.id}
+                                  >
+                                    <NotepadText />
+                                    {doc.title}
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
                               )}
@@ -154,7 +175,7 @@ export default function AppSidebar(props: any) {
             <SidebarTrigger />
             <Document />
           </div>
-          <div class="bg-white flex-1">{params.documentId}</div>
+          <div class="bg-white flex-1"></div>
         </div>
       </SidebarInset>
     </SidebarProvider>

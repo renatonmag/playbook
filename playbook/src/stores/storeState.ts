@@ -1,4 +1,4 @@
-import { DocumentStore } from "./createDocumentStore";
+import { MultiDocumentStore } from "./createDocumentStore";
 
 export type IDocument = { title: string };
 export type IArticleMap = { [id: number]: IDocument };
@@ -8,7 +8,7 @@ export interface IStoreState {
    * Map of IDocuments keyed on Id
    */
 
-  readonly documents: DocumentStore;
+  readonly documents: MultiDocumentStore;
 
   /**
    * Slug of the currently active article

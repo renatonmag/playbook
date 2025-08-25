@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import {
   createDocumentStore,
-  DocumentStore,
+  MultiDocumentStore,
   IDocumentsActions,
 } from "./createDocumentStore";
 import { IStoreState } from "./storeState";
@@ -12,11 +12,11 @@ export interface IActions extends IDocumentsActions {}
 export type IStoreContext = [state: IStoreState, actions: IActions];
 
 export function createApplicationStore(): IStoreContext {
-  let documentStore: DocumentStore | undefined = undefined;
+  let documentStore: MultiDocumentStore | undefined = undefined;
 
   const [state, setState] = createStore<IStoreState>({
-    get documents(): any {
-      return documentStore;
+    get documents(): MultiDocumentStore {
+      return documentStore!;
     },
 
     documentId: "a",
@@ -51,5 +51,7 @@ export const GlobalStoreContext = createContext<IStoreContext>();
  */
 
 export function useGlobalStore(): IStoreContext {
-  return useContext<IStoreContext>(GlobalStoreContext);
+  const ctx = useContext(GlobalStoreContext);
+  if (!ctx) throw new Error("GlobalStoreContext not provided");
+  return ctx;
 }

@@ -8,6 +8,10 @@ export interface IDocumentsActions {
   addBlock: (afterId: string, type?: "text" | "list") => Block;
   removeBlock: (blockId: string) => void;
   updateBlockContent: (blockId: string, content: string) => void;
+  // Document management
+  createDocument: (title?: string) => string;
+  getActiveDocument: () => DocumentStore | undefined;
+  setActiveDocumentId: (documentId: string) => void;
   setCaretPosition: (position: number) => void;
   setBlockTypeToText: (blockId: string) => void;
 
@@ -22,10 +26,16 @@ export interface IDocumentsActions {
 }
 
 export interface DocumentStore {
+  id: string;
   title: string;
   blocks: Block[];
   focusedBlockId: string | null;
   caretPositions: number;
+}
+
+export interface MultiDocumentStore {
+  documents: DocumentStore[];
+  activeDocumentId: string | null;
 }
 
 /**
@@ -43,32 +53,90 @@ export function createDocumentStore(
   actions: IDocumentsActions,
   state: any,
   setState: any
-): DocumentStore {
-  const [documents, setDocuments] = createStore<DocumentStore>({
-    title: "Entradas",
-    blocks: [
-      { id: "1", content: "this is the first block", type: "text", images: [] },
+): MultiDocumentStore {
+  const [store, setStore] = createStore<MultiDocumentStore>({
+    documents: [
+      {
+        id: "1dsfds33",
+        title: "Entradas",
+        blocks: [
+          {
+            id: "1",
+            content: "this is the first block",
+            type: "text",
+            images: [],
+          },
+        ],
+        focusedBlockId: "1",
+        caretPositions: 1,
+      },
     ],
-    focusedBlockId: "1",
-    caretPositions: 1,
+    activeDocumentId: "1dsfds33",
   });
 
   // Utility functions
   const generateId = () =>
     `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+  const generateDocumentId = () =>
+    `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  const createDefaultDocument = (title?: string): DocumentStore => {
+    const newDocId = generateDocumentId();
+    const firstBlockId = generateId();
+    return {
+      id: newDocId,
+      title: title ?? "Untitled",
+      blocks: [{ id: firstBlockId, content: "", type: "text", images: [] }],
+      focusedBlockId: firstBlockId,
+      caretPositions: 1,
+    };
+  };
+
+  createEffect(() => {
+    console.log({ getActiveDocument: getActiveDocument()?.focusedBlockId });
+  });
+  createEffect(() => {
+    console.log({ activeDocumentId: store.activeDocumentId });
+  });
+
+  // Helper functions to get active document and filter by document ID
+  const getActiveDocument = () => {
+    return store.documents.find((doc) => doc.id === store.activeDocumentId);
+  };
+
+  const getActiveDocumentIndex = () => {
+    return store.documents.findIndex(
+      (doc) => doc.id === store.activeDocumentId
+    );
+  };
+
+  const getDocumentById = (documentId: string) => {
+    return store.documents.find((doc) => doc.id === documentId);
+  };
+
+  const getDocumentIndexById = (documentId: string) => {
+    return store.documents.findIndex((doc) => doc.id === documentId);
+  };
+
   const getFocusedBlock = () => {
-    return documents.blocks.find(
-      (block) => block.id === documents.focusedBlockId
+    const activeDocument = getActiveDocument();
+    if (!activeDocument) return null;
+    return activeDocument.blocks.find(
+      (block) => block.id === activeDocument.focusedBlockId
     );
   };
 
   const getBlockById = (id: string) => {
-    return documents.blocks.find((block) => block.id === id);
+    const activeDocument = getActiveDocument();
+    if (!activeDocument) return null;
+    return activeDocument.blocks.find((block) => block.id === id);
   };
 
   const setFocusedBlock = (blockId: string | null) => {
-    setDocuments("focusedBlockId", blockId);
+    const activeDocumentIndex = getActiveDocumentIndex();
+    if (activeDocumentIndex === -1) return;
+    setStore("documents", activeDocumentIndex, "focusedBlockId", blockId);
   };
 
   Object.assign(actions, {
@@ -80,7 +148,10 @@ export function createDocumentStore(
         type: "text",
         images: [],
       };
-      setDocuments("blocks", (blocks) => {
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+
+      setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
         const index = blocks.findIndex((block) => block.id === afterId);
         if (index === -1) return [...blocks, newBlock];
 
@@ -95,11 +166,29 @@ export function createDocumentStore(
       }, 0);
     },
 
+    // Document management
+    createDocument(title?: string) {
+      const newDoc = createDefaultDocument(title);
+      setStore("documents", (docs) => [...docs, newDoc]);
+      // Set newly created document as active
+      setStore("activeDocumentId", newDoc.id);
+      return newDoc.id;
+    },
+
+    getActiveDocument,
+    setActiveDocumentId(documentId: string) {
+      setStore("activeDocumentId", documentId);
+    },
+
     removeBlock(blockId: string) {
-      if (documents.blocks.length <= 1) return; // Keep at least one block
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+
+      const activeDocument = getActiveDocument();
+      if (!activeDocument || activeDocument.blocks.length <= 1) return; // Keep at least one block
 
       // Find the block to remove and clean up its object URLs
-      const blockToRemove = documents.blocks.find(
+      const blockToRemove = activeDocument.blocks.find(
         (block) => block.id === blockId
       );
       if (blockToRemove && blockToRemove.images) {
@@ -111,31 +200,37 @@ export function createDocumentStore(
       }
 
       // Focus the previous block or the first available block
-      const currentIndex = documents.blocks.findIndex(
+      const currentIndex = activeDocument.blocks.findIndex(
         (block) => block.id === blockId
       );
       const newFocusedIndex = Math.max(0, currentIndex - 1);
-      const newFocusedBlock = documents.blocks[newFocusedIndex];
+      const newFocusedBlock = activeDocument.blocks[newFocusedIndex];
       if (newFocusedBlock) {
         setFocusedBlock(newFocusedBlock.id);
       }
 
-      setDocuments("blocks", (blocks) =>
+      setStore("documents", activeDocumentIndex, "blocks", (blocks) =>
         blocks.filter((block) => block.id !== blockId)
       );
     },
 
     updateBlockContent(blockId: string, content: string) {
-      const blockIdx = documents.blocks.findIndex((b) => b.id === blockId);
+      const activeDocumentIndex = store.documents.findIndex(
+        (doc) => doc.id === store.activeDocumentId
+      );
+      if (activeDocumentIndex === -1) return;
+
+      const activeDocument = store.documents[activeDocumentIndex];
+      const blockIdx = activeDocument.blocks.findIndex((b) => b.id === blockId);
       if (blockIdx < 0) return;
 
-      const block = documents.blocks[blockIdx];
+      const block = activeDocument.blocks[blockIdx];
 
       // Check for type switch triggers
       if (content.startsWith("() ") && block.type !== "radio") {
         setTimeout(
           () =>
-            setDocuments("blocks", blockIdx, {
+            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
               ...block,
               content: content.slice(3),
               type: "radio",
@@ -148,7 +243,7 @@ export function createDocumentStore(
       if (content.startsWith("[] ") && block.type !== "checkbox") {
         setTimeout(
           () =>
-            setDocuments("blocks", blockIdx, {
+            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
               ...block,
               content: content.slice(3),
               type: "checkbox",
@@ -161,7 +256,7 @@ export function createDocumentStore(
       if (content.startsWith("1. ") && block.type !== "ol") {
         setTimeout(
           () =>
-            setDocuments("blocks", blockIdx, {
+            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
               ...block,
               content: content.slice(3),
               type: "ol",
@@ -173,7 +268,7 @@ export function createDocumentStore(
       if (content.startsWith("- ") && block.type !== "ul") {
         setTimeout(
           () =>
-            setDocuments("blocks", blockIdx, {
+            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
               ...block,
               content: content.slice(2),
               type: "ul",
@@ -184,23 +279,36 @@ export function createDocumentStore(
       }
 
       // Otherwise, just update content
-      setDocuments("blocks", blockIdx, "content", content);
+      setStore(
+        "documents",
+        activeDocumentIndex,
+        "blocks",
+        blockIdx,
+        "content",
+        content
+      );
     },
 
-    setBlockTypeToText(blockId: any) {
-      const blockIdx = documents.blocks.findIndex((b) => b.id === blockId);
-      if (blockIdx < 0) return;
-      const block = documents.blocks[blockIdx];
+    setBlockTypeToText(blockId: string) {
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
 
-      // Check if caretPositions is 1 and block type is ul, ol, radio, or checkbox, change to text
+      const blocks = store.documents[activeDocumentIndex].blocks;
+      const blockIdx = blocks.findIndex((b) => b.id === blockId);
+      if (blockIdx < 0) return;
+
+      const block = blocks[blockIdx];
+      const caretPos = store.documents[activeDocumentIndex].caretPositions;
+
+      // If caret at start and block is a list/radio/checkbox, revert to text
       if (
-        documents.caretPositions === 0 &&
+        caretPos === 0 &&
         (block.type === "ul" ||
           block.type === "ol" ||
           block.type === "radio" ||
           block.type === "checkbox")
       ) {
-        setDocuments("blocks", blockIdx, {
+        setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
           ...block,
           type: "text",
         });
@@ -209,26 +317,34 @@ export function createDocumentStore(
     },
 
     addImagesToBlock(blockId: string, images: Image[]) {
-      const blockIdx = documents.blocks.findIndex((b) => b.id === blockId);
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+
+      const blocks = store.documents[activeDocumentIndex].blocks;
+      const blockIdx = blocks.findIndex((b) => b.id === blockId);
       if (blockIdx < 0) return;
 
-      const block = documents.blocks[blockIdx];
+      const block = blocks[blockIdx];
       const currentImages = block.images || [];
 
       // Add new images to the existing images array
       const updatedImages = [...currentImages, ...images];
 
-      setDocuments("blocks", blockIdx, {
+      setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
         ...block,
         images: updatedImages,
       });
     },
 
     removeImageFromBlock(blockId: string, imageId: string) {
-      const blockIdx = documents.blocks.findIndex((b) => b.id === blockId);
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+
+      const blocks = store.documents[activeDocumentIndex].blocks;
+      const blockIdx = blocks.findIndex((b) => b.id === blockId);
       if (blockIdx < 0) return;
 
-      const block = documents.blocks[blockIdx];
+      const block = blocks[blockIdx];
       const currentImages = block.images || [];
 
       // Find the image to remove and revoke its object URL
@@ -242,38 +358,56 @@ export function createDocumentStore(
         (image) => image.id !== imageId
       );
 
-      setDocuments("blocks", blockIdx, {
+      setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
         ...block,
         images: updatedImages,
       });
     },
 
     setCaretPosition(position: number) {
-      setDocuments("caretPositions", position);
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+      setStore("documents", activeDocumentIndex, "caretPositions", position);
     },
 
     blockNavigateUp(currentBlockId: string) {
-      const currentIndex = documents.blocks.findIndex(
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+      const blocks = store.documents[activeDocumentIndex].blocks;
+      const currentIndex = blocks.findIndex(
         (block) => block.id === currentBlockId
       );
       if (currentIndex > 0) {
-        const previousBlock = documents.blocks[currentIndex - 1];
-        setDocuments("focusedBlockId", previousBlock.id);
+        const previousBlock = blocks[currentIndex - 1];
+        setStore(
+          "documents",
+          activeDocumentIndex,
+          "focusedBlockId",
+          previousBlock.id
+        );
       }
     },
 
     blockNavigateDown(currentBlockId: string) {
-      const currentIndex = documents.blocks.findIndex(
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+      const blocks = store.documents[activeDocumentIndex].blocks;
+      const currentIndex = blocks.findIndex(
         (block) => block.id === currentBlockId
       );
-      if (currentIndex < documents.blocks.length - 1) {
-        const nextBlock = documents.blocks[currentIndex + 1];
-        setDocuments("focusedBlockId", nextBlock.id);
+      if (currentIndex < blocks.length - 1) {
+        const nextBlock = blocks[currentIndex + 1];
+        setStore(
+          "documents",
+          activeDocumentIndex,
+          "focusedBlockId",
+          nextBlock.id
+        );
       }
     },
 
     setFocusedBlock,
   });
 
-  return documents;
+  return store;
 }

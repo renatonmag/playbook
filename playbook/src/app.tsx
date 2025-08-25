@@ -9,21 +9,28 @@ import {
   createApplicationStore,
   GlobalStoreContext,
 } from "./stores/storeContext";
+import { setupConvex, ConvexProvider } from "convex-solidjs";
+import { ConvexContext } from "../cvxsolid";
+import { ConvexClient } from "convex/browser";
+
+const convex = new ConvexClient(import.meta.env.VITE_CONVEX_URL!);
 
 export default function App() {
   const store = createApplicationStore();
   return (
-    <GlobalStoreContext.Provider value={store}>
-      <Router
-        root={(props) => (
-          <MetaProvider>
-            <Title>Playbook</Title>
-            <Suspense>{props.children}</Suspense>
-          </MetaProvider>
-        )}
-      >
-        <FileRoutes />
-      </Router>
-    </GlobalStoreContext.Provider>
+    <ConvexContext.Provider value={convex}>
+      <GlobalStoreContext.Provider value={store}>
+        <Router
+          root={(props) => (
+            <MetaProvider>
+              <Title>Playbook</Title>
+              <Suspense>{props.children}</Suspense>
+            </MetaProvider>
+          )}
+        >
+          <FileRoutes />
+        </Router>
+      </GlobalStoreContext.Provider>
+    </ConvexContext.Provider>
   );
 }

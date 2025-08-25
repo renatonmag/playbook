@@ -275,23 +275,12 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   //   }
   // };
 
-  const handleFocus = () => {
-    props.onBlockFocus(props.block.id);
-  };
-
   // Restore caret position when block becomes focused
   createEffect(() => {
-    if (props.isFocused) {
-      blockRef?.focus();
-    }
-
-    if (!props.isFocused) {
-      setIsEditing(false);
-    }
-
-    if (!isEditing() && props.isFocused && savedCaretPosition() >= 0) {
-      restoreCaretPosition();
-      setIsEditing(true);
+    if (actions.getActiveDocument()?.focusedBlockId === props.block.id) {
+      setTimeout(() => {
+        blockRef?.focus();
+      }, 0);
     }
   });
 
@@ -331,7 +320,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
             actions.setFocusedBlock(props.block.id);
             saveCaretPosition();
           }}
-          onFocus={handleFocus}
           textContent={props.block.content}
           onPaste={(e) => {
             const files = getFilesFromClipboardEvent(e);
