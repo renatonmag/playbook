@@ -21,6 +21,11 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "../ui/carousel";
+import {
+  getCaretPositionFromSelection,
+  getVisualLineRects,
+  setCaretAtLineColumn,
+} from "~/lib/caret";
 
 interface TextBlockProps {
   block: Block;
@@ -30,92 +35,25 @@ interface TextBlockProps {
   onBlockFocus: (id: string) => void;
   onNavigateUp?: () => void;
   onNavigateDown?: () => void;
-  savedCaretPosition: any;
-  setSavedCaretPosition: any;
-  isFocused: boolean;
-  isNavigation: boolean;
-  onFormatChange?: (format: string, value?: any) => void;
-  formattingState?: {
-    bold: boolean;
-    italic: boolean;
-    underline: boolean;
-    color: string;
-  };
-  formatTrigger?: { format: string; value?: any } | null;
-  onFormatApplied?: () => void;
-  onFormattingChange?: (formatting: {
-    bold: boolean;
-    italic: boolean;
-    underline: boolean;
-  }) => void;
+  setSavedCaretPosition: (pos: { line: number; column: number }) => void;
 }
 
 export const TextBlock: Component<TextBlockProps> = (props) => {
   const [gStore, actions] = useGlobalStore();
-  const [isEditing, setIsEditing] = createSignal(false);
-  const [savedCaretPosition, setSavedCaretPosition] = createSignal<number>(0);
-  const [textContent, setTextContent] = createSignal<string>(
-    props.block.content
-  );
   const [carouselApi, setCarouselApi] = createSignal<any>(null);
+  const [navIntent, setNavIntent] = createSignal<"up" | "down" | null>(null);
 
   let blockRef: HTMLDivElement | undefined;
 
-  const saveCaretPosition = () => {
-    if (blockRef) {
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0);
-        const preCaretRange = range.cloneRange();
-        preCaretRange.selectNodeContents(blockRef);
-        preCaretRange.setEnd(range.endContainer, range.endOffset);
-        props.setSavedCaretPosition(preCaretRange.toString().length);
-      }
+  const saveCaretPosition = (justLine?: boolean) => {
+    if (!blockRef) return;
+    const _pos = actions.getCaretPosition();
+    const pos = getCaretPositionFromSelection(blockRef);
+    if (justLine) {
+      pos.column = _pos.column;
     }
-  };
-
-  const restoreCaretPosition = () => {
-    if (blockRef && savedCaretPosition() > 0) {
-      setTimeout(() => {
-        if (blockRef) {
-          const selection = window.getSelection();
-          const range = document.createRange();
-
-          // Simple approach: create a text node and set position
-          const textContent = blockRef.textContent || "";
-          const targetPosition = Math.min(
-            savedCaretPosition(),
-            textContent.length
-          );
-
-          // Find the first text node (simplified approach)
-          let textNode = null;
-          for (let i = 0; i < blockRef.childNodes.length; i++) {
-            const node = blockRef.childNodes[i];
-            if (node.nodeType === Node.TEXT_NODE) {
-              textNode = node;
-              break;
-            }
-          }
-
-          if (textNode) {
-            const offset = Math.min(
-              targetPosition,
-              textNode.textContent?.length || 0
-            );
-            range.setStart(textNode, offset);
-            range.setEnd(textNode, offset);
-          } else {
-            // Fallback: place at end of content
-            range.selectNodeContents(blockRef);
-            range.collapse(false);
-          }
-
-          selection?.removeAllRanges();
-          selection?.addRange(range);
-        }
-      }, 0);
-    }
+    actions.setCaretPosition(pos);
+    return pos;
   };
 
   function caretIsAtTop() {
@@ -199,87 +137,76 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       }
       return null;
     },
+    Delete: (data: any) => {
+      saveCaretPosition();
+      return null;
+    },
     ArrowRight: (data: any) => {
       saveCaretPosition();
-
       return null;
     },
     ArrowLeft: (data: any) => {
       saveCaretPosition();
-
       return null;
     },
     ArrowDown: (data: any) => {
-      console.log({ bottom: caretIsAtBottom() });
+      if (blockRef) {
+        const saved = saveCaretPosition(true);
+        if (saved) {
+          setCaretAtLineColumn(blockRef, {
+            line: saved.line,
+            column: saved.column,
+          });
+        }
+      }
       if (caretIsAtBottom() || data.textContent === "") {
         data.event.preventDefault();
+        setNavIntent("up");
         actions.blockNavigateDown(props.block.id);
       }
       return null;
     },
     ArrowUp: (data: any) => {
-      console.log({ top: caretIsAtTop() });
+      if (blockRef) {
+        const saved = saveCaretPosition(true);
+        if (saved) {
+          setCaretAtLineColumn(blockRef, {
+            line: saved.line,
+            column: saved.column,
+          });
+        }
+      }
       if (caretIsAtTop() || data.textContent === "") {
         data.event.preventDefault();
         actions.blockNavigateUp(props.block.id);
+        setNavIntent("down");
       }
       return null;
     },
   };
 
-  // const handleKeyDown = (e: KeyboardEvent) => {
-  //   // Formatting shortcuts
-  //   if (e.ctrlKey || e.metaKey) {
-  //     switch (e.key.toLowerCase()) {
-  //       case "b":
-  //         e.preventDefault();
-  //         // handleFormatChange("bold");
-  //         return;
-  //       case "i":
-  //         e.preventDefault();
-  //         // handleFormatChange("italic");
-  //         return;
-  //       case "u":
-  //         e.preventDefault();
-  //         // handleFormatChange("underline");
-  //         return;
-  //     }
-  //   }
-
-  //   if (e.key === "Enter" && !e.shiftKey) {
-  //     e.preventDefault();
-  //     props.onBlockCreate(props.block.id);
-  //   } else if (e.key === "Backspace" && props.block.content === "") {
-  //     e.preventDefault();
-  //     props.onBlockDelete(props.block.id);
-  //   } else if (
-  //     e.key === "ArrowUp" &&
-  //     (caretIsAtTop() || props.block.content === "")
-  //   ) {
-  //     e.preventDefault();
-  //     if (props.block.content !== "") saveCaretPosition();
-  //     props.onNavigateUp?.();
-  //   } else if (
-  //     e.key === "ArrowDown" &&
-  //     (caretIsAtBottom() || props.block.content === "")
-  //   ) {
-  //     e.preventDefault();
-  //     if (props.block.content !== "") saveCaretPosition();
-  //     props.onNavigateDown?.();
-  //   } else if (
-  //     e.key === "ArrowRight" ||
-  //     e.key === "ArrowLeft" ||
-  //     e.key === "Backspace"
-  //   ) {
-  //     saveCaretPosition();
-  //   }
-  // };
-
   // Restore caret position when block becomes focused
   createEffect(() => {
     if (actions.getActiveDocument()?.focusedBlockId === props.block.id) {
       setTimeout(() => {
-        blockRef?.focus();
+        if (!blockRef) return;
+        blockRef.focus();
+
+        const intent = navIntent();
+        if (intent === "up") {
+          const rects = getVisualLineRects(blockRef);
+          const lastLine = Math.max(0, rects.length - 1);
+          const saved = actions.getCaretPosition();
+          setCaretAtLineColumn(blockRef, {
+            line: lastLine,
+            column: saved.column,
+          });
+          setNavIntent(null);
+        } else if (intent === "down") {
+          const saved = actions.getCaretPosition();
+          setCaretAtLineColumn(blockRef, { line: 0, column: saved.column });
+          setNavIntent(null);
+        }
       }, 0);
     }
   });
@@ -316,8 +243,18 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
           class="min-h-[1.5rem] w-full outline-none cursor-text"
           // onKeyDown={handleKeyDown}
           keyBindings={keyBindings}
+          oninput={(e: InputEvent) => {
+            const it = (e as any).inputType || "";
+            if (typeof it === "string" && it.startsWith("insertFromPaste")) {
+              return;
+            }
+            saveCaretPosition();
+          }}
           onMouseDown={() => {
             actions.setFocusedBlock(props.block.id);
+            saveCaretPosition();
+          }}
+          onMouseUp={() => {
             saveCaretPosition();
           }}
           textContent={props.block.content}
@@ -454,3 +391,34 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     </div>
   );
 };
+
+const p = [
+  {
+    content: "Contains the main ",
+    format: {
+      bold: false,
+      italic: false,
+      underline: false,
+      color: "black",
+    },
+  },
+  {
+    content: "document",
+    format: {
+      bold: true,
+      italic: false,
+      underline: false,
+      color: "black",
+    },
+  },
+  {
+    content:
+      " store logic that needs to be refactored to handle multiple documents",
+    format: {
+      bold: false,
+      italic: false,
+      underline: false,
+      color: "black",
+    },
+  },
+];

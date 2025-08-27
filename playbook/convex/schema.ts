@@ -5,32 +5,39 @@ export default defineSchema({
   strategies: defineTable({
     // A strategy group will have an ID and a name
     name: v.string(),
-    // You can add other fields as needed, e.g., userId to link it to a user
   }),
 
   documents: defineTable({
-    // A document will have an ID and a title
     title: v.string(),
-    // The link to the parent strategy group
     strategyId: v.id("strategies"),
-    // The blocks are an array of objects
-    blocks: v.array(
-      v.object({
-        id: v.string(),
-        content: v.string(),
-        type: v.string(),
-        galleryId: v.optional(v.id("galleries")), // assuming images are stored as an array of URLs or IDs
-      })
-    ),
-    ownerId: v.id("users"), // Assumes you have a 'users' table
+    blocks: v.array(v.id("blocks")),
+    ownerId: v.id("users"),
     isPublic: v.boolean(),
     forkedFromId: v.optional(v.id("documents")),
-  }),
+  }).index("by_owner", ["ownerId"]),
+
+  blocks: defineTable({
+    type: v.union(
+      v.literal("text"),
+      v.literal("ul"),
+      v.literal("ol"),
+      v.literal("checkbox"),
+      v.literal("radio")
+    ),
+    content: v.optional(v.string()),
+    checked: v.optional(v.boolean()),
+    pollId: v.optional(v.id("polls")),
+  }).index("by_poll_id", ["pollId"]),
+
   galleries: defineTable({
-    // A gallery to group images
     name: v.string(),
-    // An array of image IDs that belong to this gallery
-    images: v.array(v.string()),
+    urls: v.array(v.string()),
+  }),
+
+  polls: defineTable({
+    documentId: v.id("documents"),
+    title: v.string(),
+    optionCounts: v.record(v.id("blocks"), v.number()),
   }),
 
   users: defineTable({

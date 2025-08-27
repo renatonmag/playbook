@@ -132,8 +132,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
                 }
                 onBlockCreate={addBlock}
                 onBlockDelete={removeBlock}
-                savedCaretPosition={0}
-                isNavigation={false}
+                onBlockFocus={() => {}}
                 setSavedCaretPosition={setCaretPosition}
               />
             </div>
