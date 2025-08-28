@@ -45,7 +45,7 @@ import {
 import Document from "~/components/document";
 import { api } from "../../../convex/_generated/api";
 import { useQuery } from "convex-solidjs";
-import { createQuery } from "../../../cvxsolid";
+import { createQuery } from "../../cvxsolid";
 import { useGlobalStore } from "~/stores/storeContext";
 
 const items = [
@@ -117,10 +117,11 @@ export default function AppSidebar(props: any) {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent class="w-48">
                                 <DropdownMenuItem
-                                  onClick={(e) => {
+                                  onClick={async (e) => {
                                     e.stopPropagation();
-                                    const id =
-                                      actions.createDocument("Untitled");
+                                    const id = await actions.createDocument(
+                                      "Untitled"
+                                    );
                                     navigate(`/sidebar/${id}`);
                                   }}
                                 >

@@ -1,7 +1,16 @@
-import { createEffect, InitializedResourceReturn } from "solid-js";
+import {
+  createEffect,
+  InitializedResourceReturn,
+  onMount,
+  untrack,
+} from "solid-js";
 import { logger } from "~/utils/logger";
 import { Block, Image } from "~/types/document";
 import { createStore, unwrap } from "solid-js/store";
+import { ConvexClient } from "convex/browser";
+import { api } from "../../convex/_generated/api";
+import { createAction, createMutation, createQuery } from "../cvxsolid";
+import { getDocuments } from "../../convex/documents";
 
 export interface IDocumentsActions {
   // Block management
@@ -9,7 +18,7 @@ export interface IDocumentsActions {
   removeBlock: (blockId: string) => void;
   updateBlockContent: (blockId: string, content: string) => void;
   // Document management
-  createDocument: (title?: string) => string;
+  createDocument: (title?: string) => Promise<string>;
   getActiveDocument: () => DocumentStore | undefined;
   setActiveDocumentId: (documentId: string) => void;
   setCaretPosition: (pos: { line: number; column: number }) => void;
@@ -46,7 +55,6 @@ export interface MultiDocumentStore {
 /**
  * Create interface to the tags API endpoint.
  *
- * @param agent
  * @param actions
  * @param state
  * @param setState
@@ -54,7 +62,6 @@ export interface MultiDocumentStore {
  */
 
 export function createDocumentStore(
-  agent: any,
   actions: IDocumentsActions,
   state: any,
   setState: any
@@ -83,27 +90,52 @@ export function createDocumentStore(
   const generateId = () =>
     `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  const generateDocumentId = () =>
-    `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const getDocumentsQuery = createQuery(api.documents.getDocuments);
+  const createDocumentMutation = createMutation(api.documents.createDocument);
+  const addBlockMutation = createMutation(api.documents.addBlock);
+  const updateBlockMutation = createMutation(api.documents.updateBlock);
+  const removeBlockMutation = createMutation(api.documents.removeBlock);
 
-  const createDefaultDocument = (title?: string): DocumentStore => {
-    const newDocId = generateDocumentId();
-    const firstBlockId = generateId();
-    return {
-      id: newDocId,
+  createEffect(() => {
+    const documents = getDocumentsQuery();
+    if (!documents) return;
+    untrack(() => {
+      const docs = [
+        ...store.documents,
+        ...documents.map((doc) => ({
+          id: doc._id,
+          title: doc.title,
+          blocks: doc.blocks,
+          focusedBlockId: doc.blocks[0],
+          caretPosition: { line: 0, column: 0 },
+        })),
+      ];
+      setStore("documents", docs);
+    });
+  });
+
+  const createDefaultDocument = async (
+    title?: string
+  ): Promise<DocumentStore> => {
+    const { documentId, firstBlockId } = await createDocumentMutation({
       title: title ?? "Untitled",
-      blocks: [{ id: firstBlockId, content: "", type: "text", images: [] }],
-      focusedBlockId: firstBlockId,
+      strategyId: state.defaultStrategyId as any,
+    });
+    return {
+      id: documentId as unknown as string,
+      title: title ?? "Untitled",
+      blocks: [
+        {
+          id: firstBlockId as unknown as string,
+          content: "",
+          type: "text",
+          images: [],
+        },
+      ],
+      focusedBlockId: firstBlockId as unknown as string,
       caretPosition: { line: 0, column: 0 },
     };
   };
-
-  createEffect(() => {
-    console.log({ getActiveDocument: getActiveDocument()?.focusedBlockId });
-  });
-  createEffect(() => {
-    console.log({ activeDocumentId: store.activeDocumentId });
-  });
 
   // Helper functions to get active document and filter by document ID
   const getActiveDocument = () => {
@@ -146,36 +178,39 @@ export function createDocumentStore(
 
   Object.assign(actions, {
     // Block management
-    addBlock(afterId: string) {
+    async addBlock(afterId: string) {
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return {} as Block;
+      const activeDocumentId = store.documents[activeDocumentIndex].id;
+
+      const { blockId } = await addBlockMutation({
+        documentId: activeDocumentId as any,
+      });
+
       const newBlock: Block = {
-        id: generateId(),
+        id: blockId as unknown as string,
         content: "",
         type: "text",
         images: [],
       };
-      const activeDocumentIndex = getActiveDocumentIndex();
-      if (activeDocumentIndex === -1) return;
 
-      setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
-        const index = blocks.findIndex((block) => block.id === afterId);
-        if (index === -1) return [...blocks, newBlock];
+      // Align with server behavior: append to the end
+      setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
+        ...blocks,
+        newBlock,
+      ]);
 
-        const newBlocks = [...blocks];
-        newBlocks.splice(index + 1, 0, newBlock);
-        return newBlocks;
-      });
-
-      // Focus the new block after a brief delay to ensure DOM update
       setTimeout(() => {
         setFocusedBlock(newBlock.id);
       }, 0);
+
+      return newBlock;
     },
 
     // Document management
-    createDocument(title?: string) {
-      const newDoc = createDefaultDocument(title);
+    async createDocument(title?: string) {
+      const newDoc = await createDefaultDocument(title);
       setStore("documents", (docs) => [...docs, newDoc]);
-      // Set newly created document as active
       setStore("activeDocumentId", newDoc.id);
       return newDoc.id;
     },
@@ -185,12 +220,18 @@ export function createDocumentStore(
       setStore("activeDocumentId", documentId);
     },
 
-    removeBlock(blockId: string) {
+    async removeBlock(blockId: string) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
 
       const activeDocument = getActiveDocument();
       if (!activeDocument || activeDocument.blocks.length <= 1) return; // Keep at least one block
+
+      const result = await removeBlockMutation({
+        documentId: activeDocument.id as any,
+        blockId: blockId as any,
+      });
+      if (!result?.success) return;
 
       // Find the block to remove and clean up its object URLs
       const blockToRemove = activeDocument.blocks.find(
@@ -219,7 +260,7 @@ export function createDocumentStore(
       );
     },
 
-    updateBlockContent(blockId: string, content: string) {
+    async updateBlockContent(blockId: string, content: string) {
       const activeDocumentIndex = store.documents.findIndex(
         (doc) => doc.id === store.activeDocumentId
       );
@@ -231,70 +272,37 @@ export function createDocumentStore(
 
       const block = activeDocument.blocks[blockIdx];
 
-      // Check for type switch triggers
-      if (content.startsWith("() ") && block.type !== "radio") {
-        setTimeout(
-          () =>
-            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
-              ...block,
-              content: content.slice(3),
-              type: "radio",
-            }),
-          0
-        );
-        return;
+      let desiredType = block.type;
+      let desiredContent = content;
+
+      if (content.startsWith("() ")) {
+        desiredType = "radio" as const;
+        desiredContent = content.slice(3);
+      } else if (content.startsWith("[] ")) {
+        desiredType = "checkbox" as const;
+        desiredContent = content.slice(3);
+      } else if (content.startsWith("1. ")) {
+        desiredType = "ol" as const;
+        desiredContent = content.slice(3);
+      } else if (content.startsWith("- ")) {
+        desiredType = "ul" as const;
+        desiredContent = content.slice(2);
       }
 
-      if (content.startsWith("[] ") && block.type !== "checkbox") {
-        setTimeout(
-          () =>
-            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
-              ...block,
-              content: content.slice(3),
-              type: "checkbox",
-            }),
-          0
-        );
-        return;
-      }
+      await updateBlockMutation({
+        blockId: blockId as any,
+        content: desiredContent,
+        type: desiredType,
+      });
 
-      if (content.startsWith("1. ") && block.type !== "ol") {
-        setTimeout(
-          () =>
-            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
-              ...block,
-              content: content.slice(3),
-              type: "ol",
-            }),
-          0
-        );
-        return;
-      }
-      if (content.startsWith("- ") && block.type !== "ul") {
-        setTimeout(
-          () =>
-            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
-              ...block,
-              content: content.slice(2),
-              type: "ul",
-            }),
-          0
-        );
-        return;
-      }
-
-      // Otherwise, just update content
-      setStore(
-        "documents",
-        activeDocumentIndex,
-        "blocks",
-        blockIdx,
-        "content",
-        content
-      );
+      setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+        ...block,
+        content: desiredContent,
+        type: desiredType as any,
+      });
     },
 
-    setBlockTypeToText(blockId: string) {
+    async setBlockTypeToText(blockId: string) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
 
@@ -313,6 +321,10 @@ export function createDocumentStore(
           block.type === "radio" ||
           block.type === "checkbox")
       ) {
+        await updateBlockMutation({
+          blockId: blockId as any,
+          type: "text",
+        });
         setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
           ...block,
           type: "text",

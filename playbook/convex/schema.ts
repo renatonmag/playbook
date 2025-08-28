@@ -11,10 +11,7 @@ export default defineSchema({
     title: v.string(),
     strategyId: v.id("strategies"),
     blocks: v.array(v.id("blocks")),
-    ownerId: v.id("users"),
-    isPublic: v.boolean(),
-    forkedFromId: v.optional(v.id("documents")),
-  }).index("by_owner", ["ownerId"]),
+  }),
 
   blocks: defineTable({
     type: v.union(
@@ -27,6 +24,7 @@ export default defineSchema({
     content: v.optional(v.string()),
     checked: v.optional(v.boolean()),
     pollId: v.optional(v.id("polls")),
+    galleryId: v.optional(v.id("galleries")),
   }).index("by_poll_id", ["pollId"]),
 
   galleries: defineTable({

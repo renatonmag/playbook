@@ -5,21 +5,17 @@ import { Suspense } from "solid-js";
 import "@fontsource/inter";
 import "./app.css";
 import "overlayscrollbars/styles/overlayscrollbars.css";
-import {
-  createApplicationStore,
-  GlobalStoreContext,
-} from "./stores/storeContext";
-import { setupConvex, ConvexProvider } from "convex-solidjs";
-import { ConvexContext } from "../cvxsolid";
+
+import { ConvexContext } from "./cvxsolid";
 import { ConvexClient } from "convex/browser";
+import { GlobalStoreProvider } from "./providers/GlobalStoreProvider";
 
 const convex = new ConvexClient(import.meta.env.VITE_CONVEX_URL!);
 
 export default function App() {
-  const store = createApplicationStore();
   return (
     <ConvexContext.Provider value={convex}>
-      <GlobalStoreContext.Provider value={store}>
+      <GlobalStoreProvider>
         <Router
           root={(props) => (
             <MetaProvider>
@@ -30,7 +26,7 @@ export default function App() {
         >
           <FileRoutes />
         </Router>
-      </GlobalStoreContext.Provider>
+      </GlobalStoreProvider>
     </ConvexContext.Provider>
   );
 }

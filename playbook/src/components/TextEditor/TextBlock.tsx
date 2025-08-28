@@ -257,7 +257,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
           onMouseUp={() => {
             saveCaretPosition();
           }}
-          textContent={props.block.content}
+          textContent={props.block.content || ""}
           onPaste={(e) => {
             const files = getFilesFromClipboardEvent(e);
             if (files && files.length > 0) {
@@ -342,7 +342,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
           onTextContent={props.onContentChange}
           render={(textContent) => {
             return (
-              <For each={textContent().split(" ")}>
+              <For each={textContent()?.split(" ") ?? []}>
                 {(word, wordIndex) => (
                   <>
                     <Show when={word.startsWith("#")} fallback={word}>

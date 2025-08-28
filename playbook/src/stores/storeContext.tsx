@@ -20,11 +20,12 @@ export function createApplicationStore(): IStoreContext {
     },
 
     documentId: "a",
+    defaultStrategyId: "jn72v8qfj7vfvn7056ha83j1c97phc7r",
   });
 
   const actions: any = {};
 
-  documentStore = createDocumentStore({}, actions, state, setState);
+  documentStore = createDocumentStore(actions, state, setState);
 
   return [state, actions];
 }

@@ -15,4 +15,9 @@ export interface IStoreState {
    */
 
   documentId: string;
+
+  /**
+   * Default strategy id to associate with newly created documents
+   */
+  defaultStrategyId: string;
 }
