@@ -28,8 +28,12 @@ export default defineSchema({
   }).index("by_poll_id", ["pollId"]),
 
   galleries: defineTable({
-    name: v.string(),
-    urls: v.array(v.string()),
+    urls: v.array(
+      v.object({
+        url: v.string(),
+        key: v.string(),
+      })
+    ),
   }),
 
   polls: defineTable({

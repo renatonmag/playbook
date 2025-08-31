@@ -1,5 +1,6 @@
 import {
   createEffect,
+  createSignal,
   InitializedResourceReturn,
   onMount,
   untrack,
@@ -11,6 +12,7 @@ import { ConvexClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
 import { createAction, createMutation, createQuery } from "../cvxsolid";
 import { getDocuments } from "../../convex/documents";
+import { createUploadThing } from "~/ut/utUtils";
 
 export interface IDocumentsActions {
   // Block management
@@ -21,6 +23,8 @@ export interface IDocumentsActions {
   createDocument: (title?: string) => Promise<string>;
   getActiveDocument: () => DocumentStore | undefined;
   setActiveDocumentId: (documentId: string) => void;
+  updateDocumentTitleLocal: (documentId: string, title: string) => void;
+  persistDocumentTitle: (documentId: string, title: string) => Promise<void>;
   setCaretPosition: (pos: { line: number; column: number }) => void;
   getCaretPosition: () => { line: number; column: number };
   setBlockTypeToText: (blockId: string) => void;
@@ -30,8 +34,8 @@ export interface IDocumentsActions {
   ) => { line: number; column: number };
 
   // Image management
-  addImagesToBlock: (blockId: string, images: Image[]) => void;
-  removeImageFromBlock: (blockId: string, imageId: string) => void;
+  addImagesToBlock: (blockId: string, images: Image[], files: File[]) => void;
+  removeImageFromBlock: (blockId: string, key: string) => void;
 
   // Navigation
   blockNavigateUp: (currentBlockId: string) => void;
@@ -77,6 +81,7 @@ export function createDocumentStore(
             content: "this is the first block",
             type: "text",
             images: [],
+            galleryId: "1",
           },
         ],
         focusedBlockId: "1",
@@ -86,41 +91,80 @@ export function createDocumentStore(
     activeDocumentId: "1dsfds33",
   });
 
-  // Utility functions
-  const generateId = () =>
-    `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const { startUpload, isUploading } = createUploadThing("imageUploader", {
+    onClientUploadComplete: (res) => {
+      console.log(res);
+    },
+    onUploadError: (error: Error) => {
+      console.error(error);
+    },
+  });
 
-  const getDocumentsQuery = createQuery(api.documents.getDocuments);
+  const deleteUploadthingFiles = async (keys: string[]) => {
+    try {
+      const res = await fetch("/api/uploadthing", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(keys),
+      });
+      if (!res.ok) return false;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  const [getDocumentsQuery, unsubber] = createQuery<DocumentStore[]>(
+    api.documents.getDocuments
+  );
   const createDocumentMutation = createMutation(api.documents.createDocument);
   const addBlockMutation = createMutation(api.documents.addBlock);
   const updateBlockMutation = createMutation(api.documents.updateBlock);
   const removeBlockMutation = createMutation(api.documents.removeBlock);
+  const updateDocumentTitleMutation = createMutation(
+    api.documents.updateDocumentTitle
+  );
+  const createGalleryAndLinkBlockMutation = createMutation(
+    api.documents.createGalleryAndLinkBlock
+  );
+  const appendGalleryUrlsMutation = createMutation(
+    api.documents.appendGalleryUrls
+  );
+  const removeGalleryUrlMutation = createMutation(
+    api.documents.removeGalleryUrl
+  );
 
   createEffect(() => {
     const documents = getDocumentsQuery();
     if (!documents) return;
+
     untrack(() => {
       const docs = [
         ...store.documents,
         ...documents.map((doc) => ({
-          id: doc._id,
+          id: doc.id,
           title: doc.title,
           blocks: doc.blocks,
-          focusedBlockId: doc.blocks[0],
+          focusedBlockId: doc.blocks[0].id,
           caretPosition: { line: 0, column: 0 },
         })),
       ];
       setStore("documents", docs);
+      unsubber();
     });
   });
 
   const createDefaultDocument = async (
     title?: string
   ): Promise<DocumentStore> => {
-    const { documentId, firstBlockId } = await createDocumentMutation({
+    const createRes: any = await createDocumentMutation({
       title: title ?? "Untitled",
       strategyId: state.defaultStrategyId as any,
     });
+    const { documentId, firstBlockId } = createRes as {
+      documentId: string;
+      firstBlockId: string;
+    };
     return {
       id: documentId as unknown as string,
       title: title ?? "Untitled",
@@ -183,9 +227,10 @@ export function createDocumentStore(
       if (activeDocumentIndex === -1) return {} as Block;
       const activeDocumentId = store.documents[activeDocumentIndex].id;
 
-      const { blockId } = await addBlockMutation({
+      const addBlockRes: any = await addBlockMutation({
         documentId: activeDocumentId as any,
       });
+      const { blockId } = addBlockRes as { blockId: string };
 
       const newBlock: Block = {
         id: blockId as unknown as string,
@@ -220,6 +265,25 @@ export function createDocumentStore(
       setStore("activeDocumentId", documentId);
     },
 
+    updateDocumentTitleLocal(documentId: string, title: string) {
+      const docIndex = getDocumentIndexById(documentId);
+      if (docIndex === -1) return;
+      setStore("documents", docIndex, "title", title);
+    },
+
+    async persistDocumentTitle(documentId: string, title: string) {
+      const docIndex = getDocumentIndexById(documentId);
+      if (docIndex === -1) return;
+      try {
+        await updateDocumentTitleMutation({
+          documentId: documentId as any,
+          title,
+        });
+      } catch (e) {
+        // No-op on error per simple UX; could add toast here
+      }
+    },
+
     async removeBlock(blockId: string) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
@@ -227,7 +291,7 @@ export function createDocumentStore(
       const activeDocument = getActiveDocument();
       if (!activeDocument || activeDocument.blocks.length <= 1) return; // Keep at least one block
 
-      const result = await removeBlockMutation({
+      const result: any = await removeBlockMutation({
         documentId: activeDocument.id as any,
         blockId: blockId as any,
       });
@@ -333,7 +397,7 @@ export function createDocumentStore(
       }
     },
 
-    addImagesToBlock(blockId: string, images: Image[]) {
+    async addImagesToBlock(blockId: string, images: Image[], files: File[]) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
 
@@ -344,16 +408,52 @@ export function createDocumentStore(
       const block = blocks[blockIdx];
       const currentImages = block.images || [];
 
-      // Add new images to the existing images array
-      const updatedImages = [...currentImages, ...images];
+      // Ensure galleryId exists: lazily create on first upload
+      let galleryId = block.galleryId as any;
+      if (!galleryId) {
+        const res: any = await createGalleryAndLinkBlockMutation({
+          blockId: blockId as any,
+        });
+        galleryId = (res as any)?.galleryId as any;
+        if (galleryId) {
+          setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+            ...block,
+            galleryId: galleryId as string,
+          });
+        }
+      }
 
+      // Upload files via UploadThing
+      const results = await startUpload(files);
+      const successful = (results ?? [])
+        .filter((r: any) => r && r.ufsUrl && r.key)
+        .map((r: any) => ({ url: r.ufsUrl as string, key: r.key as string }));
+
+      if (!galleryId || successful.length === 0) {
+        // Update local images only; do not persist when no successful uploads
+        const updatedImages = [...currentImages, ...images];
+        setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+          ...block,
+          images: updatedImages,
+        });
+        return;
+      }
+
+      // Persist to Convex preserving order
+      await appendGalleryUrlsMutation({
+        galleryId: galleryId as any,
+        items: successful as any,
+      });
+
+      // Update local state: append successful uploads for rendering
+      const updatedImages = [...currentImages, ...images];
       setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
         ...block,
         images: updatedImages,
       });
     },
 
-    removeImageFromBlock(blockId: string, imageId: string) {
+    async removeImageFromBlock(blockId: string, key: string) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
 
@@ -364,16 +464,34 @@ export function createDocumentStore(
       const block = blocks[blockIdx];
       const currentImages = block.images || [];
 
-      // Find the image to remove and revoke its object URL
-      const imageToRemove = currentImages.find((image) => image.id === imageId);
-      if (imageToRemove && imageToRemove.url) {
-        URL.revokeObjectURL(imageToRemove.url);
+      // Remove by upload key; revoke local object URL if any
+      const imageToRemove = currentImages.find((image) => image.id === key);
+      // First delete from UploadThing; abort Convex/local changes if it fails
+      const deleted = await deleteUploadthingFiles([key]);
+      if (!deleted) return;
+
+      // Remove from Convex gallery
+      const galleryId = block.galleryId as any;
+      if (galleryId) {
+        try {
+          const res: any = await removeGalleryUrlMutation({
+            galleryId: galleryId as any,
+            key,
+          });
+          if (res?.deletedGallery) {
+            setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+              ...block,
+              galleryId: undefined as unknown as string,
+            });
+          }
+        } catch (e) {
+          // Swallow errors per PRD: do not show error to user
+        }
       }
 
-      // Filter out the image with the specified ID
-      const updatedImages = currentImages.filter(
-        (image) => image.id !== imageId
-      );
+      if (imageToRemove?.url) URL.revokeObjectURL(imageToRemove.url);
+
+      const updatedImages = currentImages.filter((image) => image.id !== key);
 
       setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
         ...block,

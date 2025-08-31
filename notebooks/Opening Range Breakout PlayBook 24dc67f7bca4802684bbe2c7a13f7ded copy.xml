@@ -1,0 +1,46 @@
+<document>
+  <section id="introduction">
+    <title>Opening Range Breakout PlayBook</title>
+    <markdownContent>
+      # Opening Range Breakout PlayBook
+
+      **Regras da estratégia**
+
+      **Entrada:**
+
+      <p>1. Depois que fechar fora do range 
+      <asset id="8s7d76shsjd7d7d7yshs7d7d" type="galery"/></p>
+      2. O range começa quando a maxima da barra anterior for maior que a barra atual. Como na barra 1. Ela marca o inicio do range. A barra 3 forma o segundo ponto do range, o de venda. 
+      3. Veja que a barra 2 não fechou fora do range portanto não é uma entrada 
+      <asset id="8s7d766shsjd7dd7yshs7d7d" type="galery"/>
+      4. A barra 4 fechou fora, então é uma entrada.
+
+      **Variaçoes:**
+
+      <p>Se a primeria barra for bem grande e forte. Como a barra 1 
+      <asset id="8s7d766shsjd7dd7yshs7d7d" type="galery"/><p>
+
+      **Saida:**
+
+      Stop AMA12
+
+      A barra 1 foi a segunda barra fechando dentro da média. Quando a segunda barra fechar dentro da média, Você coloca o stop nesta segunda barra.
+      <asset id="8s7d766shsj7d7d7yshs7d7d" type="galery"/>
+      Se for o terceiro fechamento dentro 
+    </markdownContent>
+  </section>
+</document>
+
+
+Few-shot examples:
+Input:
+"<p>1. Depois que fechar fora do range <asset id="8s7dA" type="gallery"/></p><p>2. Outra coisa sem asset</p><p>3. Barra forte <asset id="8s7dB" type="gallery" caption="barra1"/></p>"
+
+Output:
+[
+{"text": "1. Depois que fechar fora do range", "asset_id": "8s7dA", "context": ""},
+{"text": "3. Barra forte", "asset_id": "8s7dB", "context": "caption: barra1"}
+]
+
+Now process this input and return only the JSON array:
+[PASTE YOUR XML/HTML INPUT HERE]

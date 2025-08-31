@@ -289,6 +289,10 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
                     "image/png",
                     "image/gif",
                     "image/webp",
+                    "image/avif",
+                    "image/svg+xml",
+                    "image/tiff",
+                    "image/webp",
                   ].includes(file.type) &&
                   file.size > MAX_FILE_SIZE
               );
@@ -323,7 +327,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
                 }));
 
                 // Add all images to the current block in a single operation
-                actions.addImagesToBlock(props.block.id, images);
+                actions.addImagesToBlock(props.block.id, images, imageFiles);
 
                 // Verify that images were added successfully
                 console.log(
@@ -363,18 +367,16 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       </div>
       <Show when={props.block.images && props.block.images.length > 0}>
         <Carousel class="w-full max-w-xl mt-5" setApi={setCarouselApi}>
-          <CarouselContent>
+          <CarouselContent class="">
             <Index each={props.block.images}>
               {(image) => (
                 <CarouselItem>
-                  <div class="p-1">
-                    <img
-                      src={image().url}
-                      alt={image().filename}
-                      class="w-full h-auto rounded"
-                      loading="lazy"
-                    />
-                  </div>
+                  <img
+                    src={image().url}
+                    alt={image().filename}
+                    class="w-full h-auto max-h-[550px] object-contain"
+                    loading="lazy"
+                  />
                 </CarouselItem>
               )}
             </Index>

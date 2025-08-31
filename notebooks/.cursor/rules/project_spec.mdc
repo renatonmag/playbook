@@ -1,0 +1,14 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+This is a retreival agumentation generation (RAG) project.
+
+**Libraries used and tech stack**
+
+- Python
+- LlamaIndex
+- FastAPI
+- Convex-db (Python package)

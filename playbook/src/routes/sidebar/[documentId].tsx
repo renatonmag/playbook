@@ -84,7 +84,6 @@ const items = [
 ];
 
 export default function AppSidebar(props: any) {
-  // const query = useQuery(api.documents.get, { id: params.documentId });
   const navigate = useNavigate();
   const [gStore, actions] = useGlobalStore();
   const params = useParams();

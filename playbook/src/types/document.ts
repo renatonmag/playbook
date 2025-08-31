@@ -4,6 +4,7 @@ export interface TextBlock {
   type: "text";
   formatting?: TextFormatting;
   images?: Image[];
+  galleryId?: string;
 }
 
 export interface ListBlock {
@@ -13,6 +14,7 @@ export interface ListBlock {
   level: number;
   formatting?: TextFormatting;
   images?: Image[];
+  galleryId?: string;
 }
 
 export interface RadioBlock {
@@ -21,6 +23,7 @@ export interface RadioBlock {
   type: "radio";
   formatting?: TextFormatting;
   images?: Image[];
+  galleryId?: string;
 }
 
 export interface CheckboxBlock {
@@ -29,6 +32,7 @@ export interface CheckboxBlock {
   type: "checkbox";
   formatting?: TextFormatting;
   images?: Image[];
+  galleryId?: string;
 }
 
 export type Block = TextBlock | ListBlock | RadioBlock | CheckboxBlock;

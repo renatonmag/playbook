@@ -1,6 +1,12 @@
 import { ConvexClient } from "convex/browser";
 import { FunctionReference } from "convex/server";
-import { Context, createContext, from, useContext } from "solid-js";
+import {
+  Context,
+  createContext,
+  createSignal,
+  from,
+  useContext,
+} from "solid-js";
 
 export const ConvexContext: Context<ConvexClient | undefined> = createContext();
 
@@ -8,16 +14,15 @@ export const ConvexContext: Context<ConvexClient | undefined> = createContext();
 export function createQuery<T>(
   query: FunctionReference<"query">,
   args?: {}
-): () => T | undefined {
+): [() => T | undefined, () => void] {
   const convex = useContext(ConvexContext);
+  const [data, setData] = createSignal<T | undefined>(undefined);
   if (convex === undefined) {
     throw "No convex context";
   }
   let fullArgs = args ?? {};
-  return from((setter) => {
-    const unsubber = convex!.onUpdate(query, fullArgs, setter);
-    return unsubber;
-  });
+  const unsubber = convex!.onUpdate(query, fullArgs, setData);
+  return [data, unsubber];
 }
 
 export function createMutation<T>(

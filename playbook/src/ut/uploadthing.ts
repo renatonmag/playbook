@@ -1,5 +1,6 @@
 import { createUploadthing, UploadThingError } from "uploadthing/server";
 import type { FileRouter } from "uploadthing/server";
+import { UTApi } from "uploadthing/server";
 
 const f = createUploadthing();
 
@@ -30,7 +31,6 @@ export const uploadRouter = {
     })
     .onUploadComplete(async ({ metadata, file }) => {
       // This code RUNS ON YOUR SERVER after upload
-      console.log("Upload complete for userId:", metadata.userId);
 
       console.log("file url", file.ufsUrl);
 
