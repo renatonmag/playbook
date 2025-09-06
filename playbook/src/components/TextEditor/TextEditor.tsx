@@ -127,8 +127,8 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
               </Show>
               <TextBlock
                 block={block}
-                onContentChange={(content) =>
-                  updateBlockContent(block.id, content)
+                onContentChange={(content, blockRef) =>
+                  updateBlockContent(block.id, content, blockRef)
                 }
                 onBlockCreate={addBlock}
                 onBlockDelete={removeBlock}

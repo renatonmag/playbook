@@ -13,6 +13,8 @@ import { api } from "../../convex/_generated/api";
 import { createAction, createMutation, createQuery } from "../cvxsolid";
 import { getDocuments } from "../../convex/documents";
 import { createUploadThing } from "~/ut/utUtils";
+import debounce from "lodash.debounce";
+import { getCaretPositionFromSelection } from "~/lib/caret";
 
 export interface IDocumentsActions {
   // Block management
@@ -82,6 +84,7 @@ export function createDocumentStore(
             type: "text",
             images: [],
             galleryId: "1",
+            order: 0,
           },
         ],
         focusedBlockId: "1",
@@ -89,6 +92,13 @@ export function createDocumentStore(
       },
     ],
     activeDocumentId: "1dsfds33",
+  });
+
+  createEffect(() => {
+    const activeDocument = getActiveDocument();
+    if (activeDocument) {
+      console.log(unwrap(activeDocument.caretPosition.column));
+    }
   });
 
   const { startUpload, isUploading } = createUploadThing("imageUploader", {
@@ -154,6 +164,10 @@ export function createDocumentStore(
     });
   });
 
+  const debouncedUpdateBlockMutation = debounce(async (args: any) => {
+    await updateBlockMutation(args);
+  }, 500);
+
   const createDefaultDocument = async (
     title?: string
   ): Promise<DocumentStore> => {
@@ -192,8 +206,10 @@ export function createDocumentStore(
     );
   };
 
-  const getDocumentById = (documentId: string) => {
-    return store.documents.find((doc) => doc.id === documentId);
+  const genId = () => {
+    return `blockId-${Math.random()
+      .toString(36)
+      .substring(2, 10)}-${Date.now()}`;
   };
 
   const getDocumentIndexById = (documentId: string) => {
@@ -222,34 +238,87 @@ export function createDocumentStore(
 
   Object.assign(actions, {
     // Block management
-    async addBlock(afterId: string) {
+    async addBlock(afterId?: string, focusId?: string) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return {} as Block;
       const activeDocumentId = store.documents[activeDocumentIndex].id;
 
-      const addBlockRes: any = await addBlockMutation({
-        documentId: activeDocumentId as any,
-      });
-      const { blockId } = addBlockRes as { blockId: string };
+      // const addBlockRes: any = await addBlockMutation({
+      //   documentId: activeDocumentId as any,
+      // });
+      // const { blockId } = addBlockRes as { blockId: string };
 
-      const newBlock: Block = {
-        id: blockId as unknown as string,
+      // Find the index of the block to insert after
+      const activeDocument = store.documents[activeDocumentIndex];
+      const afterBlockIndex = activeDocument.blocks.findIndex(
+        (block) => block.id === afterId
+      );
+      const block = activeDocument.blocks[afterBlockIndex];
+      let newBlock: Block = {
+        id: genId(),
         content: "",
         type: "text",
+        order: undefined,
         images: [],
       };
+      switch (block?.type) {
+        case "ol":
+          if (afterBlockIndex !== -1 && block?.type === "ol") {
+            setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
+              const updated = [...blocks];
+              let i = afterBlockIndex + 1;
+              while (i < updated.length && updated[i]?.type === "ol") {
+                const current = updated[i];
+                updated[i] = {
+                  ...current,
+                  order: (current.order ?? 0) + 1,
+                } as any;
+                i++;
+              }
+              return updated;
+            });
+          }
+          newBlock.type = "ol";
+          newBlock.order = block?.order + 1;
 
-      // Align with server behavior: append to the end
-      setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
-        ...blocks,
-        newBlock,
-      ]);
+          break;
 
-      setTimeout(() => {
-        setFocusedBlock(newBlock.id);
-      }, 0);
+        default:
+          break;
+      }
 
-      return newBlock;
+      // Before inserting a new block, if we're inside an ordered list,
+      // increment the order of all subsequent contiguous 'ol' blocks
+
+      if (afterBlockIndex === -1) {
+        // If afterId block not found, append to the start
+        setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
+          newBlock,
+          ...blocks,
+        ]);
+        setTimeout(() => {
+          setFocusedBlock(focusId ?? newBlock.id);
+        }, 0);
+      } else {
+        // Insert the new block after the specified block
+        setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
+          ...blocks.slice(0, afterBlockIndex + 1),
+          newBlock,
+          ...blocks.slice(afterBlockIndex + 1),
+        ]);
+        setTimeout(() => {
+          setFocusedBlock(focusId ?? newBlock.id);
+        }, 0);
+      }
+    },
+
+    getPrevBlock(blockId: string): Block | null {
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return null;
+      const blocks = store.documents[activeDocumentIndex].blocks;
+      const blockIdx = blocks.findIndex((b) => b.id === blockId);
+      if (blockIdx < 0) return null;
+      return blocks[blockIdx - 1];
     },
 
     // Document management
@@ -263,6 +332,12 @@ export function createDocumentStore(
     getActiveDocument,
     setActiveDocumentId(documentId: string) {
       setStore("activeDocumentId", documentId);
+    },
+
+    getCaretPosition() {
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return { line: 0, column: 0 };
+      return store.documents[activeDocumentIndex].caretPosition;
     },
 
     updateDocumentTitleLocal(documentId: string, title: string) {
@@ -284,23 +359,41 @@ export function createDocumentStore(
       }
     },
 
-    async removeBlock(blockId: string) {
+    async removeBlock(blockId: string, focusId?: string) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
 
       const activeDocument = getActiveDocument();
       if (!activeDocument || activeDocument.blocks.length <= 1) return; // Keep at least one block
 
-      const result: any = await removeBlockMutation({
-        documentId: activeDocument.id as any,
-        blockId: blockId as any,
-      });
-      if (!result?.success) return;
+      // const result: any = await removeBlockMutation({
+      //   documentId: activeDocument.id as any,
+      //   blockId: blockId as any,
+      // });
+      // if (!result?.success) return;
 
       // Find the block to remove and clean up its object URLs
-      const blockToRemove = activeDocument.blocks.find(
+      const blockToRemoveIdx = activeDocument.blocks.findIndex(
         (block) => block.id === blockId
       );
+      const blockToRemove = activeDocument.blocks[blockToRemoveIdx];
+
+      if (blockToRemove?.type === "ol") {
+        setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
+          const updated = [...blocks];
+          let i = blockToRemoveIdx + 1;
+          while (i < updated.length && updated[i]?.type === "ol") {
+            const current = updated[i];
+            updated[i] = {
+              ...current,
+              order: (current.order ?? 0) - 1,
+            } as any;
+            i++;
+          }
+          return updated;
+        });
+      }
+
       if (blockToRemove && blockToRemove.images) {
         blockToRemove.images.forEach((image) => {
           if (image.url) {
@@ -309,14 +402,17 @@ export function createDocumentStore(
         });
       }
 
-      // Focus the previous block or the first available block
-      const currentIndex = activeDocument.blocks.findIndex(
-        (block) => block.id === blockId
-      );
-      const newFocusedIndex = Math.max(0, currentIndex - 1);
-      const newFocusedBlock = activeDocument.blocks[newFocusedIndex];
-      if (newFocusedBlock) {
-        setFocusedBlock(newFocusedBlock.id);
+      if (focusId) {
+        setFocusedBlock(focusId);
+      } else {
+        const currentIndex = activeDocument.blocks.findIndex(
+          (block) => block.id === blockId
+        );
+        const newFocusedIndex = Math.max(0, currentIndex - 1);
+        const newFocusedBlock = activeDocument.blocks[newFocusedIndex];
+        if (newFocusedBlock) {
+          setFocusedBlock(newFocusedBlock.id);
+        }
       }
 
       setStore("documents", activeDocumentIndex, "blocks", (blocks) =>
@@ -324,7 +420,11 @@ export function createDocumentStore(
       );
     },
 
-    async updateBlockContent(blockId: string, content: string) {
+    updateBlockContent: async (
+      blockId: string,
+      content: string,
+      blockRef: HTMLDivElement
+    ) => {
       const activeDocumentIndex = store.documents.findIndex(
         (doc) => doc.id === store.activeDocumentId
       );
@@ -353,17 +453,36 @@ export function createDocumentStore(
         desiredContent = content.slice(2);
       }
 
-      await updateBlockMutation({
-        blockId: blockId as any,
-        content: desiredContent,
-        type: desiredType,
-      });
+      const prevBlock = activeDocument.blocks[blockIdx - 1];
+      const newOrder = prevBlock?.type === "ol" ? prevBlock.order + 1 : 1;
+      setTimeout(() => {
+        setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+          ...block,
+          content: desiredContent,
+          type: desiredType as any,
+          order: desiredType === "ol" ? newOrder : undefined,
+        });
+      }, 0);
 
-      setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
-        ...block,
-        content: desiredContent,
-        type: desiredType as any,
-      });
+      actions.saveCaretPosition(blockRef);
+
+      // debouncedUpdateBlockMutation({
+      //   blockId: blockId as any,
+      //   content: desiredContent,
+      //   type: desiredType,
+      //   order: desiredType === "ol" ? newOrder : undefined,
+      // });
+    },
+
+    saveCaretPosition: (blockRef: HTMLDivElement, justLine?: boolean) => {
+      if (!blockRef) return;
+      const _pos = actions.getCaretPosition();
+      const pos = getCaretPositionFromSelection(blockRef);
+      if (justLine) {
+        pos.column = _pos.column;
+      }
+      actions.setCaretPosition(pos);
+      return pos;
     },
 
     async setBlockTypeToText(blockId: string) {
@@ -500,6 +619,7 @@ export function createDocumentStore(
     },
 
     setCaretPosition(pos: { line: number; column: number }) {
+      console.log({ pos });
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
       setStore("documents", activeDocumentIndex, "caretPosition", pos);

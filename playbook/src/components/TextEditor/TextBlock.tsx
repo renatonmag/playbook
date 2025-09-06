@@ -30,7 +30,7 @@ import {
 interface TextBlockProps {
   block: Block;
   onContentChange: (content: string) => void;
-  onBlockCreate: (afterId: string) => void;
+  onBlockCreate: (afterId: string, focusId: string) => void;
   onBlockDelete: (id: string) => void;
   onBlockFocus: (id: string) => void;
   onNavigateUp?: () => void;
@@ -45,16 +45,16 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
 
   let blockRef: HTMLDivElement | undefined;
 
-  const saveCaretPosition = (justLine?: boolean) => {
-    if (!blockRef) return;
-    const _pos = actions.getCaretPosition();
-    const pos = getCaretPositionFromSelection(blockRef);
-    if (justLine) {
-      pos.column = _pos.column;
-    }
-    actions.setCaretPosition(pos);
-    return pos;
-  };
+  // const saveCaretPosition = (justLine?: boolean) => {
+  //   if (!blockRef) return;
+  //   const _pos = actions.getCaretPosition();
+  //   const pos = getCaretPositionFromSelection(blockRef);
+  //   if (justLine) {
+  //     pos.column = _pos.column;
+  //   }
+  //   actions.setCaretPosition(pos);
+  //   return pos;
+  // };
 
   function caretIsAtTop() {
     const range = window.getSelection()?.getRangeAt(0);
@@ -124,34 +124,50 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     Enter: (data: any) => {
       if (!data.event.shiftKey) {
         data.event.preventDefault();
+        const pos = actions.getCaretPosition();
+        if (pos.column === 0) {
+          const prevBlock = actions.getPrevBlock(props.block.id);
+          console.log({ pos });
+          props.onBlockCreate(prevBlock?.id, props.block.id);
+          return null;
+        }
         props.onBlockCreate(props.block.id);
       }
       return null;
     },
     Backspace: (data: any) => {
-      saveCaretPosition();
-      actions.setBlockTypeToText(props.block.id);
+      // actions.setBlockTypeToText(props.block.id);
       if (data.textContent === "") {
         data.event.preventDefault();
         props.onBlockDelete(props.block.id);
+        return null;
+      } else {
+        actions.saveCaretPosition(blockRef);
+        const prevBlock = actions.getPrevBlock(props.block.id);
+        const pos = actions.getCaretPosition();
+        if (prevBlock && prevBlock.content === "" && pos.column === 0) {
+          data.event.preventDefault();
+          props.onBlockDelete(prevBlock.id, props.block.id);
+          return null;
+        }
       }
       return null;
     },
     Delete: (data: any) => {
-      saveCaretPosition();
+      actions.saveCaretPosition(blockRef);
       return null;
     },
     ArrowRight: (data: any) => {
-      saveCaretPosition();
+      actions.saveCaretPosition(blockRef);
       return null;
     },
     ArrowLeft: (data: any) => {
-      saveCaretPosition();
+      actions.saveCaretPosition(blockRef);
       return null;
     },
     ArrowDown: (data: any) => {
       if (blockRef) {
-        const saved = saveCaretPosition(true);
+        const saved = actions.saveCaretPosition(blockRef, true);
         if (saved) {
           setCaretAtLineColumn(blockRef, {
             line: saved.line,
@@ -168,7 +184,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     },
     ArrowUp: (data: any) => {
       if (blockRef) {
-        const saved = saveCaretPosition(true);
+        const saved = actions.saveCaretPosition(blockRef, true);
         if (saved) {
           setCaretAtLineColumn(blockRef, {
             line: saved.line,
@@ -227,7 +243,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     <div class="flex flex-col justify-center items-center w-full">
       <div class="flex w-full">
         <Show when={props.block.type == "ol"}>
-          <span class="mr-2">1.</span>
+          <span class="mr-2">{props.block.order}.</span>
         </Show>
         <Show when={props.block.type == "ul"}>
           <span class="mr-2">🞄</span>
@@ -241,21 +257,20 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         <ContentEditable
           ref={blockRef}
           class="min-h-[1.5rem] w-full outline-none cursor-text"
-          // onKeyDown={handleKeyDown}
           keyBindings={keyBindings}
-          oninput={(e: InputEvent) => {
-            const it = (e as any).inputType || "";
-            if (typeof it === "string" && it.startsWith("insertFromPaste")) {
-              return;
-            }
-            saveCaretPosition();
-          }}
+          // oninput={(e: InputEvent) => {
+          //   const it = (e as any).inputType || "";
+          //   if (typeof it === "string" && it.startsWith("insertFromPaste")) {
+          //     return;
+          //   }
+          //   actions.saveCaretPosition(blockRef);
+          // }}
           onMouseDown={() => {
             actions.setFocusedBlock(props.block.id);
-            saveCaretPosition();
+            actions.saveCaretPosition(blockRef);
           }}
           onMouseUp={() => {
-            saveCaretPosition();
+            actions.saveCaretPosition(blockRef);
           }}
           textContent={props.block.content || ""}
           onPaste={(e) => {
@@ -343,7 +358,9 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
               }
             }
           }}
-          onTextContent={props.onContentChange}
+          onTextContent={(textContent) => {
+            props.onContentChange(textContent, blockRef);
+          }}
           render={(textContent) => {
             return (
               <For each={textContent()?.split(" ") ?? []}>

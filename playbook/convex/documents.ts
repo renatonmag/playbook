@@ -41,6 +41,35 @@ export const getDocuments = query({
   },
 });
 
+export const listDocumentsByIds = query({
+  args: { documentIds: v.array(v.id("documents")) },
+  handler: async (ctx, args) => {
+    const docs = await Promise.all(
+      args.documentIds.map((documentId) => ctx.db.get(documentId))
+    );
+
+    const validDocs = docs.filter((doc): doc is NonNullable<typeof doc> =>
+      Boolean(doc)
+    );
+
+    const results = await Promise.all(
+      validDocs.map(async (doc) => {
+        const blocks = await Promise.all(
+          (doc.blocks ?? []).map((blockId) => ctx.db.get(blockId))
+        );
+
+        return {
+          _id: doc._id,
+          title: doc.title,
+          blocks: blocks.filter((b): b is NonNullable<typeof b> => Boolean(b)),
+        };
+      })
+    );
+
+    return results;
+  },
+});
+
 export const createDocument = mutation({
   args: {
     title: v.optional(v.string()),
@@ -111,6 +140,7 @@ export const updateBlock = mutation({
       )
     ),
     checked: v.optional(v.boolean()),
+    order: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const block = await ctx.db.get(args.blockId);
@@ -120,6 +150,7 @@ export const updateBlock = mutation({
     if (args.content !== undefined) updates.content = args.content;
     if (args.type !== undefined) updates.type = args.type;
     if (args.checked !== undefined) updates.checked = args.checked;
+    if (args.order !== undefined) updates.order = args.order;
 
     if (Object.keys(updates).length > 0) {
       await ctx.db.patch(args.blockId, updates);
@@ -272,5 +303,28 @@ export const updateDocumentTitle = mutation({
     }
     await ctx.db.patch(args.documentId, { title: args.title });
     return { success: true } as const;
+  },
+});
+
+export const createMessage = mutation({
+  args: {
+    chatId: v.id("chats"),
+    content: v.string(),
+    type: v.union(v.literal("ai"), v.literal("human"), v.literal("system")),
+    usage_metadata: v.optional(
+      v.object({
+        input_tokens: v.number(),
+        output_tokens: v.number(),
+        total_tokens: v.number(),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("messages", {
+      chatId: args.chatId,
+      content: args.content,
+      type: args.type,
+      usage_metadata: args.usage_metadata,
+    });
   },
 });

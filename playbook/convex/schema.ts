@@ -25,6 +25,7 @@ export default defineSchema({
     checked: v.optional(v.boolean()),
     pollId: v.optional(v.id("polls")),
     galleryId: v.optional(v.id("galleries")),
+    order: v.optional(v.number()),
   }).index("by_poll_id", ["pollId"]),
 
   galleries: defineTable({
@@ -45,5 +46,22 @@ export default defineSchema({
   users: defineTable({
     // Add user-related fields here, like email, name, etc.
     email: v.string(),
+  }),
+
+  chats: defineTable({
+    strategyId: v.id("strategies"),
+  }),
+
+  messages: defineTable({
+    chatId: v.id("chats"),
+    content: v.string(),
+    type: v.union(v.literal("ai"), v.literal("human"), v.literal("system")),
+    usage_metadata: v.optional(
+      v.object({
+        input_tokens: v.number(),
+        output_tokens: v.number(),
+        total_tokens: v.number(),
+      })
+    ),
   }),
 });
