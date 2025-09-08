@@ -124,6 +124,13 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     Enter: (data: any) => {
       if (!data.event.shiftKey) {
         data.event.preventDefault();
+
+        // Guard: when content is empty and block type is not "text", convert to text type
+        if (data.textContent === "" && props.block.type !== "text") {
+          actions.setBlockTypeToText(props.block.id);
+          return null;
+        }
+
         const pos = actions.getCaretPosition();
         if (pos.column === 0) {
           const prevBlock = actions.getPrevBlock(props.block.id);
@@ -136,13 +143,13 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       return null;
     },
     Backspace: (data: any) => {
-      // actions.setBlockTypeToText(props.block.id);
+      actions.setBlockTypeToText(props.block.id);
       if (data.textContent === "") {
         data.event.preventDefault();
         props.onBlockDelete(props.block.id);
         return null;
       } else {
-        actions.saveCaretPosition(blockRef);
+        actions.saveDocumentCaretPosition(blockRef, props.block.id);
         const prevBlock = actions.getPrevBlock(props.block.id);
         const pos = actions.getCaretPosition();
         if (prevBlock && prevBlock.content === "" && pos.column === 0) {
@@ -154,20 +161,24 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       return null;
     },
     Delete: (data: any) => {
-      actions.saveCaretPosition(blockRef);
+      actions.saveDocumentCaretPosition(blockRef, props.block.id);
       return null;
     },
     ArrowRight: (data: any) => {
-      actions.saveCaretPosition(blockRef);
+      actions.saveDocumentCaretPosition(blockRef, props.block.id);
       return null;
     },
     ArrowLeft: (data: any) => {
-      actions.saveCaretPosition(blockRef);
+      actions.saveDocumentCaretPosition(blockRef, props.block.id);
       return null;
     },
     ArrowDown: (data: any) => {
       if (blockRef) {
-        const saved = actions.saveCaretPosition(blockRef, true);
+        const saved = actions.saveDocumentCaretPosition(
+          blockRef,
+          props.block.id,
+          true
+        );
         if (saved) {
           setCaretAtLineColumn(blockRef, {
             line: saved.line,
@@ -184,7 +195,11 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     },
     ArrowUp: (data: any) => {
       if (blockRef) {
-        const saved = actions.saveCaretPosition(blockRef, true);
+        const saved = actions.saveDocumentCaretPosition(
+          blockRef,
+          props.block.id,
+          true
+        );
         if (saved) {
           setCaretAtLineColumn(blockRef, {
             line: saved.line,
@@ -204,6 +219,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   // Restore caret position when block becomes focused
   createEffect(() => {
     if (actions.getActiveDocument()?.focusedBlockId === props.block.id) {
+      props.setFocusedBlockRef(blockRef);
       setTimeout(() => {
         if (!blockRef) return;
         blockRef.focus();
@@ -258,19 +274,19 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
           ref={blockRef}
           class="min-h-[1.5rem] w-full outline-none cursor-text"
           keyBindings={keyBindings}
-          // oninput={(e: InputEvent) => {
-          //   const it = (e as any).inputType || "";
-          //   if (typeof it === "string" && it.startsWith("insertFromPaste")) {
-          //     return;
-          //   }
-          //   actions.saveCaretPosition(blockRef);
-          // }}
+          oninput={(e: InputEvent) => {
+            const it = (e as any).inputType || "";
+            if (typeof it === "string" && it.startsWith("insertFromPaste")) {
+              return;
+            }
+            actions.saveDocumentCaretPosition(blockRef);
+          }}
           onMouseDown={() => {
             actions.setFocusedBlock(props.block.id);
-            actions.saveCaretPosition(blockRef);
+            actions.saveDocumentCaretPosition(blockRef);
           }}
           onMouseUp={() => {
-            actions.saveCaretPosition(blockRef);
+            actions.saveDocumentCaretPosition(blockRef);
           }}
           textContent={props.block.content || ""}
           onPaste={(e) => {

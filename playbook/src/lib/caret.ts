@@ -219,6 +219,7 @@ export function getCaretPositionFromSelection(
     const column = Math.max(0, absolute - lineStartIndex);
     return { line, column };
   } catch {
+    console.error("Error getting caret position from selection");
     return { line: 0, column: 0 };
   }
 }

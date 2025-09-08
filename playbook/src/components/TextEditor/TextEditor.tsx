@@ -64,7 +64,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
       addBlock,
       removeBlock,
       updateBlockContent,
-      setCaretPosition,
+      setDocumentCaretPosition: setCaretPosition,
       getActiveDocument,
       setActiveDocumentId,
     },
@@ -86,27 +86,37 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
   });
 
   const [dialogOpen, setDialogOpen] = createSignal(false);
-  const [blocks, setBlocks] = createStore<Block[]>(
-    props.initialBlocks || [
-      {
-        id: "1",
-        content: "",
-        type: "text",
-      },
-    ]
-  );
+  const [contentEditable, setContentEditable] = createSignal(false);
+  const [focusedBlockRef, setFocusedBlockRef] =
+    createSignal<HTMLDivElement | null>(null);
+
+  const focusBlock = () => {
+    if (!focusedBlockRef()) return;
+    focusedBlockRef()?.focus();
+  };
+
+  createEffect(() => {
+    if (!contentEditable()) {
+      focusBlock();
+    }
+  });
 
   return (
-    <div class="w-[700px] mx-auto">
-      <div class="">
-        <Show when={props.laneID}>
-          <Button
-            class="float-right"
-            onClick={() => props.laneID && deleteLane(props.laneID)}
-          >
-            -
-          </Button>
-        </Show>
+    <div
+      class="w-[700px] mx-auto outline-0"
+      contenteditable={contentEditable()}
+      onMouseDown={() => {
+        setContentEditable(true);
+        document.body.addEventListener(
+          "mouseup",
+          () => {
+            setContentEditable(false);
+          },
+          { once: true }
+        );
+      }}
+    >
+      <div>
         <For each={getActiveDocument()?.blocks ?? []}>
           {(block) => (
             <div class="flex relative">
@@ -127,12 +137,13 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
               </Show>
               <TextBlock
                 block={block}
+                setContentEditable={setContentEditable}
                 onContentChange={(content, blockRef) =>
                   updateBlockContent(block.id, content, blockRef)
                 }
                 onBlockCreate={addBlock}
                 onBlockDelete={removeBlock}
-                onBlockFocus={() => {}}
+                setFocusedBlockRef={setFocusedBlockRef}
                 setSavedCaretPosition={setCaretPosition}
               />
             </div>

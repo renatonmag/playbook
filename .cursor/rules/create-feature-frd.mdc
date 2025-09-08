@@ -4,11 +4,11 @@ globs:
 alwaysApply: false
 ---
 
-# Rule: Generating a Feature Requirements Document (PRD)
+# Rule: Generating a Feature Requirements Document (FRD)
 
 ## Goal
 
-To guide an AI assistant in creating a detailed Product Requirements Document (PRD) in Markdown format, based on an initial user prompt. The PRD should be clear, actionable, and suitable for a junior developer to understand and implement the feature.
+To guide an AI assistant in creating a detailed Feature Requirements Document (FRD) in Markdown format, based on an initial user prompt. The FRD should be clear, actionable, and suitable for a junior developer to understand and implement the feature.
 
 ## Process
 
@@ -22,8 +22,8 @@ Area 2
 2.1 Area 2 sub topic 1
 2.2 Area 2 sub topic 2
 
-5.  **Generate PRD:** Based on the initial prompt and the user's answers to the clarifying questions, generate a PRD using the structure outlined below.
-6.  **Save PRD:** Save the generated document as `prd-[feature-name].md` inside the `/tasks` directory.
+5.  **Generate FRD:** Based on the initial prompt and the user's answers to the clarifying questions, generate a FRD using the structure outlined below.
+6.  **Save FRD:** Save the generated document as `frd-[feature-name].md` inside the `/tasks` directory.
 
 ## Clarifying Questions (Examples)
 
@@ -33,9 +33,9 @@ The AI should adapt its questions based on the prompt, but here are some common 
 - **Core Functionality:** "Can you describe the key actions a user should be able to perform with this feature?"
 - **Data Requirements:** "What kind of data does this feature need to display or manipulate?"
 
-## PRD Structure
+## FRD Structure
 
-The generated PRD should include the following sections:
+The generated FRD should include the following sections:
 
 1.  **Introduction/Overview:** Briefly describe the feature and the problem it solves. State the goal.
 2.  **Goals:** List the specific, measurable objectives for this feature.
@@ -45,16 +45,16 @@ The generated PRD should include the following sections:
 
 ## Target Audience
 
-Assume the primary reader of the PRD is a **junior developer**. Therefore, requirements should be explicit, unambiguous, and avoid jargon where possible. Provide enough detail for them to understand the feature's purpose and core logic.
+Assume the primary reader of the FRD is a **senior developer**. Therefore, requirements should be explicit, unambiguous, and avoid jargon where possible. Provide enough detail for them to understand the feature's purpose and core logic.
 
 ## Output
 
 - **Format:** Markdown (`.md`)
 - **Location:** `/tasks/`
-- **Filename:** `prd-[feature-name].md`
+- **Filename:** `frd-[feature-name].md`
 
 ## Final instructions
 
-1. Do NOT start implementing the PRD
+1. **Do NOT** start implementing the PRD
 2. Make sure to ask the user clarifying questions
-3. Take the user's answers to the clarifying questions and improve the PRD
+3. Take the user's answers to the clarifying questions and improve the FRD

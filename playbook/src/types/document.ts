@@ -1,41 +1,41 @@
-export interface TextBlock {
+export interface Block {
   id: string;
   content: string;
-  type: "text";
+  type: "text" | "ul" | "ol" | "radio" | "checkbox";
   formatting?: TextFormatting;
   images?: Image[];
   galleryId?: string;
+  order?: number;
+  caretPosition?: { line: number; column: number };
 }
 
-export interface ListBlock {
-  id: string;
-  content: string;
-  type: "ul" | "ol";
-  level: number;
-  formatting?: TextFormatting;
-  images?: Image[];
-  galleryId?: string;
-}
+// export interface ListBlock {
+//   id: string;
+//   content: string;
+//   type: "ul" | "ol";
+//   level: number;
+//   formatting?: TextFormatting;
+//   images?: Image[];
+//   galleryId?: string;
+// }
 
-export interface RadioBlock {
-  id: string;
-  content: string;
-  type: "radio";
-  formatting?: TextFormatting;
-  images?: Image[];
-  galleryId?: string;
-}
+// export interface RadioBlock {
+//   id: string;
+//   content: string;
+//   type: "radio";
+//   formatting?: TextFormatting;
+//   images?: Image[];
+//   galleryId?: string;
+// }
 
-export interface CheckboxBlock {
-  id: string;
-  content: string;
-  type: "checkbox";
-  formatting?: TextFormatting;
-  images?: Image[];
-  galleryId?: string;
-}
-
-export type Block = TextBlock | ListBlock | RadioBlock | CheckboxBlock;
+// export interface CheckboxBlock {
+//   id: string;
+//   content: string;
+//   type: "checkbox";
+//   formatting?: TextFormatting;
+//   images?: Image[];
+//   galleryId?: string;
+// }
 
 export interface Image {
   id: string;

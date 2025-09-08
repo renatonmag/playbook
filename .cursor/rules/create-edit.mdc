@@ -1,0 +1,42 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+
+# Rule: Generating a Feature Edit Task List
+
+## Goal
+
+To guide an AI assistant in creating a detailed Feature Edit Task List in Markdown format, based on an initial user prompt. The Task should be clear, actionable, and suitable for a junior developer to understand and implement the feature.
+
+## Process
+
+1.  **Receive Initial Prompt:** The user provides a brief description or request for a new feature or functionality.
+2.  **Generate Document:** Based on the initial prompt, generate a Document with steps to implement the user request. Use the structure bellow.
+3.  **Save Document:** Save the generated document as `edit-[feature-name].md` inside the `/tasks` directory.
+
+## Document structure
+
+[ ] 1 - Major task 1
+[ ] 1.1 - Sub-task 1.1
+[ ] 1.2 - Sub-task 1.2
+[ ] 1.3 - Sub-task 1.3
+[ ] 2 - Major task 2
+[ ] 2.1 - Sub-task 2.1
+[ ] 2.2 - Sub-task 2.2
+[ ] 2.3 - Sub-task 2.3
+
+## Target Audience
+
+Assume the primary reader of the FRD is a **senior developer**. Therefore, requirements should be explicit, unambiguous, and avoid jargon where possible. Provide enough detail for them to understand the feature's purpose and core logic.
+
+## Output
+
+- **Format:** Markdown (`.md`)
+- **Location:** `/tasks/`
+- **Filename:** `edit-[feature-name].md`
+
+## Final instructions
+
+1. **Do NOT** start implementing the Document

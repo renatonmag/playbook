@@ -2,6 +2,7 @@ import { useGlobalStore } from "~/stores/storeContext";
 import { TextEditor } from "./TextEditor/TextEditor";
 import { Separator } from "./ui/separator";
 import { useParams } from "@solidjs/router";
+import { OverlayScrollbarsComponent } from "overlayscrollbars-solid";
 
 const Document = (props: any) => {
   const [store, actions] = useGlobalStore();
@@ -22,19 +23,21 @@ const Document = (props: any) => {
   };
 
   return (
-    <div class="min-h-screen">
-      <div class="w-[700px] mx-auto px-4 py-8">
-        <input
-          value={activeDoc()?.title || ""}
-          onInput={handleTitleInput}
-          onBlur={handleTitleBlur}
-          placeholder="Untitled"
-          aria-label="Document title"
-          class="w-full text-3xl font-bold text-gray-800 outline-none focus:ring-0 placeholder:text-gray-400"
-        />
-        <Separator class="my-4" />
-        <TextEditor />
-      </div>
+    <div class="min-h-[calc(100vh-78px)] max-h-[calc(100vh-78px)] overflow-y-auto">
+      <OverlayScrollbarsComponent defer>
+        <div class="w-[700px] mx-auto px-4 py-8">
+          <input
+            value={activeDoc()?.title || ""}
+            onInput={handleTitleInput}
+            onBlur={handleTitleBlur}
+            placeholder="Untitled"
+            aria-label="Document title"
+            class="w-full text-3xl font-bold text-gray-800 outline-none focus:ring-0 placeholder:text-gray-400"
+          />
+          <Separator class="my-4" />
+          <TextEditor />
+        </div>
+      </OverlayScrollbarsComponent>
     </div>
   );
 };

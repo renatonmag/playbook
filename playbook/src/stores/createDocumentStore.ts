@@ -27,8 +27,12 @@ export interface IDocumentsActions {
   setActiveDocumentId: (documentId: string) => void;
   updateDocumentTitleLocal: (documentId: string, title: string) => void;
   persistDocumentTitle: (documentId: string, title: string) => Promise<void>;
-  setCaretPosition: (pos: { line: number; column: number }) => void;
   getCaretPosition: () => { line: number; column: number };
+  saveDocumentCaretPosition: (
+    blockRef: HTMLDivElement,
+    blockId: string,
+    justLine?: boolean
+  ) => { line: number; column: number };
   setBlockTypeToText: (blockId: string) => void;
   clampCaretToBlock: (
     blockId: string,
@@ -85,6 +89,7 @@ export function createDocumentStore(
             images: [],
             galleryId: "1",
             order: 0,
+            caretPosition: { line: 0, column: 0 },
           },
         ],
         focusedBlockId: "1",
@@ -94,12 +99,12 @@ export function createDocumentStore(
     activeDocumentId: "1dsfds33",
   });
 
-  createEffect(() => {
-    const activeDocument = getActiveDocument();
-    if (activeDocument) {
-      console.log(unwrap(activeDocument.caretPosition.column));
-    }
-  });
+  // createEffect(() => {
+  //   const activeDocument = getActiveDocument();
+  //   if (activeDocument) {
+  //     console.log(unwrap(activeDocument.caretPosition.column));
+  //   }
+  // });
 
   const { startUpload, isUploading } = createUploadThing("imageUploader", {
     onClientUploadComplete: (res) => {
@@ -154,7 +159,10 @@ export function createDocumentStore(
         ...documents.map((doc) => ({
           id: doc.id,
           title: doc.title,
-          blocks: doc.blocks,
+          blocks: doc.blocks.map((block) => ({
+            ...block,
+            caretPosition: block.caretPosition || { line: 0, column: 0 },
+          })),
           focusedBlockId: doc.blocks[0].id,
           caretPosition: { line: 0, column: 0 },
         })),
@@ -167,6 +175,29 @@ export function createDocumentStore(
   const debouncedUpdateBlockMutation = debounce(async (args: any) => {
     await updateBlockMutation(args);
   }, 500);
+
+  const setBlockCaretPosition = (
+    blockId: string,
+    pos: { line: number; column: number }
+  ) => {
+    const activeDocumentIndex = getActiveDocumentIndex();
+    if (activeDocumentIndex === -1) return;
+    const blockIdx = store.documents[activeDocumentIndex].blocks.findIndex(
+      (block) => block.id === blockId
+    );
+    if (blockIdx === -1) return;
+    const block = store.documents[activeDocumentIndex].blocks[blockIdx];
+    setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+      ...block,
+      caretPosition: pos,
+    });
+  };
+
+  const setDocumentCaretPosition = (pos: { line: number; column: number }) => {
+    const activeDocumentIndex = getActiveDocumentIndex();
+    if (activeDocumentIndex === -1) return;
+    setStore("documents", activeDocumentIndex, "caretPosition", pos);
+  };
 
   const createDefaultDocument = async (
     title?: string
@@ -188,6 +219,7 @@ export function createDocumentStore(
           content: "",
           type: "text",
           images: [],
+          caretPosition: { line: 0, column: 0 },
         },
       ],
       focusedBlockId: firstBlockId as unknown as string,
@@ -260,6 +292,7 @@ export function createDocumentStore(
         type: "text",
         order: undefined,
         images: [],
+        caretPosition: { line: 0, column: 0 },
       };
       switch (block?.type) {
         case "ol":
@@ -462,9 +495,8 @@ export function createDocumentStore(
           type: desiredType as any,
           order: desiredType === "ol" ? newOrder : undefined,
         });
+        actions.saveDocumentCaretPosition(blockRef, blockId);
       }, 0);
-
-      actions.saveCaretPosition(blockRef);
 
       // debouncedUpdateBlockMutation({
       //   blockId: blockId as any,
@@ -474,14 +506,19 @@ export function createDocumentStore(
       // });
     },
 
-    saveCaretPosition: (blockRef: HTMLDivElement, justLine?: boolean) => {
+    saveDocumentCaretPosition: (
+      blockRef: HTMLDivElement,
+      blockId: string,
+      justLine?: boolean
+    ) => {
       if (!blockRef) return;
       const _pos = actions.getCaretPosition();
       const pos = getCaretPositionFromSelection(blockRef);
       if (justLine) {
         pos.column = _pos.column;
       }
-      actions.setCaretPosition(pos);
+      setBlockCaretPosition(blockId, pos);
+      setDocumentCaretPosition(pos);
       return pos;
     },
 
@@ -498,16 +535,16 @@ export function createDocumentStore(
 
       // If caret at start and block is a list/radio/checkbox, revert to text
       if (
-        caretPos.column === 0 &&
+        (caretPos.column === 0 || block?.caretPosition?.column === 0) &&
         (block.type === "ul" ||
           block.type === "ol" ||
           block.type === "radio" ||
           block.type === "checkbox")
       ) {
-        await updateBlockMutation({
-          blockId: blockId as any,
-          type: "text",
-        });
+        // await updateBlockMutation({
+        //   blockId: blockId as any,
+        //   type: "text",
+        // });
         setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
           ...block,
           type: "text",
@@ -616,20 +653,6 @@ export function createDocumentStore(
         ...block,
         images: updatedImages,
       });
-    },
-
-    setCaretPosition(pos: { line: number; column: number }) {
-      console.log({ pos });
-      const activeDocumentIndex = getActiveDocumentIndex();
-      if (activeDocumentIndex === -1) return;
-      setStore("documents", activeDocumentIndex, "caretPosition", pos);
-    },
-
-    getCaretPosition() {
-      const activeDocumentIndex = getActiveDocumentIndex();
-      if (activeDocumentIndex === -1)
-        return { line: 0, column: 0 } as { line: number; column: number };
-      return store.documents[activeDocumentIndex].caretPosition;
     },
 
     clampCaretToBlock(
