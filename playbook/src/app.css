@@ -1,8 +1,15 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@kobalte/tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@config "../tailwind.config.js";
 
 @custom-variant dark (&:where(.dark, .dark *, [data-kb-theme=dark], [data-kb-theme=dark] *));
+
+.ProseMirror {
+  outline: none;
+}
 
 :root {
   --background: oklch(1 0 0);

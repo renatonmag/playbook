@@ -8,7 +8,7 @@ import type { UploadRouter } from "~/ut/uploadthing";
 
 // URL is only needed for server side rendering, or when your router
 // is deployed on a different path than `/api/uploadthing`
-const url = `http://localhost:${process.env.PORT ?? 3000}`;
+const url = `http://localhost:${process.env.PORT ?? 3001}`;
 
 export const UploadButton = generateUploadButton<UploadRouter>({ url });
 export const UploadDropzone = generateUploadDropzone<UploadRouter>({ url });
