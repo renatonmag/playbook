@@ -7,7 +7,7 @@ import {
 } from "solid-js";
 import { logger } from "~/utils/logger";
 import { Block, Image } from "~/types/document";
-import { createStore, unwrap } from "solid-js/store";
+import { createStore, produce, unwrap } from "solid-js/store";
 import { ConvexClient } from "convex/browser";
 import { api } from "../../convex/_generated/api";
 import { createAction, createMutation, createQuery } from "../cvxsolid";
@@ -55,6 +55,7 @@ export interface DocumentStore {
   blocks: Block[];
   focusedBlockId: string | null;
   caretPosition: { line: number; column: number };
+  blockCaretPosition?: Record<string, { line: number; column: number }>;
 }
 
 export interface MultiDocumentStore {
@@ -266,11 +267,32 @@ export function createDocumentStore(
 
       // Find the index of the block to insert after
       const activeDocument = store.documents[activeDocumentIndex];
-      const afterBlockIndex = activeDocument.blocks.findIndex(
-        (block) => block.id === afterId
-      );
+      const findBlockIndexRecursively = (
+        blocks: Block[],
+        targetId: string
+      ): number[] => {
+        for (let i = 0; i < blocks.length; i++) {
+          if (blocks[i].id === targetId) {
+            return [i];
+          }
+          if (blocks[i].children && blocks[i].children.length > 0) {
+            const childIndexes = findBlockIndexRecursively(
+              blocks[i].children,
+              targetId
+            );
+            if (childIndexes.length > 0) {
+              return [i, ...childIndexes]; // Return sequence of indexes from parent to child
+            }
+          }
+        }
+        return [];
+      };
 
-      const block = activeDocument.blocks[afterBlockIndex];
+      const afterBlockIndexes = findBlockIndexRecursively(
+        activeDocument.blocks,
+        afterId ?? ""
+      );
+      const block = getBlockAtIndexes(activeDocument.blocks, afterBlockIndexes);
       let newBlock: Block = {
         id: genId(),
         content: "",
@@ -279,12 +301,20 @@ export function createDocumentStore(
         images: [],
         caretPosition: { line: 0, column: 0 },
       };
-      switch (block?.type) {
-        case "ol":
-          if (afterBlockIndex !== -1 && block?.type === "ol") {
-            setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
-              const updated = [...blocks];
-              let i = afterBlockIndex + 1;
+      if (block.type === "ol" && afterBlockIndexes.length > 0) {
+        setStore(
+          "documents",
+          activeDocumentIndex,
+          "blocks",
+          produce((draft) => {
+            if (block?.type === "ol" && afterBlockIndexes.length > 0) {
+              let i = afterBlockIndexes[afterBlockIndexes.length - 1];
+              const parentChildrenIdxs = afterBlockIndexes.slice(0, -1);
+              let updated = [
+                ...(getBlockAtIndexes(draft, parentChildrenIdxs)?.children ??
+                  []),
+              ];
+              if (i === undefined) return blocks;
               while (i < updated.length && updated[i]?.type === "ol") {
                 const current = updated[i];
                 updated[i] = {
@@ -293,22 +323,17 @@ export function createDocumentStore(
                 } as any;
                 i++;
               }
-              return updated;
-            });
-          }
-          newBlock.type = "ol";
-          newBlock.order = block?.order + 1;
-
-          break;
-
-        default:
-          break;
+            }
+          })
+        );
+        newBlock.type = "ol";
+        newBlock.order = block?.order + 1;
       }
 
       // Before inserting a new block, if we're inside an ordered list,
       // increment the order of all subsequent contiguous 'ol' blocks
 
-      if (afterBlockIndex === -1) {
+      if (afterBlockIndexes.length === 0) {
         // If afterId block not found, append to the start
         setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
           newBlock,
@@ -319,11 +344,26 @@ export function createDocumentStore(
         }, 0);
       } else {
         // Insert the new block after the specified block
-        setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
-          ...blocks.slice(0, afterBlockIndex + 1),
-          newBlock,
-          ...blocks.slice(afterBlockIndex + 1),
+        const path = makePathFromIndexes(afterBlockIndexes.slice(0, -1), [
+          "documents",
+          activeDocumentIndex,
+          "blocks",
         ]);
+        console.log({ path });
+        setStore(...path, "children", (blocks) => {
+          const updated = [...blocks];
+          updated.splice(
+            afterBlockIndexes[afterBlockIndexes.length - 1] + 1,
+            0,
+            newBlock
+          );
+          return updated;
+        });
+        // setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
+        //   ...blocks.slice(0, afterBlockIndex + 1),
+        //   newBlock,
+        //   ...blocks.slice(afterBlockIndex + 1),
+        // ]);
         setTimeout(() => {
           setFocusedBlock(focusId ?? newBlock.id);
         }, 0);
@@ -704,4 +744,66 @@ export function createDocumentStore(
 
 export const genId = () => {
   return `blockId-${Math.random().toString(36).substring(2, 10)}-${Date.now()}`;
+};
+
+const findByIdBFS = (root: Block | Block[], id: string): Block | null => {
+  if (!root) return null;
+
+  // Handle both single block and array of blocks as root
+  const queue: Block[] = Array.isArray(root) ? [...root] : [root];
+
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    if (node.id === id) return node;
+    if (node.children && node.children.length > 0) {
+      queue.push(...node.children);
+    }
+  }
+  return null;
+};
+
+function makePathFromIndexes(
+  indexes: number[],
+  rootKey: any[] = ["documents", "blocks"]
+) {
+  // Start with rootKey then alternate index, "children", index, "children", ...
+  const path = [...rootKey];
+  for (let i = 0; i < indexes.length; i++) {
+    path.push(indexes[i].toString());
+    if (i < indexes.length - 1) path.push("children");
+  }
+  return path;
+}
+
+function updateBlockAtIndexes(setter: any, indexes: number[], updater: any) {
+  const path = makePathFromIndexes(indexes);
+  // If updater is a function, Solid accepts a function as last arg for functional updates
+  if (typeof updater === "function") {
+    setter(...path, (prev) => ({ ...prev, ...updater(prev) })); // for whole-node updates
+  } else {
+    // assume updater is an object of fields to merge into the node
+    setter(...path, (prev) => ({ ...prev, ...updater }));
+  }
+}
+
+const getBlockAtIndexes = (
+  blocks: Block[],
+  indexes: number[]
+): Block | null => {
+  if (!blocks || indexes.length === 0) return null;
+
+  let current: Block[] | Block = blocks;
+
+  for (const index of indexes) {
+    if (Array.isArray(current)) {
+      if (index >= current.length || index < 0) return null;
+      current = current[index];
+    } else {
+      if (!current.children || index >= current.children.length || index < 0)
+        return null;
+      current = current.children[index];
+    }
+  }
+
+  return Array.isArray(current) ? null : current;
 };
