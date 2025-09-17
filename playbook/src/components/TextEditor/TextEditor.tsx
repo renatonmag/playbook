@@ -138,9 +138,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
               <TextBlock
                 block={block}
                 setContentEditable={setContentEditable}
-                onContentChange={(content, blockRef) =>
-                  updateBlockContent(block.id, content, blockRef)
-                }
+                onContentChange={updateBlockContent}
                 onBlockCreate={addBlock}
                 onBlockDelete={removeBlock}
                 setFocusedBlockRef={setFocusedBlockRef}

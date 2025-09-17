@@ -270,133 +270,152 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         <Show when={props.block.type == "checkbox"}>
           <Checkbox id="terms1" />
         </Show>
-        <ContentEditable
-          ref={blockRef}
-          class="min-h-[1.5rem] w-full outline-none cursor-text"
-          keyBindings={keyBindings}
-          oninput={(e: InputEvent) => {
-            const it = (e as any).inputType || "";
-            if (typeof it === "string" && it.startsWith("insertFromPaste")) {
-              return;
-            }
-            actions.saveDocumentCaretPosition(blockRef);
-          }}
-          onMouseDown={() => {
-            actions.setFocusedBlock(props.block.id);
-            actions.saveDocumentCaretPosition(blockRef);
-          }}
-          onMouseUp={() => {
-            actions.saveDocumentCaretPosition(blockRef);
-          }}
-          textContent={props.block.content || ""}
-          onPaste={(e) => {
-            const files = getFilesFromClipboardEvent(e);
-            if (files && files.length > 0) {
-              // Process image files with size validation (2MB limit)
-              const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
-
-              // Separate image and non-image files for graceful handling
-              const imageFiles = files.filter(
-                (file) =>
-                  file.type.startsWith("image/") &&
-                  [
-                    "image/jpeg",
-                    "image/png",
-                    "image/gif",
-                    "image/webp",
-                  ].includes(file.type) &&
-                  file.size <= MAX_FILE_SIZE
-              );
-
-              const nonImageFiles = files.filter(
-                (file) => !file.type.startsWith("image/")
-              );
-
-              const oversizedImages = files.filter(
-                (file) =>
-                  file.type.startsWith("image/") &&
-                  [
-                    "image/jpeg",
-                    "image/png",
-                    "image/gif",
-                    "image/webp",
-                    "image/avif",
-                    "image/svg+xml",
-                    "image/tiff",
-                    "image/webp",
-                  ].includes(file.type) &&
-                  file.size > MAX_FILE_SIZE
-              );
-
-              // Log information about filtered files for debugging
-              if (nonImageFiles.length > 0) {
-                console.log(
-                  `Filtered out ${nonImageFiles.length} non-image files`
-                );
+        <div>
+          <ContentEditable
+            data-block-id={props.block.id}
+            data-block-type={props.block.type}
+            ref={blockRef}
+            class="min-h-[1.5rem] w-full outline-none cursor-text"
+            keyBindings={keyBindings}
+            oninput={(e: InputEvent) => {
+              const it = (e as any).inputType || "";
+              if (typeof it === "string" && it.startsWith("insertFromPaste")) {
+                return;
               }
-              if (oversizedImages.length > 0) {
-                console.log(
-                  `Filtered out ${oversizedImages.length} oversized images (>2MB)`
-                );
-              }
+              actions.saveDocumentCaretPosition(blockRef);
+            }}
+            onMouseDown={() => {
+              actions.setFocusedBlock(props.block.id);
+              actions.saveDocumentCaretPosition(blockRef);
+            }}
+            onMouseUp={() => {
+              actions.saveDocumentCaretPosition(blockRef);
+            }}
+            textContent={props.block.content || ""}
+            onPaste={(e) => {
+              const files = getFilesFromClipboardEvent(e);
+              if (files && files.length > 0) {
+                // Process image files with size validation (2MB limit)
+                const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
 
-              if (imageFiles.length > 0) {
-                // Process multiple images simultaneously
-                console.log(
-                  `Processing ${imageFiles.length} image(s) simultaneously`
-                );
-
-                // Convert files to Image objects and add to block
-                const images = imageFiles.map((file) => ({
-                  id: `img_${Date.now()}_${Math.random()
-                    .toString(36)
-                    .substr(2, 9)}`,
-                  filename: file.name,
-                  size: file.size,
-                  type: file.type,
-                  url: URL.createObjectURL(file), // Create object URL for display
-                }));
-
-                // Add all images to the current block in a single operation
-                actions.addImagesToBlock(props.block.id, images, imageFiles);
-
-                // Verify that images were added successfully
-                console.log(
-                  `Successfully added ${images.length} image(s) to block ${props.block.id}`
+                // Separate image and non-image files for graceful handling
+                const imageFiles = files.filter(
+                  (file) =>
+                    file.type.startsWith("image/") &&
+                    [
+                      "image/jpeg",
+                      "image/png",
+                      "image/gif",
+                      "image/webp",
+                    ].includes(file.type) &&
+                    file.size <= MAX_FILE_SIZE
                 );
 
-                // Log the created image objects for debugging
-                images.forEach((image) => {
+                const nonImageFiles = files.filter(
+                  (file) => !file.type.startsWith("image/")
+                );
+
+                const oversizedImages = files.filter(
+                  (file) =>
+                    file.type.startsWith("image/") &&
+                    [
+                      "image/jpeg",
+                      "image/png",
+                      "image/gif",
+                      "image/webp",
+                      "image/avif",
+                      "image/svg+xml",
+                      "image/tiff",
+                      "image/webp",
+                    ].includes(file.type) &&
+                    file.size > MAX_FILE_SIZE
+                );
+
+                // Log information about filtered files for debugging
+                if (nonImageFiles.length > 0) {
                   console.log(
-                    `Image added: ${image.filename} (${image.type}, ${image.size} bytes)`
+                    `Filtered out ${nonImageFiles.length} non-image files`
                   );
-                });
+                }
+                if (oversizedImages.length > 0) {
+                  console.log(
+                    `Filtered out ${oversizedImages.length} oversized images (>2MB)`
+                  );
+                }
+
+                if (imageFiles.length > 0) {
+                  // Process multiple images simultaneously
+                  console.log(
+                    `Processing ${imageFiles.length} image(s) simultaneously`
+                  );
+
+                  // Convert files to Image objects and add to block
+                  const images = imageFiles.map((file) => ({
+                    id: `img_${Date.now()}_${Math.random()
+                      .toString(36)
+                      .substr(2, 9)}`,
+                    filename: file.name,
+                    size: file.size,
+                    type: file.type,
+                    url: URL.createObjectURL(file), // Create object URL for display
+                  }));
+
+                  // Add all images to the current block in a single operation
+                  actions.addImagesToBlock(props.block.id, images, imageFiles);
+
+                  // Verify that images were added successfully
+                  console.log(
+                    `Successfully added ${images.length} image(s) to block ${props.block.id}`
+                  );
+
+                  // Log the created image objects for debugging
+                  images.forEach((image) => {
+                    console.log(
+                      `Image added: ${image.filename} (${image.type}, ${image.size} bytes)`
+                    );
+                  });
+                }
               }
-            }
-          }}
-          onTextContent={(textContent) => {
-            props.onContentChange(textContent, blockRef);
-          }}
-          render={(textContent) => {
-            return (
-              <For each={textContent()?.split(" ") ?? []}>
-                {(word, wordIndex) => (
-                  <>
-                    <Show when={word.startsWith("#")} fallback={word}>
-                      <button onClick={() => console.log("clicked!")}>
-                        {word}
-                      </button>
-                    </Show>
-                    <Show
-                      when={textContent().split(" ").length - 1 !== wordIndex()}
-                      children=" "
-                    />
-                  </>
-                )}
-              </For>
-            );
-          }}
-        />
+            }}
+            onTextContent={(textContent) => {
+              props.onContentChange(textContent, blockRef);
+            }}
+            render={(textContent) => {
+              return (
+                <For each={textContent()?.split(" ") ?? []}>
+                  {(word, wordIndex) => (
+                    <>
+                      <Show when={word.startsWith("#")} fallback={word}>
+                        <button onClick={() => console.log("clicked!")}>
+                          {word}
+                        </button>
+                      </Show>
+                      <Show
+                        when={
+                          textContent().split(" ").length - 1 !== wordIndex()
+                        }
+                        children=" "
+                      />
+                    </>
+                  )}
+                </For>
+              );
+            }}
+          />
+          <For each={props.block.children}>
+            {(child) => (
+              <TextBlock
+                block={child}
+                setFocusedBlockRef={props.setFocusedBlockRef}
+                onContentChange={props.onContentChange}
+                onBlockCreate={props.onBlockCreate}
+                onBlockDelete={props.onBlockDelete}
+                onBlockFocus={props.onBlockFocus}
+                setSavedCaretPosition={props.setSavedCaretPosition}
+              />
+            )}
+          </For>
+        </div>
       </div>
       <Show when={props.block.images && props.block.images.length > 0}>
         <Carousel class="w-full max-w-xl mt-5" setApi={setCarouselApi}>
@@ -427,33 +446,140 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   );
 };
 
-const p = [
-  {
-    content: "Contains the main ",
-    format: {
-      bold: false,
-      italic: false,
-      underline: false,
-      color: "black",
-    },
-  },
-  {
-    content: "document",
-    format: {
-      bold: true,
-      italic: false,
-      underline: false,
-      color: "black",
-    },
-  },
-  {
-    content:
-      " store logic that needs to be refactored to handle multiple documents",
-    format: {
-      bold: false,
-      italic: false,
-      underline: false,
-      color: "black",
-    },
-  },
-];
+const ContentWithChildren = (props: { block: Block }) => {
+  const [gStore, actions] = useGlobalStore();
+  let blockRef: HTMLDivElement | undefined;
+
+  return (
+    <div>
+      <ContentEditable
+        block-data-id={props.block.id}
+        ref={blockRef}
+        class="min-h-[1.5rem] w-full outline-none cursor-text"
+        keyBindings={props.keyBindings}
+        oninput={(e: InputEvent) => {
+          const it = (e as any).inputType || "";
+          if (typeof it === "string" && it.startsWith("insertFromPaste")) {
+            return;
+          }
+          actions.saveDocumentCaretPosition(blockRef);
+        }}
+        onMouseDown={() => {
+          actions.setFocusedBlock(props.block.id);
+          actions.saveDocumentCaretPosition(blockRef);
+        }}
+        onMouseUp={() => {
+          actions.saveDocumentCaretPosition(blockRef);
+        }}
+        textContent={props.block.content || ""}
+        onPaste={(e) => {
+          const files = getFilesFromClipboardEvent(e);
+          if (files && files.length > 0) {
+            // Process image files with size validation (2MB limit)
+            const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
+
+            // Separate image and non-image files for graceful handling
+            const imageFiles = files.filter(
+              (file) =>
+                file.type.startsWith("image/") &&
+                ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(
+                  file.type
+                ) &&
+                file.size <= MAX_FILE_SIZE
+            );
+
+            const nonImageFiles = files.filter(
+              (file) => !file.type.startsWith("image/")
+            );
+
+            const oversizedImages = files.filter(
+              (file) =>
+                file.type.startsWith("image/") &&
+                [
+                  "image/jpeg",
+                  "image/png",
+                  "image/gif",
+                  "image/webp",
+                  "image/avif",
+                  "image/svg+xml",
+                  "image/tiff",
+                  "image/webp",
+                ].includes(file.type) &&
+                file.size > MAX_FILE_SIZE
+            );
+
+            // Log information about filtered files for debugging
+            if (nonImageFiles.length > 0) {
+              console.log(
+                `Filtered out ${nonImageFiles.length} non-image files`
+              );
+            }
+            if (oversizedImages.length > 0) {
+              console.log(
+                `Filtered out ${oversizedImages.length} oversized images (>2MB)`
+              );
+            }
+
+            if (imageFiles.length > 0) {
+              // Process multiple images simultaneously
+              console.log(
+                `Processing ${imageFiles.length} image(s) simultaneously`
+              );
+
+              // Convert files to Image objects and add to block
+              const images = imageFiles.map((file) => ({
+                id: `img_${Date.now()}_${Math.random()
+                  .toString(36)
+                  .substr(2, 9)}`,
+                filename: file.name,
+                size: file.size,
+                type: file.type,
+                url: URL.createObjectURL(file), // Create object URL for display
+              }));
+
+              // Add all images to the current block in a single operation
+              actions.addImagesToBlock(props.block.id, images, imageFiles);
+
+              // Verify that images were added successfully
+              console.log(
+                `Successfully added ${images.length} image(s) to block ${props.block.id}`
+              );
+
+              // Log the created image objects for debugging
+              images.forEach((image) => {
+                console.log(
+                  `Image added: ${image.filename} (${image.type}, ${image.size} bytes)`
+                );
+              });
+            }
+          }
+        }}
+        onTextContent={(textContent) => {
+          props.onContentChange(props.block.id, textContent, blockRef);
+        }}
+        render={(textContent) => {
+          return (
+            <For each={textContent()?.split(" ") ?? []}>
+              {(word, wordIndex) => (
+                <>
+                  <Show when={word.startsWith("#")} fallback={word}>
+                    <button onClick={() => console.log("clicked!")}>
+                      {word}
+                    </button>
+                  </Show>
+                  <Show
+                    when={textContent().split(" ").length - 1 !== wordIndex()}
+                    children=" "
+                  />
+                </>
+              )}
+            </For>
+          );
+        }}
+      />
+      <For each={props.block.children}>
+        {(child) => <ContentWithChildren block={child} />}
+      </For>
+    </div>
+  );
+};

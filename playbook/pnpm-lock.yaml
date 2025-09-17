@@ -116,6 +116,9 @@ importers:
       solid-js:
         specifier: ^1.9.5
         version: 1.9.9
+      solid-slider:
+        specifier: ^1.3.18
+        version: 1.3.18(solid-js@1.9.9)
       tailwind-merge:
         specifier: ^3.3.1
         version: 3.3.1
@@ -1504,6 +1507,11 @@ packages:
 
   '@solid-primitives/styles@0.1.2':
     resolution: {integrity: sha512-7iX5K+J5b1PRrbgw3Ki92uvU2LgQ0Kd/QMsrAZxDg5dpUBwMyTijZkA3bbs1ikZsT1oQhS41bTyKbjrXeU0Awg==}
+    peerDependencies:
+      solid-js: ^1.6.12
+
+  '@solid-primitives/timer@1.4.3':
+    resolution: {integrity: sha512-m2h6DgbnBLIh6zj0+BdGRZL0d+USPjmK7u+SqeK5N8hx+gFypZviSufCuC7ig/zGT3/C02nREUmxxjqd0OdHfg==}
     peerDependencies:
       solid-js: ^1.6.12
 
@@ -3068,6 +3076,9 @@ packages:
     resolution: {integrity: sha512-+KJGIyHgkGuIq3IEBNftfhW/LfWhXUIY6OmyVWjliu5KH1y0fw7VQ8YndE2O4qZdMSd9SqbnC8GOcZEy0Om7sA==}
     engines: {node: '>=18'}
 
+  keen-slider@6.8.6:
+    resolution: {integrity: sha512-dcEQ7GDBpCjUQA8XZeWh3oBBLLmyn8aoeIQFGL/NTVkoEOsmlnXqA4QykUm/SncolAZYGsEk/PfUhLZ7mwMM2w==}
+
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
@@ -3957,6 +3968,11 @@ packages:
     resolution: {integrity: sha512-F3aPsX6hVw9ttm5LYlth8Q15x6MlI/J3Dn+o3EQyRTtTxidepSTwAYdozt01/YA+7ObcciagGEyXIopGZzQtbA==}
     peerDependencies:
       solid-js: ^1.3
+
+  solid-slider@1.3.18:
+    resolution: {integrity: sha512-7lSGAp1Qt0HBYJ0T9akGjJIfgzcqmvzLVUWCJmLlTVoUk0ocSwW+NW3tGbcJDFAPXMq7W3Tq+ts/aTpCYVoLwQ==}
+    peerDependencies:
+      solid-js: ^1.8.5
 
   solid-use@0.9.1:
     resolution: {integrity: sha512-UwvXDVPlrrbj/9ewG9ys5uL2IO4jSiwys2KPzK4zsnAcmEl7iDafZWW1Mo4BSEWOmQCGK6IvpmGHo1aou8iOFw==}
@@ -5714,6 +5730,10 @@ snapshots:
       '@solid-primitives/utils': 6.3.2(solid-js@1.9.9)
       solid-js: 1.9.9
 
+  '@solid-primitives/timer@1.4.3(solid-js@1.9.9)':
+    dependencies:
+      solid-js: 1.9.9
+
   '@solid-primitives/trigger@1.2.2(solid-js@1.9.9)':
     dependencies:
       '@solid-primitives/utils': 6.3.2(solid-js@1.9.9)
@@ -7325,6 +7345,8 @@ snapshots:
 
   jwt-decode@4.0.0: {}
 
+  keen-slider@6.8.6: {}
+
   kleur@4.1.5: {}
 
   klona@2.0.6: {}
@@ -8376,6 +8398,13 @@ snapshots:
       solid-js: 1.9.9
     transitivePeerDependencies:
       - supports-color
+
+  solid-slider@1.3.18(solid-js@1.9.9):
+    dependencies:
+      '@solid-primitives/timer': 1.4.3(solid-js@1.9.9)
+      '@solid-primitives/utils': 6.3.2(solid-js@1.9.9)
+      keen-slider: 6.8.6
+      solid-js: 1.9.9
 
   solid-use@0.9.1(solid-js@1.9.9):
     dependencies:

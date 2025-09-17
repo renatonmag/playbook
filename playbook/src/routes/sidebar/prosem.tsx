@@ -8,7 +8,7 @@ const Prosem = () => {
   return (
     <div>
       <h1>Prosem Editor</h1>
-      <Editor ref={editorRef} />
+      <ClientEditor ref={editorRef} />
     </div>
   );
 };

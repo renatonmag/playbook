@@ -321,3 +321,85 @@ export function setCaretAtLineColumn(
     // no-op on failure
   }
 }
+
+/**
+ * Get the current selection and extract block-data-id attributes from HTML elements.
+ * Returns an array of block-data-id values found in the selected range.
+ */
+export function getSelectionBlockDataIds(): string[] {
+  try {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      return [];
+    }
+
+    const range = selection.getRangeAt(0);
+    const blockDataIds: string[] = [];
+
+    // Helper function to extract block-data-id from an element and its ancestors
+    const extractBlockDataId = (element: Element): void => {
+      let current: Element | null = element;
+      while (current) {
+        const blockDataId = current.getAttribute("block-data-id");
+        if (blockDataId && !blockDataIds.includes(blockDataId)) {
+          blockDataIds.push(blockDataId);
+        }
+        current = current.parentElement;
+      }
+    };
+
+    // Get all elements within the selection range
+    const commonAncestor = range.commonAncestorContainer;
+
+    if (commonAncestor.nodeType === Node.ELEMENT_NODE) {
+      const element = commonAncestor as Element;
+      extractBlockDataId(element);
+
+      // Also check all child elements within the range
+      const walker = document.createTreeWalker(
+        commonAncestor,
+        NodeFilter.SHOW_ELEMENT,
+        {
+          acceptNode: (node) => {
+            return range.intersectsNode(node)
+              ? NodeFilter.FILTER_ACCEPT
+              : NodeFilter.FILTER_REJECT;
+          },
+        }
+      );
+
+      let currentNode = walker.nextNode();
+      while (currentNode) {
+        if (currentNode.nodeType === Node.ELEMENT_NODE) {
+          extractBlockDataId(currentNode as Element);
+        }
+        currentNode = walker.nextNode();
+      }
+    } else if (commonAncestor.nodeType === Node.TEXT_NODE) {
+      // If the common ancestor is a text node, check its parent element
+      const parentElement = commonAncestor.parentElement;
+      if (parentElement) {
+        extractBlockDataId(parentElement);
+      }
+    }
+
+    // Also check the start and end containers of the range
+    if (
+      range.startContainer.nodeType === Node.TEXT_NODE &&
+      range.startContainer.parentElement
+    ) {
+      extractBlockDataId(range.startContainer.parentElement);
+    }
+    if (
+      range.endContainer.nodeType === Node.TEXT_NODE &&
+      range.endContainer.parentElement
+    ) {
+      extractBlockDataId(range.endContainer.parentElement);
+    }
+
+    return blockDataIds;
+  } catch (error) {
+    console.error("Error getting selection block data IDs:", error);
+    return [];
+  }
+}

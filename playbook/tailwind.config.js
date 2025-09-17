@@ -64,6 +64,7 @@ module.exports = {
             },
             "ul ul > li::marker": {
               color: theme("colors.gray.800"),
+              fontSize: "1rem",
             },
             "ul ul ul > li::marker": {
               color: theme("colors.gray.800"),

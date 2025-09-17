@@ -13,8 +13,8 @@ import { api } from "../../convex/_generated/api";
 import { createAction, createMutation, createQuery } from "../cvxsolid";
 import { getDocuments } from "../../convex/documents";
 import { createUploadThing } from "~/ut/utUtils";
-import debounce from "lodash.debounce";
 import { getCaretPositionFromSelection } from "~/lib/caret";
+import { blocks } from "~/utils/doc";
 
 export interface IDocumentsActions {
   // Block management
@@ -81,19 +81,10 @@ export function createDocumentStore(
       {
         id: "1dsfds33",
         title: "Entradas",
-        blocks: [
-          {
-            id: "1",
-            content: "this is the first block",
-            type: "text",
-            images: [],
-            galleryId: "1",
-            order: 0,
-          },
-        ],
+        blocks: blocks,
         focusedBlockId: "1",
         caretPosition: { line: 0, column: 0 },
-        blockCaretPosition: { line: 0, column: 0 },
+        blockCaretPosition: {},
       },
     ],
     activeDocumentId: "1dsfds33",
@@ -172,10 +163,6 @@ export function createDocumentStore(
     });
   });
 
-  const debouncedUpdateBlockMutation = debounce(async (args: any) => {
-    await updateBlockMutation(args);
-  }, 500);
-
   const setBlockCaretPosition = (
     blockId: string,
     pos: { line: number; column: number }
@@ -187,10 +174,13 @@ export function createDocumentStore(
     );
     if (blockIdx === -1) return;
     const block = store.documents[activeDocumentIndex].blocks[blockIdx];
-    setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
-      ...block,
-      caretPosition: pos,
-    });
+    setStore(
+      "documents",
+      activeDocumentIndex,
+      "blockCaretPosition",
+      blockId,
+      pos
+    );
   };
 
   const setDocumentCaretPosition = (pos: { line: number; column: number }) => {
@@ -238,12 +228,6 @@ export function createDocumentStore(
     );
   };
 
-  const genId = () => {
-    return `blockId-${Math.random()
-      .toString(36)
-      .substring(2, 10)}-${Date.now()}`;
-  };
-
   const getDocumentIndexById = (documentId: string) => {
     return store.documents.findIndex((doc) => doc.id === documentId);
   };
@@ -285,6 +269,7 @@ export function createDocumentStore(
       const afterBlockIndex = activeDocument.blocks.findIndex(
         (block) => block.id === afterId
       );
+
       const block = activeDocument.blocks[afterBlockIndex];
       let newBlock: Block = {
         id: genId(),
@@ -716,3 +701,7 @@ export function createDocumentStore(
 
   return store;
 }
+
+export const genId = () => {
+  return `blockId-${Math.random().toString(36).substring(2, 10)}-${Date.now()}`;
+};

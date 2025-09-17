@@ -1,4 +1,5 @@
 import { Schema } from "prosemirror-model";
+import { bulletList, listItem, orderedList } from "prosemirror-schema-list";
 
 const schema = new Schema({
   nodes: {
@@ -11,6 +12,22 @@ const schema = new Schema({
       },
       parseDOM: [{ tag: "p" }],
     },
+    list_item: {
+      content: "paragraph",
+      ...listItem,
+    },
+    heading: {
+      content: "text*",
+      group: "block",
+      toDOM(node) {
+        return ["h" + node.attrs.level, 0];
+      },
+      parseDOM: [{ tag: "h1" }, { tag: "h2" }, { tag: "h3" }],
+      attrs: {
+        level: { default: 1 },
+      },
+    },
+
     video: {
       // We'll define this as a block node.
       group: "block",
@@ -74,6 +91,35 @@ const schema = new Schema({
             "https://cdn.pixabay.com/photo/2015/04/23/22/00/tree-736885__480.jpg",
         },
       },
+    },
+    checkbox: {
+      group: "block",
+      atom: true,
+
+      attrs: {
+        checked: { default: false },
+      },
+      toDOM(node) {
+        return [
+          "div",
+          // ["input", { type: "checkbox", checked: node.attrs.checked }],
+          // ["span", { class: "checkbox-content" }, 0],
+          ["div", 0],
+        ];
+      },
+      parseDOM: [
+        {
+          tag: "div.checkbox-node",
+          getAttrs: (dom) => {
+            const checkbox = dom.querySelector(
+              'input[type="checkbox"]'
+            ) as HTMLInputElement;
+            return {
+              checked: checkbox ? checkbox.checked : false,
+            };
+          },
+        },
+      ],
     },
     text: {},
   },
