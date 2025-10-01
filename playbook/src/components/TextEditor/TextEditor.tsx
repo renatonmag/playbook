@@ -103,7 +103,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
 
   return (
     <div
-      class="w-[700px] mx-auto outline-0"
+      class="mx-auto outline-0"
       contenteditable={contentEditable()}
       onMouseDown={() => {
         setContentEditable(true);
@@ -118,7 +118,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
     >
       <div>
         <For each={getActiveDocument()?.blocks ?? []}>
-          {(block) => (
+          {(block, index) => (
             <div class="flex relative">
               <Show when={getActiveDocument()?.focusedBlockId === block.id}>
                 <DropdownMenu>
@@ -136,11 +136,9 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
                 </DropdownMenu>
               </Show>
               <TextBlock
+                indexSequence={[index()]}
                 block={block}
                 setContentEditable={setContentEditable}
-                onContentChange={updateBlockContent}
-                onBlockCreate={addBlock}
-                onBlockDelete={removeBlock}
                 setFocusedBlockRef={setFocusedBlockRef}
                 setSavedCaretPosition={setCaretPosition}
               />

@@ -7,7 +7,7 @@ export interface Block {
   galleryId?: string;
   order?: number;
   caretPosition?: { line: number; column: number };
-  children?: Block[];
+  blocks: Block[];
 }
 
 // export interface ListBlock {

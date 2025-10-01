@@ -15,6 +15,7 @@ import { getDocuments } from "../../convex/documents";
 import { createUploadThing } from "~/ut/utUtils";
 import { getCaretPositionFromSelection } from "~/lib/caret";
 import { blocks } from "~/utils/doc";
+import { content } from "../../tailwind.config";
 
 export interface IDocumentsActions {
   // Block management
@@ -141,6 +142,24 @@ export function createDocumentStore(
     api.documents.removeGalleryUrl
   );
 
+  // createEffect(() => {
+  //   const activeDocument = getActiveDocument();
+  //   if (!activeDocument) {
+  //     console.info("No active document found");
+  //     return;
+  //   }
+
+  //   const caretPosition = activeDocument.caretPosition;
+  //   if (!caretPosition) {
+  //     console.info("No blockCaretPosition found for active document", {
+  //       documentId: activeDocument.id,
+  //       documentTitle: activeDocument.title,
+  //     });
+  //     return;
+  //   }
+
+  //   console.info("Active document caretPosition changed", caretPosition.column);
+  // });
   createEffect(() => {
     const documents = getDocumentsQuery();
     if (!documents) return;
@@ -165,21 +184,22 @@ export function createDocumentStore(
   });
 
   const setBlockCaretPosition = (
-    blockId: string,
+    indexSequence: any,
     pos: { line: number; column: number }
   ) => {
     const activeDocumentIndex = getActiveDocumentIndex();
     if (activeDocumentIndex === -1) return;
-    const blockIdx = store.documents[activeDocumentIndex].blocks.findIndex(
-      (block) => block.id === blockId
+    const block = getBlock(
+      store.documents[activeDocumentIndex].blocks,
+      indexSequence
     );
-    if (blockIdx === -1) return;
-    const block = store.documents[activeDocumentIndex].blocks[blockIdx];
+    if (block === null) return;
+    // console.log({ block, pos });
     setStore(
       "documents",
       activeDocumentIndex,
       "blockCaretPosition",
-      blockId,
+      block.id,
       pos
     );
   };
@@ -210,7 +230,6 @@ export function createDocumentStore(
           content: "",
           type: "text",
           images: [],
-          caretPosition: { line: 0, column: 0 },
         },
       ],
       focusedBlockId: firstBlockId as unknown as string,
@@ -255,118 +274,123 @@ export function createDocumentStore(
 
   Object.assign(actions, {
     // Block management
-    async addBlock(afterId?: string, focusId?: string) {
+    async addBlock(indexSequence: number[]) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return {} as Block;
-      const activeDocumentId = store.documents[activeDocumentIndex].id;
-
-      // const addBlockRes: any = await addBlockMutation({
-      //   documentId: activeDocumentId as any,
-      // });
-      // const { blockId } = addBlockRes as { blockId: string };
-
-      // Find the index of the block to insert after
       const activeDocument = store.documents[activeDocumentIndex];
-      const findBlockIndexRecursively = (
-        blocks: Block[],
-        targetId: string
-      ): number[] => {
-        for (let i = 0; i < blocks.length; i++) {
-          if (blocks[i].id === targetId) {
-            return [i];
-          }
-          if (blocks[i].children && blocks[i].children.length > 0) {
-            const childIndexes = findBlockIndexRecursively(
-              blocks[i].children,
-              targetId
-            );
-            if (childIndexes.length > 0) {
-              return [i, ...childIndexes]; // Return sequence of indexes from parent to child
-            }
-          }
-        }
-        return [];
-      };
 
-      const afterBlockIndexes = findBlockIndexRecursively(
-        activeDocument.blocks,
-        afterId ?? ""
-      );
-      const block = getBlockAtIndexes(activeDocument.blocks, afterBlockIndexes);
+      const block = getBlock(activeDocument.blocks, indexSequence ?? []);
+      if (!block) return;
+
+      const id = genId();
       let newBlock: Block = {
-        id: genId(),
+        id,
         content: "",
         type: "text",
         order: undefined,
         images: [],
-        caretPosition: { line: 0, column: 0 },
+        blocks: [],
       };
-      if (block.type === "ol" && afterBlockIndexes.length > 0) {
+
+      const pos = actions.getBlockCaret(block.id);
+      if (pos.column === 0 && block.content !== "") {
+        setStore(
+          produce((state) => {
+            const parent = getParent(
+              state.documents[activeDocumentIndex],
+              indexSequence
+            );
+            if (!parent) return state;
+            if (block.type === "ol") {
+              const prev =
+                parent.blocks[indexSequence[indexSequence.length - 1]];
+              newBlock.type = "ol";
+              newBlock.order = prev.order;
+              prev.order = (prev.order ?? 0) + 1;
+            }
+            parent.blocks.splice(
+              indexSequence[indexSequence.length - 1],
+              0,
+              newBlock
+            );
+            return state;
+          })
+        );
+      } else {
+        setStore(
+          produce((state) => {
+            const parent = getParent(
+              state.documents[activeDocumentIndex],
+              indexSequence
+            );
+            if (!parent) return state;
+            const prev = parent.blocks[indexSequence[indexSequence.length - 1]];
+            if (block.type === "ol") {
+              newBlock.type = "ol";
+              newBlock.order = (block.order ?? 0) + 1;
+            }
+            console.log({ newBlock, block });
+            parent.blocks.splice(
+              indexSequence[indexSequence.length - 1] + 1,
+              0,
+              {
+                ...newBlock,
+                content: block.content.slice(pos.absolute),
+                blocks: prev.blocks,
+              }
+            );
+
+            prev.blocks = [];
+            prev.content = block.content.slice(0, pos.absolute);
+            return state;
+          })
+        );
+
+        setTimeout(() => {
+          setFocusedBlock(newBlock.id);
+        }, 0);
+      }
+
+      if (block.type === "ol") {
+        // const pos = actions.getBlockCaret(block.id);
+        if (pos.column === 0) return;
+        //   setStore(
+        //     "documents",
+        //     activeDocumentIndex,
+        //     produce((draft) => {
+        //       const parent = getParent(draft, indexSequence);
+        //       if (!parent) return;
+        //       parent.blocks.splice(
+        //         indexSequence[indexSequence.length - 1],
+        //         0,
+        //         newBlock
+        //       );
+        //       return draft;
+        //     })
+        //   );
+        // }
         setStore(
           "documents",
           activeDocumentIndex,
-          "blocks",
           produce((draft) => {
-            if (block?.type === "ol" && afterBlockIndexes.length > 0) {
-              let i = afterBlockIndexes[afterBlockIndexes.length - 1];
-              const parentChildrenIdxs = afterBlockIndexes.slice(0, -1);
-              let updated = [
-                ...(getBlockAtIndexes(draft, parentChildrenIdxs)?.children ??
-                  []),
-              ];
-              if (i === undefined) return blocks;
-              while (i < updated.length && updated[i]?.type === "ol") {
-                const current = updated[i];
-                updated[i] = {
-                  ...current,
-                  order: (current.order ?? 0) + 1,
-                } as any;
-                i++;
-              }
+            let i = indexSequence[indexSequence.length - 1] + 2;
+            const parent = getParent(draft, indexSequence);
+            if (!parent) return;
+            if (i === undefined) return blocks;
+            while (
+              i < parent.blocks.length &&
+              parent.blocks[i]?.type === "ol"
+            ) {
+              const current = parent.blocks[i];
+              parent.blocks[i] = {
+                ...current,
+                order: (current.order ?? 0) + 1,
+              } as any;
+              i++;
             }
+            return draft;
           })
         );
-        newBlock.type = "ol";
-        newBlock.order = block?.order + 1;
-      }
-
-      // Before inserting a new block, if we're inside an ordered list,
-      // increment the order of all subsequent contiguous 'ol' blocks
-
-      if (afterBlockIndexes.length === 0) {
-        // If afterId block not found, append to the start
-        setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
-          newBlock,
-          ...blocks,
-        ]);
-        setTimeout(() => {
-          setFocusedBlock(focusId ?? newBlock.id);
-        }, 0);
-      } else {
-        // Insert the new block after the specified block
-        const path = makePathFromIndexes(afterBlockIndexes.slice(0, -1), [
-          "documents",
-          activeDocumentIndex,
-          "blocks",
-        ]);
-        console.log({ path });
-        setStore(...path, "children", (blocks) => {
-          const updated = [...blocks];
-          updated.splice(
-            afterBlockIndexes[afterBlockIndexes.length - 1] + 1,
-            0,
-            newBlock
-          );
-          return updated;
-        });
-        // setStore("documents", activeDocumentIndex, "blocks", (blocks) => [
-        //   ...blocks.slice(0, afterBlockIndex + 1),
-        //   newBlock,
-        //   ...blocks.slice(afterBlockIndex + 1),
-        // ]);
-        setTimeout(() => {
-          setFocusedBlock(focusId ?? newBlock.id);
-        }, 0);
       }
     },
 
@@ -398,6 +422,20 @@ export function createDocumentStore(
       return store.documents[activeDocumentIndex].caretPosition;
     },
 
+    getBlockCaret(blockId: string) {
+      const activeDocumentIndex = getActiveDocumentIndex();
+
+      if (activeDocumentIndex === -1)
+        return { line: 0, column: 0, absolute: 0 };
+      return (
+        store.documents[activeDocumentIndex].blockCaretPosition?.[blockId] || {
+          line: 0,
+          column: 0,
+          absolute: 0,
+        }
+      );
+    },
+
     updateDocumentTitleLocal(documentId: string, title: string) {
       const docIndex = getDocumentIndexById(documentId);
       if (docIndex === -1) return;
@@ -417,40 +455,109 @@ export function createDocumentStore(
       }
     },
 
-    async removeBlock(blockId: string, focusId?: string) {
+    sinkBlock(indexSequence: number[]) {
+      const blockDepth = new BlockDepth(indexSequence);
+      if (!blockDepth.canSink()) return;
+
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+      const blockToSink = getBlock(
+        store.documents[activeDocumentIndex].blocks,
+        indexSequence
+      );
+
+      if (!blockToSink) return;
+
+      let path = new EditorPath(activeDocumentIndex)
+        .blocks()
+        .parent(indexSequence);
+
+      if (indexSequence.length > 1) path = path.blocks();
+
+      setStore(
+        produce((state) => {
+          const activeDocument = state.documents[activeDocumentIndex];
+          const parent = getParent(activeDocument, indexSequence);
+          if (!parent) return state;
+          parent.blocks = parent.blocks.filter(
+            (block) => block.id !== blockToSink?.id
+          );
+          return state;
+        })
+      );
+      // setStore(...path.path(), (blocks) =>
+      //   blocks.filter((block) => block.id !== blockToSink?.id)
+      // );
+
+      path = new EditorPath(activeDocumentIndex)
+        .blocks()
+        .prevSibling(indexSequence)
+        .blocks();
+
+      console.log({ path });
+
+      setStore(...path.path(), (blocks) => {
+        return [...blocks, blockToSink];
+      });
+    },
+
+    liftBlock(indexSequence: number[]) {
+      if (indexSequence.length <= 1) return;
+      const activeDocumentIndex = getActiveDocumentIndex();
+      const blockToLift = getBlock(
+        store.documents[activeDocumentIndex].blocks,
+        indexSequence
+      );
+      if (!blockToLift) return;
+
+      let path = new EditorPath(activeDocumentIndex)
+        .blocks()
+        .parent(indexSequence);
+
+      if (indexSequence.length > 1) path = path.blocks();
+
+      setStore(...path.path(), (blocks) =>
+        blocks.filter((block) => block.id !== blockToLift?.id)
+      );
+
+      path = new EditorPath(activeDocumentIndex).blocks().parent(indexSequence);
+
+      const _path = path.path().slice(0, -1);
+      const afterBlock = path.path().pop();
+
+      setStore(..._path, (blocks) => {
+        const updated = [...blocks];
+        updated.splice(afterBlock + 1, 0, blockToLift);
+        return updated;
+      });
+    },
+
+    async removeBlock(indexSequence: number[]) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
 
       const activeDocument = getActiveDocument();
       if (!activeDocument || activeDocument.blocks.length <= 1) return; // Keep at least one block
 
-      // const result: any = await removeBlockMutation({
-      //   documentId: activeDocument.id as any,
-      //   blockId: blockId as any,
-      // });
-      // if (!result?.success) return;
+      const blockToRemove = getBlock(activeDocument.blocks, indexSequence);
 
-      // Find the block to remove and clean up its object URLs
-      const blockToRemoveIdx = activeDocument.blocks.findIndex(
-        (block) => block.id === blockId
-      );
-      const blockToRemove = activeDocument.blocks[blockToRemoveIdx];
+      if (!blockToRemove) return;
 
-      if (blockToRemove?.type === "ol") {
-        setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
-          const updated = [...blocks];
-          let i = blockToRemoveIdx + 1;
-          while (i < updated.length && updated[i]?.type === "ol") {
-            const current = updated[i];
-            updated[i] = {
-              ...current,
-              order: (current.order ?? 0) - 1,
-            } as any;
-            i++;
-          }
-          return updated;
-        });
-      }
+      // if (blockToRemove?.type === "ol") {
+      //   setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
+      //     const updated = [...blocks];
+      //     let i = blockToRemoveIdx + 1;
+      //     while (i < updated.length && updated[i]?.type === "ol") {
+      //       const current = updated[i];
+      //       updated[i] = {
+      //         ...current,
+      //         order: (current.order ?? 0) - 1,
+      //       } as any;
+      //       i++;
+      //     }
+      //     return updated;
+      //   });
+      // }
 
       if (blockToRemove && blockToRemove.images) {
         blockToRemove.images.forEach((image) => {
@@ -459,28 +566,72 @@ export function createDocumentStore(
           }
         });
       }
-
-      if (focusId) {
-        setFocusedBlock(focusId);
-      } else {
-        const currentIndex = activeDocument.blocks.findIndex(
-          (block) => block.id === blockId
+      const pos = actions.getBlockCaret(blockToRemove.id);
+      if (pos.column === 0) {
+        setStore(
+          produce((state) => {
+            const activeDocument = state.documents[activeDocumentIndex];
+            const parent = getParent(activeDocument, indexSequence);
+            if (!parent) return state;
+            parent.blocks = parent.blocks.filter(
+              (block) => block.id !== blockToRemove?.id
+            );
+            parent.blocks.splice(
+              indexSequence[indexSequence.length - 1],
+              0,
+              ...blockToRemove.blocks
+            );
+            return state;
+          })
         );
-        const newFocusedIndex = Math.max(0, currentIndex - 1);
-        const newFocusedBlock = activeDocument.blocks[newFocusedIndex];
-        if (newFocusedBlock) {
-          setFocusedBlock(newFocusedBlock.id);
+
+        if (blockToRemove.content) {
+          setStore(
+            produce((state) => {
+              const activeDocument = state.documents[activeDocumentIndex];
+              const prev = gePrevtBlock(activeDocument, indexSequence);
+              if (!prev) return state;
+              prev.content = prev.content + blockToRemove.content;
+              setFocusedBlock(prev.id);
+              return state;
+            })
+          );
         }
       }
 
-      setStore("documents", activeDocumentIndex, "blocks", (blocks) =>
-        blocks.filter((block) => block.id !== blockId)
-      );
+      const prevBlock = getPrevSibling(activeDocument, indexSequence);
+      if (prevBlock?.type === "ol") {
+        setStore(
+          "documents",
+          activeDocumentIndex,
+          produce((state) => {
+            const parent = getParent(state, indexSequence);
+            if (!parent) return state;
+            let i = indexSequence[indexSequence.length - 1];
+            let order = parent.blocks[i].order;
+            if (order === undefined) return state;
+            console.log({ i, order });
+            while (
+              i < parent.blocks.length &&
+              parent.blocks[i]?.type === "ol"
+            ) {
+              const current = parent.blocks[i];
+              order++;
+              parent.blocks[i] = {
+                ...current,
+                order: order,
+              } as any;
+              i++;
+            }
+            return state;
+          })
+        );
+      }
     },
 
     updateBlockContent: async (
-      blockId: string,
       content: string,
+      indexSequence: number[],
       blockRef: HTMLDivElement
     ) => {
       const activeDocumentIndex = store.documents.findIndex(
@@ -489,10 +640,8 @@ export function createDocumentStore(
       if (activeDocumentIndex === -1) return;
 
       const activeDocument = store.documents[activeDocumentIndex];
-      const blockIdx = activeDocument.blocks.findIndex((b) => b.id === blockId);
-      if (blockIdx < 0) return;
-
-      const block = activeDocument.blocks[blockIdx];
+      const block = getBlock(activeDocument.blocks, indexSequence);
+      if (!block) return;
 
       let desiredType = block.type;
       let desiredContent = content;
@@ -511,16 +660,26 @@ export function createDocumentStore(
         desiredContent = content.slice(2);
       }
 
-      const prevBlock = activeDocument.blocks[blockIdx - 1];
+      const prevBlock = getBlock(activeDocument.blocks, [
+        ...indexSequence.slice(0, -1),
+        indexSequence[indexSequence.length - 1] - 1,
+      ]);
       const newOrder = prevBlock?.type === "ol" ? prevBlock.order + 1 : 1;
+
+      const path = makePathFromIndexes(
+        indexSequence,
+        [],
+        ["documents", activeDocumentIndex, "blocks"]
+      );
+
       setTimeout(() => {
-        setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+        setStore(...path, {
           ...block,
           content: desiredContent,
           type: desiredType as any,
           order: desiredType === "ol" ? newOrder : undefined,
         });
-        actions.saveDocumentCaretPosition(blockRef, blockId);
+        actions.saveDocumentCaretPosition(blockRef, block.id);
       }, 0);
 
       // debouncedUpdateBlockMutation({
@@ -533,7 +692,7 @@ export function createDocumentStore(
 
     saveDocumentCaretPosition: (
       blockRef: HTMLDivElement,
-      blockId: string,
+      indexSequence: number[],
       justLine?: boolean
     ) => {
       if (!blockRef) return;
@@ -542,39 +701,103 @@ export function createDocumentStore(
       if (justLine) {
         pos.column = _pos.column;
       }
-      setBlockCaretPosition(blockId, pos);
+      setBlockCaretPosition(indexSequence, pos);
       setDocumentCaretPosition(pos);
       return pos;
     },
 
-    async setBlockTypeToText(blockId: string) {
+    setBlockTypeToText(indexSequence: number[]) {
       const activeDocumentIndex = getActiveDocumentIndex();
-      if (activeDocumentIndex === -1) return;
+      if (activeDocumentIndex === -1) return false;
 
-      const blocks = store.documents[activeDocumentIndex].blocks;
-      const blockIdx = blocks.findIndex((b) => b.id === blockId);
-      if (blockIdx < 0) return;
+      const block = getBlock(
+        store.documents[activeDocumentIndex].blocks,
+        indexSequence
+      );
+      if (!block) return false;
 
-      const block = blocks[blockIdx];
-      const caretPos = store.documents[activeDocumentIndex].caretPosition;
+      const blockType = block.type;
+
+      const caretPos = actions.getBlockCaret(block.id);
 
       // If caret at start and block is a list/radio/checkbox, revert to text
-      if (
-        (caretPos.column === 0 || block?.caretPosition?.column === 0) &&
-        (block.type === "ul" ||
-          block.type === "ol" ||
-          block.type === "radio" ||
-          block.type === "checkbox")
-      ) {
-        // await updateBlockMutation({
-        //   blockId: blockId as any,
-        //   type: "text",
-        // });
-        setStore("documents", activeDocumentIndex, "blocks", blockIdx, {
+      if (caretPos.column === 0 && blockType !== "text") {
+        let path = new EditorPath(activeDocumentIndex)
+          .blocks()
+          .block(indexSequence);
+
+        setStore(...path.path(), {
           ...block,
           type: "text",
         });
-        return;
+        const pos = actions.getBlockCaret(block.id);
+        if (blockType === "ol") {
+          // const pos = actions.getBlockCaret(block.id);
+          //   setStore(
+          //     "documents",
+          //     activeDocumentIndex,
+          //     produce((draft) => {
+          //       const parent = getParent(draft, indexSequence);
+          //       if (!parent) return;
+          //       parent.blocks.splice(
+          //         indexSequence[indexSequence.length - 1],
+          //         0,
+          //         newBlock
+          //       );
+          //       return draft;
+          //     })
+          //   );
+          // }
+          setStore(
+            "documents",
+            activeDocumentIndex,
+            produce((draft) => {
+              let i = indexSequence[indexSequence.length - 1] + 1;
+              const parent = getParent(draft, indexSequence);
+              if (!parent) return;
+              if (i === undefined) return blocks;
+              let order = 0;
+              while (
+                i < parent.blocks.length &&
+                parent.blocks[i]?.type === "ol"
+              ) {
+                const current = parent.blocks[i];
+                order += 1;
+                console.log({ current, order });
+                parent.blocks[i] = {
+                  ...current,
+                  order: order,
+                } as any;
+                i++;
+              }
+              return draft;
+            })
+          );
+        }
+
+        return true;
+      }
+      return false;
+    },
+
+    joinBlocks(indexSequence: number[]) {
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+      const block = getBlock(
+        store.documents[activeDocumentIndex].blocks,
+        indexSequence
+      );
+      if (!block) return;
+
+      const pos = actions.getBlockCaret(block.id);
+      if (pos.column === 0) {
+        const parentPath = new EditorPath(activeDocumentIndex)
+          .blocks()
+          .parent(indexSequence);
+        setStore(...parentPath.path(), (block) => ({
+          ...block,
+          content: block.content + block.content,
+        }));
       }
     },
 
@@ -764,13 +987,14 @@ const findByIdBFS = (root: Block | Block[], id: string): Block | null => {
 
 function makePathFromIndexes(
   indexes: number[],
+  endKey: any[],
   rootKey: any[] = ["documents", "blocks"]
-) {
+): [] {
   // Start with rootKey then alternate index, "children", index, "children", ...
   const path = [...rootKey];
   for (let i = 0; i < indexes.length; i++) {
     path.push(indexes[i].toString());
-    if (i < indexes.length - 1) path.push("children");
+    path.push(...endKey);
   }
   return path;
 }
@@ -786,10 +1010,101 @@ function updateBlockAtIndexes(setter: any, indexes: number[], updater: any) {
   }
 }
 
-const getBlockAtIndexes = (
-  blocks: Block[],
-  indexes: number[]
-): Block | null => {
+class BlockDepth {
+  private _indexes: number[] = [];
+  constructor(indexSequence: number[]) {
+    this._indexes = indexSequence;
+  }
+
+  canSink() {
+    console.log({ i: this._indexes[this._indexes.length - 1] });
+    return this._indexes[this._indexes.length - 1] >= 1;
+  }
+
+  get block() {
+    return this._indexes.length;
+  }
+
+  get parent() {
+    if (this._indexes[this._indexes.length - 1] - 1 < 0)
+      return this._indexes.length - 1;
+    return this._indexes.length;
+  }
+}
+
+function getPrevSibling(document: any, indexes: number[]): Block | null {
+  if (!document || indexes.length === 0) return null;
+
+  let current: Block[] | Block = document.blocks;
+
+  if (indexes[indexes.length - 1] === 0) return null;
+
+  indexes = [...indexes.slice(0, -1), indexes[indexes.length - 1] - 1];
+  for (const index of indexes) {
+    if (Array.isArray(current)) {
+      if (index >= current.length || index < 0) return null;
+      current = current[index];
+    } else {
+      if (!current?.blocks || index >= current?.blocks.length || index < 0)
+        return null;
+      current = current.blocks[index];
+    }
+  }
+
+  return Array.isArray(current) ? null : current;
+}
+
+function getParent(document: any, indexes: number[]): Block | null {
+  if (!document || indexes.length === 0) return null;
+
+  let current: Block[] | Block = document.blocks;
+
+  if (indexes.length === 1) return document;
+
+  indexes = indexes.slice(0, -1);
+  for (const index of indexes) {
+    if (Array.isArray(current)) {
+      if (index >= current.length || index < 0) return null;
+      current = current[index];
+    } else {
+      if (!current?.blocks || index >= current?.blocks.length || index < 0)
+        return null;
+      current = current.blocks[index];
+    }
+  }
+
+  return Array.isArray(current) ? null : current;
+}
+
+function gePrevtBlock(document: any, indexes: number[]): Block | null {
+  if (!document || indexes.length === 0) return null;
+
+  if (indexes[indexes.length - 1] - 1 < 0) return null;
+
+  if (indexes[indexes.length - 1] - 1 < 0) indexes = indexes.slice(0, -1);
+  else indexes = [...indexes.slice(0, -1), indexes[indexes.length - 1] - 1];
+  let current: Block[] | Block = document.blocks;
+  for (const index of indexes) {
+    if (Array.isArray(current)) {
+      if (index >= current.length || index < 0) return null;
+      current = current[index];
+    } else {
+      if (!current?.blocks || index >= current?.blocks.length || index < 0)
+        return null;
+      current = current.blocks[index];
+    }
+  }
+
+  if (Array.isArray(current)) return null;
+
+  while (current?.blocks && current.blocks.length > 0) {
+    current = current.blocks[current.blocks.length - 1];
+  }
+
+  return current;
+}
+
+const getBlock = (blocks: Block[], indexes: number[]): Block | null => {
   if (!blocks || indexes.length === 0) return null;
 
   let current: Block[] | Block = blocks;
@@ -799,11 +1114,100 @@ const getBlockAtIndexes = (
       if (index >= current.length || index < 0) return null;
       current = current[index];
     } else {
-      if (!current.children || index >= current.children.length || index < 0)
+      if (!current?.blocks || index >= current?.blocks.length || index < 0)
         return null;
-      current = current.children[index];
+      current = current.blocks[index];
     }
   }
 
   return Array.isArray(current) ? null : current;
+};
+
+class EditorPath {
+  private _path: string[] = [];
+
+  constructor(public documentIdx: number) {
+    this._path = ["documents", documentIdx.toString()];
+  }
+
+  parent(indexSequence: number[]) {
+    indexSequence = indexSequence.slice(0, -1);
+    this.block(indexSequence);
+    return this;
+  }
+
+  blocks() {
+    this._path.push("blocks");
+    return this;
+  }
+
+  title() {
+    this._path.push("title");
+    return this;
+  }
+
+  caretPosition() {
+    this._path.push("caretPosition");
+    return this;
+  }
+
+  blockCaretPosition() {
+    this._path.push("blockCaretPosition");
+    return this;
+  }
+
+  block(indexSequence: number[]) {
+    for (let i = 0; i < indexSequence.length; i++) {
+      this._path.push(indexSequence[i].toString());
+      if (i < indexSequence.length - 1) {
+        this._path.push("blocks");
+      }
+    }
+    return this;
+  }
+
+  prev(indexSequence) {
+    if (indexSequence[indexSequence.length - 1] - 1 < 0) {
+      for (let i = 0; i < indexSequence.length - 1; i++) {
+        this._path.push(indexSequence[i].toString());
+        this._path.push("blocks");
+      }
+      return this;
+    }
+    for (let i = 0; i < indexSequence.length; i++) {
+      if (i < indexSequence.length - 1) {
+        this._path.push(indexSequence[i].toString());
+        this._path.push("blocks");
+      }
+      if (i === indexSequence.length - 1) {
+        this._path.push((indexSequence[i] - 1).toString());
+      }
+    }
+    return this;
+  }
+
+  prevSibling(indexSequence: number[]) {
+    // if is the first block, no prev
+    if (indexSequence[indexSequence.length - 1] - 1 < 0) return this;
+    else {
+      for (let i = 0; i < indexSequence.length; i++) {
+        if (i < indexSequence.length - 1) {
+          this._path.push(indexSequence[i].toString());
+          this._path.push("blocks");
+        }
+        if (i === indexSequence.length - 1) {
+          this._path.push((indexSequence[i] - 1).toString());
+        }
+      }
+      return this;
+    }
+  }
+
+  path() {
+    return this._path;
+  }
+}
+
+const getText = (block: Block, pos: number) => {
+  return block.content.slice(pos);
 };

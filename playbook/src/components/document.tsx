@@ -26,16 +26,7 @@ const Document = (props: any) => {
   return (
     <div class="min-h-[calc(100vh-78px)] max-h-[calc(100vh-78px)] overflow-y-auto">
       <OverlayScrollbarsComponent defer>
-        <div
-          class="w-[700px] mx-auto px-4 py-8"
-          onSelectStart={(e: any) => {
-            const selection = window.getSelection();
-            const blockDataIds = getSelectionBlockDataIds();
-            console.log({
-              blockDataIds,
-            });
-          }}
-        >
+        <div class="w-2/3 mx-auto px-4 py-8">
           <input
             value={activeDoc()?.title || ""}
             onInput={handleTitleInput}

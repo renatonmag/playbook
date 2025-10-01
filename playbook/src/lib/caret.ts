@@ -1,6 +1,7 @@
 export interface CaretPosition {
   line: number;
   column: number;
+  absolute: number;
 }
 
 export interface VisualLineRect {
@@ -165,32 +166,98 @@ export function getVisualLineRects(editable: HTMLElement): VisualLineRect[] {
 //   }
 // }
 
+export function getSelectionOffsets(element: HTMLElement) {
+  const selection = document.getSelection();
+
+  if (!selection || selection.rangeCount === 0) {
+    return { start: 0, end: 0, anchor: 0, focus: 0 };
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.setEnd(selection.anchorNode!, selection.anchorOffset);
+  const anchor = range.toString().length;
+
+  range.setEnd(selection.focusNode!, selection.focusOffset);
+  const focus = range.toString().length;
+
+  return {
+    start: anchor < focus ? anchor : focus,
+    end: anchor > focus ? anchor : focus,
+    anchor,
+    focus,
+  };
+}
+
+function getNodeAndOffsetAtIndex(element: Node, index: number) {
+  const nodes = element.childNodes;
+
+  if (index === 0 && nodes.length === 0) {
+    return {
+      node: element,
+      offset: 0,
+    };
+  }
+
+  let accumulator = 0;
+
+  // Determine which node contains the selection-(start|end)
+  for (const node of nodes) {
+    const contentLength = node.textContent?.length || 0;
+
+    accumulator += contentLength;
+
+    if (accumulator >= index) {
+      const offset = index - (accumulator - contentLength);
+      if (node instanceof Text) {
+        return {
+          node,
+          offset,
+        };
+      }
+      return getNodeAndOffsetAtIndex(node, offset);
+    }
+  }
+
+  throw `Could not find node`;
+}
+
 export function getCaretPositionFromSelection(
   editable: HTMLElement
 ): CaretPosition {
   try {
     const doc = editable.ownerDocument || document;
     const sel = doc.getSelection();
-    if (!sel || sel.rangeCount === 0) return { line: 0, column: 0 };
+    if (!sel || sel.rangeCount === 0)
+      return { line: 0, column: 0, absolute: 0 };
 
     const range = sel.getRangeAt(0);
-    if (!editable.contains(range.endContainer)) return { line: 0, column: 0 };
+    if (!editable.contains(range.endContainer))
+      return { line: 0, column: 0, absolute: 0 };
 
-    const pre = range.cloneRange();
+    // Use the collapsed range at cursor position for more accurate tracking
+    const caretRange = range.cloneRange();
+    caretRange.collapse(false); // Collapse to end (cursor position)
+
+    // console.log(caretRange.endOffset, sel.anchorOffset, sel.focusOffset);
+
+    const pre = caretRange.cloneRange();
     pre.selectNodeContents(editable);
-    pre.setEnd(range.endContainer, range.endOffset);
+    pre.setEnd(caretRange.endContainer!, caretRange.endOffset);
 
     const rects = pre.getClientRects();
-    if (!rects || rects.length === 0) return { line: 0, column: 0 };
+    if (!rects || rects.length === 0)
+      return { line: 0, column: 0, absolute: 0 };
 
     // Count visual lines (soft-wrap aware) by unique rounded top values
     const tops = new Set<number>();
     for (let i = 0; i < rects.length; i++) tops.add(Math.round(rects[i].top));
     const line = Math.max(0, tops.size - 1);
 
+    // Use textContent to properly count all characters including spaces
     const absolute = pre.toString().length;
-    const text = editable.innerText || "";
-    if (text.length === 0) return { line: 0, column: 0 };
+    const text = editable.textContent || editable.innerText || "";
+    if (text.length === 0) return { line: 0, column: 0, absolute: 0 };
 
     // Find start of current visual line via hit-testing at the true line's left edge
     const lastRect = rects[rects.length - 1];
@@ -210,6 +277,7 @@ export function getCaretPositionFromSelection(
       const preLine = lineStartRange.cloneRange();
       preLine.selectNodeContents(editable);
       preLine.setEnd(lineStartRange.startContainer, lineStartRange.startOffset);
+      // Use toString() for consistency with absolute calculation above
       lineStartIndex = preLine.toString().length;
     } else {
       // Fallback: hard-line start using last newline before the caret
@@ -217,10 +285,17 @@ export function getCaretPositionFromSelection(
     }
 
     const column = Math.max(0, absolute - lineStartIndex);
-    return { line, column };
+
+    // Extract the current line's text content for logging
+    const lines = text.split("\n");
+    const currentLineText = lines[Math.min(line, lines.length - 1)] || "";
+    const nextLineStartIndex = lineStartIndex + currentLineText.length;
+    const lineText = text.substring(lineStartIndex, nextLineStartIndex);
+
+    return { line, column, absolute };
   } catch {
     console.error("Error getting caret position from selection");
-    return { line: 0, column: 0 };
+    return { line: 0, column: 0, absolute: 0 };
   }
 }
 
