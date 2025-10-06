@@ -8,6 +8,7 @@ import {
   Show,
   createEffect,
   Index,
+  untrack,
 } from "solid-js";
 import { ContentEditable } from "@bigmistqke/solid-contenteditable";
 import { Block } from "~/types/document";
@@ -42,9 +43,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   const [gStore, actions] = useGlobalStore();
   const [carouselApi, setCarouselApi] = createSignal<any>(null);
   const [navIntent, setNavIntent] = createSignal<"up" | "down" | null>(null);
-  const [isPositionned, setIsPositionned] = createSignal<"up" | "down" | null>(
-    null
-  );
+  const [backspaceCounter, setBackspaceCounter] = createSignal(0);
 
   let blockRef: HTMLDivElement | undefined;
 
@@ -65,6 +64,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     const top =
       range?.startContainer.parentElement?.getBoundingClientRect().top;
     if (!top) return false;
+    if (rects?.length === 0) return true;
     return rects?.length && Math.trunc(rects[0].top) <= Math.trunc(top) + 2;
   }
 
@@ -74,6 +74,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     const bottom =
       range?.startContainer.parentElement?.getBoundingClientRect().bottom;
     if (!bottom) return false;
+    if (rects?.length === 0) return true;
     return (
       rects?.length &&
       (Math.trunc(rects[0].bottom) >= Math.trunc(bottom) - 3 ||
@@ -135,28 +136,42 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
 
         // Guard: when content is empty and block type is not "text", convert to text type
         if (data.textContent === "" && props.block.type !== "text") {
-          actions.setBlockTypeToText(props.block.id);
+          actions.setBlockTypeToText(props.indexSequence);
           return null;
         }
-        actions.addBlock(props.indexSequence);
+        actions.sendPatch({
+          kind: "addBlock",
+          indexSequence: props.indexSequence,
+        });
+        // actions.addBlock(props.indexSequence);
       }
       return null;
     },
     Backspace: (data: any) => {
       const pos = actions.getBlockCaret(props.block.id);
-      if (pos.column === 0) {
+      if (props.block.content === "")
+        setBackspaceCounter(backspaceCounter() + 1);
+      if (pos.column === 0 || backspaceCounter() >= 2) {
         data.event.preventDefault();
-        if (props.indexSequence.length > 1) {
-          actions.liftBlock(props.indexSequence);
-          return null;
-        }
+        setBackspaceCounter(0);
 
         const result = actions.setBlockTypeToText(props.indexSequence);
         if (result) {
           return null;
         }
 
-        actions.removeBlock(props.indexSequence);
+        if (props.indexSequence.length > 1) {
+          actions.liftBlock(props.indexSequence);
+          return null;
+        }
+
+        actions.sendPatch({
+          kind: "removeBlock",
+          indexSequence: props.indexSequence,
+          opts: { focus: "prev" },
+        });
+        // actions.removeBlock(props.indexSequence);
+        console.log("props.indexSequence", props.indexSequence);
         return null;
       }
       return null;
@@ -174,8 +189,9 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         });
       }
       if (caretIsAtTop()) {
+        setNavIntent("up");
         data.event.preventDefault();
-        actions.blockNavigateUp(props.block.id);
+        actions.blockNavigateUp(props.indexSequence);
       }
       return null;
     },
@@ -193,8 +209,9 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       }
 
       if (caretIsAtBottom()) {
+        setNavIntent("down");
         data.event.preventDefault();
-        actions.blockNavigateDown(props.block.id);
+        actions.blockNavigateDown(props.indexSequence);
       }
       return null;
     },
@@ -203,13 +220,25 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   // Restore caret position when block becomes focused
   createEffect(() => {
     if (actions.getActiveDocument()?.focusedBlockId === props.block.id) {
+      if (!blockRef) return;
       props.setFocusedBlockRef(blockRef);
-      setTimeout(() => {
-        if (!blockRef) return;
-        blockRef.focus();
-
-        const intent = navIntent();
-        if (intent === "down") {
+      untrack(() => {
+        const blockCaretPositionToSet =
+          actions.getActiveDocument()?.blockCaretPositionToSet;
+        console.log("blockCaretPositionToSet", blockCaretPositionToSet);
+        if (blockCaretPositionToSet) {
+          const rects = getVisualLineRects(blockRef);
+          const lastLine = Math.max(0, rects.length - 1);
+          setCaretAtLineColumn(blockRef, {
+            line: lastLine,
+            column: blockCaretPositionToSet,
+          });
+          actions.setBlockCaretPositionToSet(null);
+        }
+        return;
+      });
+      untrack(() => {
+        if (actions.getActiveDocument()?.navDirection === "up") {
           const rects = getVisualLineRects(blockRef);
           const lastLine = Math.max(0, rects.length - 1);
           const saved = actions.getCaretPosition();
@@ -217,13 +246,11 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
             line: lastLine,
             column: saved.column,
           });
-          setNavIntent(null);
-        } else if (intent === "up") {
+        } else if (actions.getActiveDocument()?.navDirection === "down") {
           const saved = actions.getCaretPosition();
           setCaretAtLineColumn(blockRef, { line: 0, column: saved.column });
-          setNavIntent(null);
         }
-      }, 0);
+      });
     }
   });
 
@@ -240,7 +267,18 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   }
 
   return (
-    <div class="flex flex-col justify-center items-center w-full">
+    <div
+      classList={{
+        "flex flex-col justify-center items-center w-full mt-1": true,
+        "ml-[22px]":
+          props.indexSequence.length > 1 && props.block.type === "text",
+      }}
+      onKeyDown={(e) => {
+        if (e.ctrlKey && e.key === "z") {
+          actions.history.past.pop()?.undo();
+        }
+      }}
+    >
       <div class="flex w-full">
         <Show when={props.block.type == "ol"}>
           <span class="mr-2">{props.block.order}.</span>
@@ -254,7 +292,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         <Show when={props.block.type == "checkbox"}>
           <Checkbox id="terms1" />
         </Show>
-        <div>
+        <div class="w-full">
           <ContentEditable
             data-block-id={props.block.id}
             data-block-type={props.block.type}
@@ -279,14 +317,14 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
                 return;
               }
               actions.saveDocumentCaretPosition(blockRef, props.indexSequence);
-              if (blockRef) {
-                if (e.key === "ArrowDown") {
-                  setNavIntent("down");
-                }
-                if (e.key === "ArrowUp") {
-                  setNavIntent("up");
-                }
-              }
+              // if (blockRef) {
+              //   if (e.key === "ArrowDown") {
+              //     setNavIntent("down");
+              //   }
+              //   if (e.key === "ArrowUp") {
+              //     setNavIntent("up");
+              //   }
+              // }
             }}
             textContent={props.block.content || ""}
             onPaste={(e) => {
@@ -375,33 +413,34 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
               }
             }}
             onTextContent={(textContent) => {
+              console.log("textContent", textContent);
               actions.updateBlockContent(
                 textContent,
                 props.indexSequence,
                 blockRef
               );
             }}
-            render={(textContent) => {
-              return (
-                <For each={textContent()?.split(" ") ?? []}>
-                  {(word, wordIndex) => (
-                    <>
-                      <Show when={word.startsWith("#")} fallback={word}>
-                        <button onClick={() => console.log("clicked!")}>
-                          {word}
-                        </button>
-                      </Show>
-                      <Show
-                        when={
-                          textContent().split(" ").length - 1 !== wordIndex()
-                        }
-                        children=" "
-                      />
-                    </>
-                  )}
-                </For>
-              );
-            }}
+            // render={(textContent) => {
+            //   return (
+            //     <For each={textContent()?.split(" ") ?? []}>
+            //       {(word, wordIndex) => (
+            //         <>
+            //           <Show when={word.startsWith("#")} fallback={word}>
+            //             <button onClick={() => console.log("clicked!")}>
+            //               {word}
+            //             </button>
+            //           </Show>
+            //           <Show
+            //             when={
+            //               textContent().split(" ").length - 1 !== wordIndex()
+            //             }
+            //             children=" "
+            //           />
+            //         </>
+            //       )}
+            //     </For>
+            //   );
+            // }}
           />
           <For each={props.block.blocks}>
             {(child, index) => (

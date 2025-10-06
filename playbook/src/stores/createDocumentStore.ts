@@ -1,4 +1,5 @@
 import {
+  batch,
   createEffect,
   createSignal,
   InitializedResourceReturn,
@@ -16,6 +17,7 @@ import { createUploadThing } from "~/ut/utUtils";
 import { getCaretPositionFromSelection } from "~/lib/caret";
 import { blocks } from "~/utils/doc";
 import { content } from "../../tailwind.config";
+import { createHistory } from "~/utils/createHistory";
 
 export interface IDocumentsActions {
   // Block management
@@ -87,10 +89,12 @@ export function createDocumentStore(
         focusedBlockId: "1",
         caretPosition: { line: 0, column: 0 },
         blockCaretPosition: {},
+        blockCaretPositionToSet: null,
       },
     ],
     activeDocumentId: "1dsfds33",
   });
+  const history = createHistory();
 
   // createEffect(() => {
   //   const activeDocument = getActiveDocument();
@@ -272,9 +276,61 @@ export function createDocumentStore(
     setStore("documents", activeDocumentIndex, "focusedBlockId", blockId);
   };
 
+  const createPatch = (attributes: any) => {
+    switch (attributes.kind) {
+      case "addBlock":
+        return {
+          kind: "addBlock",
+          indexSequence: attributes.indexSequence,
+          opts: attributes?.opts,
+          undo: () => {
+            actions.removeBlock(attributes.indexSequence);
+          },
+        };
+      case "removeBlock":
+        const block = getBlock(
+          store.documents[getActiveDocumentIndex()].blocks,
+          attributes.indexSequence
+        );
+        return {
+          kind: "removeBlock",
+          indexSequence: attributes.indexSequence,
+          opts: attributes?.opts,
+          undo: () => {
+            actions.addBlock(attributes.indexSequence, {
+              block,
+            });
+          },
+        };
+      default:
+        return {
+          kind: "unknown",
+          indexSequence: attributes.indexSequence,
+          undo: undefined,
+        };
+    }
+  };
+
   Object.assign(actions, {
+    sendPatch(attributes: any) {
+      const patch = createPatch(attributes);
+      if (!patch.undo) return;
+      history.past.push(patch);
+      switch (patch.kind) {
+        case "addBlock":
+          actions.addBlock(patch.indexSequence);
+          break;
+        case "removeBlock":
+          actions.removeBlock(patch.indexSequence, patch.opts);
+          break;
+        default:
+          return;
+      }
+    },
+    history,
+
     // Block management
-    async addBlock(indexSequence: number[]) {
+    async addBlock(indexSequence: number[], opts?: { block?: Block }) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return {} as Block;
       const activeDocument = store.documents[activeDocumentIndex];
@@ -302,11 +358,13 @@ export function createDocumentStore(
             );
             if (!parent) return state;
             if (block.type === "ol") {
-              const prev =
-                parent.blocks[indexSequence[indexSequence.length - 1]];
               newBlock.type = "ol";
-              newBlock.order = prev.order;
-              prev.order = (prev.order ?? 0) + 1;
+            } else if (block.type === "ul") {
+              newBlock.type = "ul";
+            } else if (block.type === "radio") {
+              newBlock.type = "radio";
+            } else if (block.type === "checkbox") {
+              newBlock.type = "checkbox";
             }
             parent.blocks.splice(
               indexSequence[indexSequence.length - 1],
@@ -327,9 +385,13 @@ export function createDocumentStore(
             const prev = parent.blocks[indexSequence[indexSequence.length - 1]];
             if (block.type === "ol") {
               newBlock.type = "ol";
-              newBlock.order = (block.order ?? 0) + 1;
+            } else if (block.type === "ul") {
+              newBlock.type = "ul";
+            } else if (block.type === "radio") {
+              newBlock.type = "radio";
+            } else if (block.type === "checkbox") {
+              newBlock.type = "checkbox";
             }
-            console.log({ newBlock, block });
             parent.blocks.splice(
               indexSequence[indexSequence.length - 1] + 1,
               0,
@@ -352,42 +414,11 @@ export function createDocumentStore(
       }
 
       if (block.type === "ol") {
-        // const pos = actions.getBlockCaret(block.id);
-        if (pos.column === 0) return;
-        //   setStore(
-        //     "documents",
-        //     activeDocumentIndex,
-        //     produce((draft) => {
-        //       const parent = getParent(draft, indexSequence);
-        //       if (!parent) return;
-        //       parent.blocks.splice(
-        //         indexSequence[indexSequence.length - 1],
-        //         0,
-        //         newBlock
-        //       );
-        //       return draft;
-        //     })
-        //   );
-        // }
         setStore(
           "documents",
           activeDocumentIndex,
           produce((draft) => {
-            let i = indexSequence[indexSequence.length - 1] + 2;
-            const parent = getParent(draft, indexSequence);
-            if (!parent) return;
-            if (i === undefined) return blocks;
-            while (
-              i < parent.blocks.length &&
-              parent.blocks[i]?.type === "ol"
-            ) {
-              const current = parent.blocks[i];
-              parent.blocks[i] = {
-                ...current,
-                order: (current.order ?? 0) + 1,
-              } as any;
-              i++;
-            }
+            keepOlOrder(draft.blocks);
             return draft;
           })
         );
@@ -494,11 +525,20 @@ export function createDocumentStore(
         .prevSibling(indexSequence)
         .blocks();
 
-      console.log({ path });
-
       setStore(...path.path(), (blocks) => {
         return [...blocks, blockToSink];
       });
+
+      if (blockToSink.type === "ol") {
+        setStore(
+          "documents",
+          activeDocumentIndex,
+          produce((draft) => {
+            keepOlOrder(draft.blocks);
+            return draft;
+          })
+        );
+      }
     },
 
     liftBlock(indexSequence: number[]) {
@@ -510,29 +550,71 @@ export function createDocumentStore(
       );
       if (!blockToLift) return;
 
-      let path = new EditorPath(activeDocumentIndex)
-        .blocks()
-        .parent(indexSequence);
+      // path = new EditorPath(activeDocumentIndex).blocks().parent(indexSequence);
 
-      if (indexSequence.length > 1) path = path.blocks();
+      // const _path = path.path().slice(0, -1);
+      // const afterBlock = path.path().pop();
 
-      setStore(...path.path(), (blocks) =>
-        blocks.filter((block) => block.id !== blockToLift?.id)
+      setStore(
+        "documents",
+        activeDocumentIndex,
+        produce((draft) => {
+          let blockToLift = getBlock(draft.blocks, indexSequence);
+          if (!blockToLift) return draft;
+          blockToLift = {
+            ...blockToLift,
+          };
+
+          let parent = getParent(draft, indexSequence);
+          if (!parent) return draft;
+          if (blockToLift.blocks.length === 0) {
+            const nextBlocks = parent.blocks.slice(
+              indexSequence[indexSequence.length - 1] + 1
+            );
+            parent.blocks = parent.blocks.slice(
+              0,
+              indexSequence[indexSequence.length - 1]
+            );
+            blockToLift.blocks = nextBlocks;
+          }
+
+          parent.blocks = parent.blocks.filter(
+            (block) => block.id !== blockToLift.id
+          );
+
+          const parent_index = indexSequence.slice(0, -1);
+          const parent_parent = getParent(draft, parent_index);
+          if (!parent_parent) return draft;
+          parent_parent.blocks.splice(
+            parent_index[parent_index.length - 1] + 1,
+            0,
+            blockToLift
+          );
+
+          setFocusedBlock(blockToLift.id);
+          return draft;
+        })
       );
+      // setStore(..._path, (blocks) => {
+      //   const updated = [...blocks];
+      //   updated.splice(afterBlock + 1, 0, blockToLift);
+      //   return updated;
+      // });
 
-      path = new EditorPath(activeDocumentIndex).blocks().parent(indexSequence);
-
-      const _path = path.path().slice(0, -1);
-      const afterBlock = path.path().pop();
-
-      setStore(..._path, (blocks) => {
-        const updated = [...blocks];
-        updated.splice(afterBlock + 1, 0, blockToLift);
-        return updated;
-      });
+      setStore(
+        "documents",
+        activeDocumentIndex,
+        produce((draft) => {
+          keepOlOrder(draft.blocks);
+          return draft;
+        })
+      );
     },
 
-    async removeBlock(indexSequence: number[]) {
+    async removeBlock(
+      indexSequence: number[],
+      opts?: { focus?: "same" | "prev" }
+    ) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
 
@@ -543,22 +625,6 @@ export function createDocumentStore(
 
       if (!blockToRemove) return;
 
-      // if (blockToRemove?.type === "ol") {
-      //   setStore("documents", activeDocumentIndex, "blocks", (blocks) => {
-      //     const updated = [...blocks];
-      //     let i = blockToRemoveIdx + 1;
-      //     while (i < updated.length && updated[i]?.type === "ol") {
-      //       const current = updated[i];
-      //       updated[i] = {
-      //         ...current,
-      //         order: (current.order ?? 0) - 1,
-      //       } as any;
-      //       i++;
-      //     }
-      //     return updated;
-      //   });
-      // }
-
       if (blockToRemove && blockToRemove.images) {
         blockToRemove.images.forEach((image) => {
           if (image.url) {
@@ -566,73 +632,73 @@ export function createDocumentStore(
           }
         });
       }
-      const pos = actions.getBlockCaret(blockToRemove.id);
-      if (pos.column === 0) {
+
+      setStore(
+        produce((state) => {
+          const activeDocument = state.documents[activeDocumentIndex];
+          const parent = getParent(activeDocument, indexSequence);
+          if (!parent) return state;
+          parent.blocks = parent.blocks.filter(
+            (block) => block.id !== blockToRemove?.id
+          );
+          parent.blocks.splice(
+            indexSequence[indexSequence.length - 1],
+            0,
+            ...blockToRemove.blocks
+          );
+          return state;
+        })
+      );
+
+      if (blockToRemove.content) {
         setStore(
           produce((state) => {
             const activeDocument = state.documents[activeDocumentIndex];
-            const parent = getParent(activeDocument, indexSequence);
-            if (!parent) return state;
-            parent.blocks = parent.blocks.filter(
-              (block) => block.id !== blockToRemove?.id
-            );
-            parent.blocks.splice(
-              indexSequence[indexSequence.length - 1],
-              0,
-              ...blockToRemove.blocks
-            );
+            const prev = gePrevBlock(activeDocument, indexSequence);
+            if (!prev) return state;
+            prev.content = prev.content + blockToRemove.content;
+            setFocusedBlock(prev.id);
+            actions.setBlockCaretPositionToSet(prev.content.length);
             return state;
           })
         );
-
-        if (blockToRemove.content) {
-          setStore(
-            produce((state) => {
-              const activeDocument = state.documents[activeDocumentIndex];
-              const prev = gePrevtBlock(activeDocument, indexSequence);
-              if (!prev) return state;
-              prev.content = prev.content + blockToRemove.content;
-              setFocusedBlock(prev.id);
-              return state;
-            })
-          );
-        }
       }
 
-      const prevBlock = getPrevSibling(activeDocument, indexSequence);
+      const prevBlock = gePrevBlock(activeDocument, indexSequence);
+      if (opts?.focus === "prev" && prevBlock) {
+        batch(() => {
+          setFocusedBlock(prevBlock?.id);
+          actions.setBlockCaretPositionToSet(prevBlock?.content.length);
+        });
+      }
       if (prevBlock?.type === "ol") {
         setStore(
           "documents",
           activeDocumentIndex,
-          produce((state) => {
-            const parent = getParent(state, indexSequence);
-            if (!parent) return state;
-            let i = indexSequence[indexSequence.length - 1];
-            let order = parent.blocks[i].order;
-            if (order === undefined) return state;
-            console.log({ i, order });
-            while (
-              i < parent.blocks.length &&
-              parent.blocks[i]?.type === "ol"
-            ) {
-              const current = parent.blocks[i];
-              order++;
-              parent.blocks[i] = {
-                ...current,
-                order: order,
-              } as any;
-              i++;
-            }
-            return state;
+          produce((draft) => {
+            keepOlOrder(draft.blocks);
+            return draft;
           })
         );
       }
     },
 
+    setBlockCaretPositionToSet(pos: number) {
+      const activeDocumentIndex = getActiveDocumentIndex();
+      if (activeDocumentIndex === -1) return;
+      setStore(
+        "documents",
+        activeDocumentIndex,
+        "blockCaretPositionToSet",
+        pos
+      );
+    },
+
     updateBlockContent: async (
       content: string,
       indexSequence: number[],
-      blockRef: HTMLDivElement
+      blockRef: HTMLDivElement,
+      opts?: { blockType?: string }
     ) => {
       const activeDocumentIndex = store.documents.findIndex(
         (doc) => doc.id === store.activeDocumentId
@@ -641,6 +707,7 @@ export function createDocumentStore(
 
       const activeDocument = store.documents[activeDocumentIndex];
       const block = getBlock(activeDocument.blocks, indexSequence);
+      console.log("block", block);
       if (!block) return;
 
       let desiredType = block.type;
@@ -660,26 +727,30 @@ export function createDocumentStore(
         desiredContent = content.slice(2);
       }
 
-      const prevBlock = getBlock(activeDocument.blocks, [
-        ...indexSequence.slice(0, -1),
-        indexSequence[indexSequence.length - 1] - 1,
-      ]);
-      const newOrder = prevBlock?.type === "ol" ? prevBlock.order + 1 : 1;
-
-      const path = makePathFromIndexes(
-        indexSequence,
-        [],
-        ["documents", activeDocumentIndex, "blocks"]
-      );
-
       setTimeout(() => {
-        setStore(...path, {
-          ...block,
-          content: desiredContent,
-          type: desiredType as any,
-          order: desiredType === "ol" ? newOrder : undefined,
-        });
+        setStore(
+          "documents",
+          activeDocumentIndex,
+          produce((blocks) => {
+            const blockToChange = getBlock(blocks.blocks, indexSequence);
+            if (!blockToChange) return blocks;
+            blockToChange.content = desiredContent;
+            blockToChange.type = desiredType as any;
+            console.log("blockToChange", blockToChange.content.length);
+            return blocks;
+          })
+        );
         actions.saveDocumentCaretPosition(blockRef, block.id);
+        if (desiredType === "ol") {
+          setStore(
+            "documents",
+            activeDocumentIndex,
+            produce((draft) => {
+              keepOlOrder(draft.blocks);
+              return draft;
+            })
+          );
+        }
       }, 0);
 
       // debouncedUpdateBlockMutation({
@@ -718,19 +789,22 @@ export function createDocumentStore(
 
       const blockType = block.type;
 
-      const caretPos = actions.getBlockCaret(block.id);
-
       // If caret at start and block is a list/radio/checkbox, revert to text
-      if (caretPos.column === 0 && blockType !== "text") {
-        let path = new EditorPath(activeDocumentIndex)
-          .blocks()
-          .block(indexSequence);
-
-        setStore(...path.path(), {
-          ...block,
-          type: "text",
-        });
-        const pos = actions.getBlockCaret(block.id);
+      if (blockType !== "text") {
+        setStore(
+          "documents",
+          activeDocumentIndex,
+          produce((draft) => {
+            const blockToChange = getBlock(draft.blocks, indexSequence);
+            if (!blockToChange) return draft;
+            blockToChange.type = "text";
+            return draft;
+          })
+        );
+        // setStore(...path.path(), {
+        //   ...block,
+        //   type: "text",
+        // });
         if (blockType === "ol") {
           // const pos = actions.getBlockCaret(block.id);
           //   setStore(
@@ -923,40 +997,34 @@ export function createDocumentStore(
       return { line: clampedLine, column: clampedColumn };
     },
 
-    blockNavigateUp(currentBlockId: string) {
+    blockNavigateUp(indexSequence: number[]) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
-      const blocks = store.documents[activeDocumentIndex].blocks;
-      const currentIndex = blocks.findIndex(
-        (block) => block.id === currentBlockId
+      const block = gePrevBlock(
+        store.documents[activeDocumentIndex],
+        indexSequence
       );
-      if (currentIndex > 0) {
-        const previousBlock = blocks[currentIndex - 1];
-        setStore(
-          "documents",
-          activeDocumentIndex,
-          "focusedBlockId",
-          previousBlock.id
-        );
-      }
+      if (!block) return;
+
+      batch(() => {
+        setStore("documents", activeDocumentIndex, "focusedBlockId", block.id);
+        setStore("documents", activeDocumentIndex, "navDirection", "up");
+      });
     },
 
-    blockNavigateDown(currentBlockId: string) {
+    blockNavigateDown(indexSequence: number[]) {
       const activeDocumentIndex = getActiveDocumentIndex();
       if (activeDocumentIndex === -1) return;
-      const blocks = store.documents[activeDocumentIndex].blocks;
-      const currentIndex = blocks.findIndex(
-        (block) => block.id === currentBlockId
+      const block = getNextBlock(
+        store.documents[activeDocumentIndex],
+        indexSequence
       );
-      if (currentIndex < blocks.length - 1) {
-        const nextBlock = blocks[currentIndex + 1];
-        setStore(
-          "documents",
-          activeDocumentIndex,
-          "focusedBlockId",
-          nextBlock.id
-        );
-      }
+      if (!block) return;
+
+      batch(() => {
+        setStore("documents", activeDocumentIndex, "focusedBlockId", block.id);
+        setStore("documents", activeDocumentIndex, "navDirection", "down");
+      });
     },
 
     setFocusedBlock,
@@ -1076,32 +1144,41 @@ function getParent(document: any, indexes: number[]): Block | null {
   return Array.isArray(current) ? null : current;
 }
 
-function gePrevtBlock(document: any, indexes: number[]): Block | null {
+const getNextBlock = (document: any, indexes: number[]): Block | null => {
   if (!document || indexes.length === 0) return null;
+  let parent = getParent(document, indexes);
+  if (!parent) return null;
 
-  if (indexes[indexes.length - 1] - 1 < 0) return null;
+  if (parent.blocks[indexes[indexes.length - 1]].blocks.length > 0) {
+    return parent.blocks[indexes[indexes.length - 1]].blocks[0];
+  }
+  if (indexes[indexes.length - 1] + 1 >= parent.blocks.length) {
+    if (parent.blocks.length === 0) return null;
+    indexes = indexes.slice(0, -1);
+    parent = getParent(document, indexes);
+    if (!parent || indexes[indexes.length - 1] + 1 >= parent.blocks.length)
+      return null;
 
-  if (indexes[indexes.length - 1] - 1 < 0) indexes = indexes.slice(0, -1);
-  else indexes = [...indexes.slice(0, -1), indexes[indexes.length - 1] - 1];
-  let current: Block[] | Block = document.blocks;
-  for (const index of indexes) {
-    if (Array.isArray(current)) {
-      if (index >= current.length || index < 0) return null;
-      current = current[index];
-    } else {
-      if (!current?.blocks || index >= current?.blocks.length || index < 0)
-        return null;
-      current = current.blocks[index];
-    }
+    return parent.blocks[indexes[indexes.length - 1] + 1];
   }
 
-  if (Array.isArray(current)) return null;
+  return parent.blocks[indexes[indexes.length - 1] + 1];
+};
 
-  while (current?.blocks && current.blocks.length > 0) {
-    current = current.blocks[current.blocks.length - 1];
+function gePrevBlock(document: any, indexes: number[]): Block | null {
+  if (!document || indexes.length === 0) return null;
+  let parent = getParent(document, indexes);
+  if (!parent) return null;
+
+  if (indexes[indexes.length - 1] - 1 < 0) {
+    return parent;
   }
-
-  return current;
+  let prevSibling = getPrevSibling(document, indexes);
+  if (!prevSibling) return null;
+  while (prevSibling) {
+    if (prevSibling.blocks.length === 0) return prevSibling;
+    prevSibling = prevSibling.blocks[prevSibling.blocks.length - 1];
+  }
 }
 
 const getBlock = (blocks: Block[], indexes: number[]): Block | null => {
@@ -1208,6 +1285,19 @@ class EditorPath {
   }
 }
 
-const getText = (block: Block, pos: number) => {
-  return block.content.slice(pos);
+const keepOlOrder = (blocks: any) => {
+  let order = 0;
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].type !== "ol") {
+      order = 0;
+      continue;
+    }
+    order++;
+    blocks[i].order = order;
+  }
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].blocks.length > 0) {
+      keepOlOrder(blocks[i].blocks);
+    }
+  }
 };
