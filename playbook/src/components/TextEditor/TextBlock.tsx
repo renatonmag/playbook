@@ -8,6 +8,7 @@ import {
   Show,
   createEffect,
   Index,
+  untrack,
 } from "solid-js";
 import { ContentEditable } from "@bigmistqke/solid-contenteditable";
 import { Block } from "~/types/document";
@@ -42,6 +43,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   const [gStore, actions] = useGlobalStore();
   const [carouselApi, setCarouselApi] = createSignal<any>(null);
   const [navIntent, setNavIntent] = createSignal<"up" | "down" | null>(null);
+  const [backspaceCounter, setBackspaceCounter] = createSignal(0);
 
   let blockRef: HTMLDivElement | undefined;
 
@@ -62,6 +64,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     const top =
       range?.startContainer.parentElement?.getBoundingClientRect().top;
     if (!top) return false;
+    if (rects?.length === 0) return true;
     return rects?.length && Math.trunc(rects[0].top) <= Math.trunc(top) + 2;
   }
 
@@ -71,6 +74,7 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     const bottom =
       range?.startContainer.parentElement?.getBoundingClientRect().bottom;
     if (!bottom) return false;
+    if (rects?.length === 0) return true;
     return (
       rects?.length &&
       (Math.trunc(rects[0].bottom) >= Math.trunc(bottom) - 3 ||
@@ -121,96 +125,93 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   };
 
   const keyBindings = {
+    Tab: (data: any) => {
+      data.event.preventDefault();
+      actions.sinkBlock(props.indexSequence);
+      return null;
+    },
     Enter: (data: any) => {
       if (!data.event.shiftKey) {
         data.event.preventDefault();
 
         // Guard: when content is empty and block type is not "text", convert to text type
         if (data.textContent === "" && props.block.type !== "text") {
-          actions.setBlockTypeToText(props.block.id);
+          actions.setBlockTypeToText(props.indexSequence);
           return null;
         }
-
-        const pos = actions.getCaretPosition();
-        if (pos.column === 0) {
-          const prevBlock = actions.getPrevBlock(props.block.id);
-          console.log({ pos });
-          props.onBlockCreate(prevBlock?.id, props.block.id);
-          return null;
-        }
-        props.onBlockCreate(props.block.id);
+        actions.sendPatch({
+          kind: "addBlock",
+          indexSequence: props.indexSequence,
+        });
+        // actions.addBlock(props.indexSequence);
       }
       return null;
     },
     Backspace: (data: any) => {
-      actions.setBlockTypeToText(props.block.id);
-      if (data.textContent === "") {
+      const pos = actions.getBlockCaret(props.block.id);
+      if (props.block.content === "")
+        setBackspaceCounter(backspaceCounter() + 1);
+      if (pos.column === 0 || backspaceCounter() >= 2) {
         data.event.preventDefault();
-        props.onBlockDelete(props.block.id);
-        return null;
-      } else {
-        actions.saveDocumentCaretPosition(blockRef, props.block.id);
-        const prevBlock = actions.getPrevBlock(props.block.id);
-        const pos = actions.getCaretPosition();
-        if (prevBlock && prevBlock.content === "" && pos.column === 0) {
-          data.event.preventDefault();
-          props.onBlockDelete(prevBlock.id, props.block.id);
+        setBackspaceCounter(0);
+
+        const result = actions.setBlockTypeToText(props.indexSequence);
+        if (result) {
           return null;
         }
-      }
-      return null;
-    },
-    Delete: (data: any) => {
-      actions.saveDocumentCaretPosition(blockRef, props.block.id);
-      return null;
-    },
-    ArrowRight: (data: any) => {
-      actions.saveDocumentCaretPosition(blockRef, props.block.id);
-      return null;
-    },
-    ArrowLeft: (data: any) => {
-      actions.saveDocumentCaretPosition(blockRef, props.block.id);
-      return null;
-    },
-    ArrowDown: (data: any) => {
-      if (blockRef) {
-        const saved = actions.saveDocumentCaretPosition(
-          blockRef,
-          props.block.id,
-          true
-        );
-        if (saved) {
-          setCaretAtLineColumn(blockRef, {
-            line: saved.line,
-            column: saved.column,
-          });
+
+        if (props.indexSequence.length > 1) {
+          actions.liftBlock(props.indexSequence);
+          return null;
         }
-      }
-      if (caretIsAtBottom() || data.textContent === "") {
-        data.event.preventDefault();
-        setNavIntent("up");
-        actions.blockNavigateDown(props.block.id);
+
+        actions.sendPatch({
+          kind: "removeBlock",
+          indexSequence: props.indexSequence,
+          opts: { focus: "prev" },
+        });
+        // actions.removeBlock(props.indexSequence);
+        console.log("props.indexSequence", props.indexSequence);
+        return null;
       }
       return null;
     },
     ArrowUp: (data: any) => {
-      if (blockRef) {
-        const saved = actions.saveDocumentCaretPosition(
-          blockRef,
-          props.block.id,
-          true
-        );
-        if (saved) {
-          setCaretAtLineColumn(blockRef, {
-            line: saved.line,
-            column: saved.column,
-          });
-        }
+      const saved = actions.saveDocumentCaretPosition(
+        blockRef,
+        props.indexSequence,
+        true
+      );
+      if (saved) {
+        setCaretAtLineColumn(blockRef, {
+          line: saved.line,
+          column: saved.column + 1,
+        });
       }
-      if (caretIsAtTop() || data.textContent === "") {
+      if (caretIsAtTop()) {
+        setNavIntent("up");
         data.event.preventDefault();
-        actions.blockNavigateUp(props.block.id);
+        actions.blockNavigateUp(props.indexSequence);
+      }
+      return null;
+    },
+    ArrowDown: (data: any) => {
+      const saved = actions.saveDocumentCaretPosition(
+        blockRef,
+        props.indexSequence,
+        true
+      );
+      if (saved) {
+        setCaretAtLineColumn(blockRef, {
+          line: saved.line,
+          column: saved.column + 1,
+        });
+      }
+
+      if (caretIsAtBottom()) {
         setNavIntent("down");
+        data.event.preventDefault();
+        actions.blockNavigateDown(props.indexSequence);
       }
       return null;
     },
@@ -219,13 +220,25 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   // Restore caret position when block becomes focused
   createEffect(() => {
     if (actions.getActiveDocument()?.focusedBlockId === props.block.id) {
+      if (!blockRef) return;
       props.setFocusedBlockRef(blockRef);
-      setTimeout(() => {
-        if (!blockRef) return;
-        blockRef.focus();
-
-        const intent = navIntent();
-        if (intent === "up") {
+      untrack(() => {
+        const blockCaretPositionToSet =
+          actions.getActiveDocument()?.blockCaretPositionToSet;
+        console.log("blockCaretPositionToSet", blockCaretPositionToSet);
+        if (blockCaretPositionToSet) {
+          const rects = getVisualLineRects(blockRef);
+          const lastLine = Math.max(0, rects.length - 1);
+          setCaretAtLineColumn(blockRef, {
+            line: lastLine,
+            column: blockCaretPositionToSet,
+          });
+          actions.setBlockCaretPositionToSet(null);
+        }
+        return;
+      });
+      untrack(() => {
+        if (actions.getActiveDocument()?.navDirection === "up") {
           const rects = getVisualLineRects(blockRef);
           const lastLine = Math.max(0, rects.length - 1);
           const saved = actions.getCaretPosition();
@@ -233,13 +246,11 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
             line: lastLine,
             column: saved.column,
           });
-          setNavIntent(null);
-        } else if (intent === "down") {
+        } else if (actions.getActiveDocument()?.navDirection === "down") {
           const saved = actions.getCaretPosition();
           setCaretAtLineColumn(blockRef, { line: 0, column: saved.column });
-          setNavIntent(null);
         }
-      }, 0);
+      });
     }
   });
 
@@ -256,7 +267,18 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
   }
 
   return (
-    <div class="flex flex-col justify-center items-center w-full">
+    <div
+      classList={{
+        "flex flex-col justify-center items-center w-full mt-1": true,
+        "ml-[22px]":
+          props.indexSequence.length > 1 && props.block.type === "text",
+      }}
+      onKeyDown={(e) => {
+        if (e.ctrlKey && e.key === "z") {
+          actions.history.past.pop()?.undo();
+        }
+      }}
+    >
       <div class="flex w-full">
         <Show when={props.block.type == "ol"}>
           <span class="mr-2">{props.block.order}.</span>
@@ -270,26 +292,39 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
         <Show when={props.block.type == "checkbox"}>
           <Checkbox id="terms1" />
         </Show>
-        <div>
+        <div class="w-full">
           <ContentEditable
             data-block-id={props.block.id}
             data-block-type={props.block.type}
             ref={blockRef}
             class="min-h-[1.5rem] w-full outline-none cursor-text"
             keyBindings={keyBindings}
-            oninput={(e: InputEvent) => {
-              const it = (e as any).inputType || "";
-              if (typeof it === "string" && it.startsWith("insertFromPaste")) {
-                return;
-              }
-              actions.saveDocumentCaretPosition(blockRef);
-            }}
+            // oninput={(e: InputEvent) => {
+            //   const it = (e as any).inputType || "";
+            //   if (typeof it === "string" && it.startsWith("insertFromPaste")) {
+            //     return;
+            //   }
+            //   actions.saveDocumentCaretPosition(blockRef, props.indexSequence);
+            // }}
             onMouseDown={() => {
               actions.setFocusedBlock(props.block.id);
-              actions.saveDocumentCaretPosition(blockRef);
             }}
             onMouseUp={() => {
-              actions.saveDocumentCaretPosition(blockRef);
+              actions.saveDocumentCaretPosition(blockRef, props.indexSequence);
+            }}
+            onKeyUp={(e) => {
+              if (e.key === "Enter") {
+                return;
+              }
+              actions.saveDocumentCaretPosition(blockRef, props.indexSequence);
+              // if (blockRef) {
+              //   if (e.key === "ArrowDown") {
+              //     setNavIntent("down");
+              //   }
+              //   if (e.key === "ArrowUp") {
+              //     setNavIntent("up");
+              //   }
+              // }
             }}
             textContent={props.block.content || ""}
             onPaste={(e) => {
@@ -378,37 +413,41 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
               }
             }}
             onTextContent={(textContent) => {
-              props.onContentChange(textContent, blockRef);
-            }}
-            render={(textContent) => {
-              return (
-                <For each={textContent()?.split(" ") ?? []}>
-                  {(word, wordIndex) => (
-                    <>
-                      <Show when={word.startsWith("#")} fallback={word}>
-                        <button onClick={() => console.log("clicked!")}>
-                          {word}
-                        </button>
-                      </Show>
-                      <Show
-                        when={
-                          textContent().split(" ").length - 1 !== wordIndex()
-                        }
-                        children=" "
-                      />
-                    </>
-                  )}
-                </For>
+              console.log("textContent", textContent);
+              actions.updateBlockContent(
+                textContent,
+                props.indexSequence,
+                blockRef
               );
             }}
+            // render={(textContent) => {
+            //   return (
+            //     <For each={textContent()?.split(" ") ?? []}>
+            //       {(word, wordIndex) => (
+            //         <>
+            //           <Show when={word.startsWith("#")} fallback={word}>
+            //             <button onClick={() => console.log("clicked!")}>
+            //               {word}
+            //             </button>
+            //           </Show>
+            //           <Show
+            //             when={
+            //               textContent().split(" ").length - 1 !== wordIndex()
+            //             }
+            //             children=" "
+            //           />
+            //         </>
+            //       )}
+            //     </For>
+            //   );
+            // }}
           />
-          <For each={props.block.children}>
-            {(child) => (
+          <For each={props.block.blocks}>
+            {(child, index) => (
               <TextBlock
                 block={child}
+                indexSequence={[...props.indexSequence, index()]}
                 setFocusedBlockRef={props.setFocusedBlockRef}
-                onContentChange={props.onContentChange}
-                onBlockCreate={props.onBlockCreate}
                 onBlockDelete={props.onBlockDelete}
                 onBlockFocus={props.onBlockFocus}
                 setSavedCaretPosition={props.setSavedCaretPosition}
@@ -442,144 +481,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
           </Button>
         </div>
       </Show>
-    </div>
-  );
-};
-
-const ContentWithChildren = (props: { block: Block }) => {
-  const [gStore, actions] = useGlobalStore();
-  let blockRef: HTMLDivElement | undefined;
-
-  return (
-    <div>
-      <ContentEditable
-        block-data-id={props.block.id}
-        ref={blockRef}
-        class="min-h-[1.5rem] w-full outline-none cursor-text"
-        keyBindings={props.keyBindings}
-        oninput={(e: InputEvent) => {
-          const it = (e as any).inputType || "";
-          if (typeof it === "string" && it.startsWith("insertFromPaste")) {
-            return;
-          }
-          actions.saveDocumentCaretPosition(blockRef);
-        }}
-        onMouseDown={() => {
-          actions.setFocusedBlock(props.block.id);
-          actions.saveDocumentCaretPosition(blockRef);
-        }}
-        onMouseUp={() => {
-          actions.saveDocumentCaretPosition(blockRef);
-        }}
-        textContent={props.block.content || ""}
-        onPaste={(e) => {
-          const files = getFilesFromClipboardEvent(e);
-          if (files && files.length > 0) {
-            // Process image files with size validation (2MB limit)
-            const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB in bytes
-
-            // Separate image and non-image files for graceful handling
-            const imageFiles = files.filter(
-              (file) =>
-                file.type.startsWith("image/") &&
-                ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(
-                  file.type
-                ) &&
-                file.size <= MAX_FILE_SIZE
-            );
-
-            const nonImageFiles = files.filter(
-              (file) => !file.type.startsWith("image/")
-            );
-
-            const oversizedImages = files.filter(
-              (file) =>
-                file.type.startsWith("image/") &&
-                [
-                  "image/jpeg",
-                  "image/png",
-                  "image/gif",
-                  "image/webp",
-                  "image/avif",
-                  "image/svg+xml",
-                  "image/tiff",
-                  "image/webp",
-                ].includes(file.type) &&
-                file.size > MAX_FILE_SIZE
-            );
-
-            // Log information about filtered files for debugging
-            if (nonImageFiles.length > 0) {
-              console.log(
-                `Filtered out ${nonImageFiles.length} non-image files`
-              );
-            }
-            if (oversizedImages.length > 0) {
-              console.log(
-                `Filtered out ${oversizedImages.length} oversized images (>2MB)`
-              );
-            }
-
-            if (imageFiles.length > 0) {
-              // Process multiple images simultaneously
-              console.log(
-                `Processing ${imageFiles.length} image(s) simultaneously`
-              );
-
-              // Convert files to Image objects and add to block
-              const images = imageFiles.map((file) => ({
-                id: `img_${Date.now()}_${Math.random()
-                  .toString(36)
-                  .substr(2, 9)}`,
-                filename: file.name,
-                size: file.size,
-                type: file.type,
-                url: URL.createObjectURL(file), // Create object URL for display
-              }));
-
-              // Add all images to the current block in a single operation
-              actions.addImagesToBlock(props.block.id, images, imageFiles);
-
-              // Verify that images were added successfully
-              console.log(
-                `Successfully added ${images.length} image(s) to block ${props.block.id}`
-              );
-
-              // Log the created image objects for debugging
-              images.forEach((image) => {
-                console.log(
-                  `Image added: ${image.filename} (${image.type}, ${image.size} bytes)`
-                );
-              });
-            }
-          }
-        }}
-        onTextContent={(textContent) => {
-          props.onContentChange(props.block.id, textContent, blockRef);
-        }}
-        render={(textContent) => {
-          return (
-            <For each={textContent()?.split(" ") ?? []}>
-              {(word, wordIndex) => (
-                <>
-                  <Show when={word.startsWith("#")} fallback={word}>
-                    <button onClick={() => console.log("clicked!")}>
-                      {word}
-                    </button>
-                  </Show>
-                  <Show
-                    when={textContent().split(" ").length - 1 !== wordIndex()}
-                    children=" "
-                  />
-                </>
-              )}
-            </For>
-          );
-        }}
-      />
-      <For each={props.block.children}>
-        {(child) => <ContentWithChildren block={child} />}
-      </For>
     </div>
   );
 };
