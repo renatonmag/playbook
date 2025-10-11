@@ -1,29 +1,22 @@
-import {
-  batch,
-  createEffect,
-  createSignal,
-  InitializedResourceReturn,
-  onMount,
-  untrack,
-} from "solid-js";
-import { logger } from "~/utils/logger";
-import { Block, Image } from "~/types/document";
-import { createStore, produce, unwrap } from "solid-js/store";
-import { ConvexClient } from "convex/browser";
-import { api } from "../../convex/_generated/api";
-import { createAction, createMutation, createQuery } from "../cvxsolid";
-import { getDocuments } from "../../convex/documents";
-import { createUploadThing } from "~/ut/utUtils";
+import { batch, createEffect, untrack } from "solid-js";
+import { createStore, produce } from "solid-js/store";
 import { getCaretPositionFromSelection } from "~/lib/caret";
-import { blocks } from "~/utils/doc";
-import { content } from "../../tailwind.config";
+import { Block, Image } from "~/types/document";
+import { createUploadThing } from "~/ut/utUtils";
 import { createHistory } from "~/utils/createHistory";
+import { blocks } from "~/utils/doc";
+import { api } from "../../convex/_generated/api";
+import { createMutation, createQuery } from "../cvxsolid";
 
 export interface IDocumentsActions {
   // Block management
-  addBlock: (afterId: string, type?: "text" | "list") => Block;
-  removeBlock: (blockId: string) => void;
+  addBlock: (afterId: string, opts?: { block?: Block }) => Block;
+  removeBlock: (
+    indexSequence: number[],
+    opts?: { focus?: "same" | "prev" }
+  ) => void;
   updateBlockContent: (blockId: string, content: string) => void;
+  history: any;
   // Document management
   createDocument: (title?: string) => Promise<string>;
   getActiveDocument: () => DocumentStore | undefined;
@@ -50,6 +43,9 @@ export interface IDocumentsActions {
   blockNavigateUp: (currentBlockId: string) => void;
   blockNavigateDown: (currentBlockId: string) => void;
   setFocusedBlock: (blockId: string | null) => void;
+  dispatchUndoEvent: (blockRef: HTMLDivElement) => void;
+  dispatchRedoEvent: (blockRef: HTMLDivElement) => void;
+  sendPatch: (attributes: any) => void;
 }
 
 export interface DocumentStore {
@@ -277,18 +273,42 @@ export function createDocumentStore(
   };
 
   const createPatch = (attributes: any) => {
+    let block: Block | null = null;
     switch (attributes.kind) {
       case "addBlock":
-        return {
+        block = getBlock(
+          store.documents[getActiveDocumentIndex()].blocks,
+          attributes.indexSequence ?? []
+        );
+        if (!block) return;
+        const pos = actions.getBlockCaret(attributes.blockId);
+
+        const patch = {
           kind: "addBlock",
           indexSequence: attributes.indexSequence,
           opts: attributes?.opts,
-          undo: () => {
-            actions.removeBlock(attributes.indexSequence);
-          },
+          undo: () =>
+            actions.removeBlock(
+              [
+                ...attributes.indexSequence.slice(0, -1),
+                attributes.indexSequence[attributes.indexSequence.length - 1] +
+                  1,
+              ],
+              { focus: "prev" }
+            ),
         };
+
+        if (pos.column === 0) {
+          return patch;
+        }
+
+        patch.undo = () => {
+          actions.removeBlock(attributes.indexSequence, { focus: "same" });
+        };
+
+        return patch;
       case "removeBlock":
-        const block = getBlock(
+        block = getBlock(
           store.documents[getActiveDocumentIndex()].blocks,
           attributes.indexSequence
         );
@@ -300,6 +320,24 @@ export function createDocumentStore(
             actions.addBlock(attributes.indexSequence, {
               block,
             });
+          },
+        };
+      case "updateBlock":
+        block = getBlock(
+          store.documents[getActiveDocumentIndex()].blocks,
+          attributes.indexSequence
+        );
+        if (!block) return;
+        return {
+          kind: "updateBlock",
+          indexSequence: attributes.indexSequence,
+          opts: attributes?.opts,
+          content: attributes.content,
+          undo: () => {
+            actions.updateBlockContent(
+              attributes.indexSequence,
+              block!.content
+            );
           },
         };
       default:
@@ -322,6 +360,9 @@ export function createDocumentStore(
           break;
         case "removeBlock":
           actions.removeBlock(patch.indexSequence, patch.opts);
+          break;
+        case "updateBlock":
+          actions.updateBlockContent(patch.indexSequence, patch.content);
           break;
         default:
           return;
@@ -707,27 +748,56 @@ export function createDocumentStore(
 
       const activeDocument = store.documents[activeDocumentIndex];
       const block = getBlock(activeDocument.blocks, indexSequence);
-      console.log("block", block);
       if (!block) return;
 
       let desiredType = block.type;
       let desiredContent = content;
+      let changed = false;
 
       if (content.startsWith("() ")) {
         desiredType = "radio" as const;
         desiredContent = content.slice(3);
+        changed = true;
       } else if (content.startsWith("[] ")) {
         desiredType = "checkbox" as const;
         desiredContent = content.slice(3);
+        changed = true;
       } else if (content.startsWith("1. ")) {
         desiredType = "ol" as const;
         desiredContent = content.slice(3);
+        changed = true;
       } else if (content.startsWith("- ")) {
         desiredType = "ul" as const;
         desiredContent = content.slice(2);
+        changed = true;
       }
 
-      setTimeout(() => {
+      if (changed) {
+        setTimeout(() => {
+          setStore(
+            "documents",
+            activeDocumentIndex,
+            produce((blocks) => {
+              const blockToChange = getBlock(blocks.blocks, indexSequence);
+              if (!blockToChange) return blocks;
+              blockToChange.content = desiredContent;
+              blockToChange.type = desiredType as any;
+              return blocks;
+            })
+          );
+          actions.saveDocumentCaretPosition(blockRef, block.id);
+          if (desiredType === "ol") {
+            setStore(
+              "documents",
+              activeDocumentIndex,
+              produce((draft) => {
+                keepOlOrder(draft.blocks);
+                return draft;
+              })
+            );
+          }
+        }, 0);
+      } else {
         setStore(
           "documents",
           activeDocumentIndex,
@@ -736,7 +806,6 @@ export function createDocumentStore(
             if (!blockToChange) return blocks;
             blockToChange.content = desiredContent;
             blockToChange.type = desiredType as any;
-            console.log("blockToChange", blockToChange.content.length);
             return blocks;
           })
         );
@@ -751,14 +820,7 @@ export function createDocumentStore(
             })
           );
         }
-      }, 0);
-
-      // debouncedUpdateBlockMutation({
-      //   blockId: blockId as any,
-      //   content: desiredContent,
-      //   type: desiredType,
-      //   order: desiredType === "ol" ? newOrder : undefined,
-      // });
+      }
     },
 
     saveDocumentCaretPosition: (
@@ -837,7 +899,6 @@ export function createDocumentStore(
               ) {
                 const current = parent.blocks[i];
                 order += 1;
-                console.log({ current, order });
                 parent.blocks[i] = {
                   ...current,
                   order: order,
@@ -1028,6 +1089,53 @@ export function createDocumentStore(
     },
 
     setFocusedBlock,
+    sendInputEvent(blockRef: HTMLDivElement) {
+      if (!blockRef) return;
+      blockRef.dispatchEvent(
+        new InputEvent("input", {
+          inputType: "historyUndo",
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    },
+    dispatchUndoEvent(blockRef: HTMLDivElement) {
+      let patch = history.past.peek();
+      if (!patch) return;
+      if (patch.blockId) {
+        setFocusedBlock(patch.blockId);
+        blockRef.dispatchEvent(
+          new InputEvent("input", {
+            inputType: "historyUndo",
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+        return;
+      }
+      patch = history.past.pop() as any;
+      if (!patch) return;
+      patch.undo?.();
+    },
+    dispatchRedoEvent(blockRef: HTMLDivElement) {
+      let patch = history.future.peek();
+      if (!patch) return;
+      if (patch.blockId) {
+        setFocusedBlock(patch.blockId);
+        blockRef.dispatchEvent(
+          new InputEvent("input", {
+            inputType: "historyRedo",
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+        return;
+      }
+      patch = history.future.pop() as any;
+      if (!patch) return;
+      console.log({ patch });
+      actions.sendPatch(patch);
+    },
   });
 
   return store;
@@ -1085,7 +1193,6 @@ class BlockDepth {
   }
 
   canSink() {
-    console.log({ i: this._indexes[this._indexes.length - 1] });
     return this._indexes[this._indexes.length - 1] >= 1;
   }
 

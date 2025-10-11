@@ -7,11 +7,28 @@ export type Patch = {
     | "addImagesToBlock"
     | "removeImageFromBlock"
     | "sinkBlock"
-    | "liftBlock";
+    | "liftBlock"
+    | "insertLineBreak"
+    | "insertFromPaste"
+    | "insertParagraph"
+    | "insertReplacementText"
+    | "insertText"
+    | "deleteByCut"
+    | "deleteContentForward"
+    | "deleteContentBackward"
+    | "deleteWordBackward"
+    | "deleteWordForward"
+    | "deleteSoftLineBackward"
+    | "deleteSoftLineForward"
+    | "caret";
+  data?: string;
+  range: RangeOffsets;
+  selection: SelectionOffsets;
+  undo?: string;
   indexSequence?: number[];
   content?: string;
   blockRef?: HTMLDivElement;
-  undo?: string;
+  blockId?: string;
 };
 
 export function createHistory() {
@@ -46,6 +63,9 @@ export function createHistory() {
       },
       push(patch: Patch) {
         past.push(patch);
+      },
+      print() {
+        console.log({ past });
       },
     },
   };
