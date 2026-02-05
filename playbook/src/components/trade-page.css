@@ -1,9 +1,0 @@
-[data-overlayscrollbars-viewport] {
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-}
-
-[data-overlayscrollbars] {
-  height: 100%;
-}
