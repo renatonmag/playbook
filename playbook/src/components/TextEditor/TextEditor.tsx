@@ -1,55 +1,19 @@
-import {
-  Component,
-  createSignal,
-  createEffect,
-  For,
-  Show,
-  createComputed,
-} from "solid-js";
-import { TextBlock } from "./TextBlock";
-import FormattingToolbar from "./FormattingToolbar";
-import { Button } from "../ui/button";
-import { deleteLane } from "~/stores/tradeStore";
 import GripVertical from "lucide-solid/icons/grip-vertical";
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../ui/command";
+import { Component, createEffect, createSignal, For, Show } from "solid-js";
+import { TextBlock } from "./TextBlock";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import {
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
-import { Dialog } from "../ui/dialog";
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from "../ui/carousel";
-import { createStore } from "solid-js/store";
-import { useGlobalStore } from "~/stores/storeContext";
-import { useParams } from "@solidjs/router";
 
-export interface Block {
-  id: string;
-  content: string;
-  type: "text" | "ol" | "ul";
-}
+import { useParams } from "@solidjs/router";
+import { useGlobalStore } from "~/stores/storeContext";
+import { Block } from "~/types/document";
+
+const isMac = navigator.platform.startsWith("Mac");
 
 interface TextEditorProps {
   initialBlocks?: Block[];
@@ -58,17 +22,7 @@ interface TextEditorProps {
 }
 
 export const TextEditor: Component<TextEditorProps> = (props) => {
-  const [
-    gStore,
-    {
-      addBlock,
-      removeBlock,
-      updateBlockContent,
-      setDocumentCaretPosition: setCaretPosition,
-      getActiveDocument,
-      setActiveDocumentId,
-    },
-  ] = useGlobalStore();
+  const [gStore, actions] = useGlobalStore();
 
   const params = useParams();
 
@@ -81,7 +35,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
       params.documentId &&
       gStore.documents.activeDocumentId !== params.documentId
     ) {
-      setActiveDocumentId(params.documentId);
+      actions.setActiveDocumentId(params.documentId);
     }
   });
 
@@ -115,12 +69,42 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
           { once: true }
         );
       }}
+      onKeyDown={(e) => {
+        const ref = focusedBlockRef();
+        if (!ref) return;
+        if (isMac) {
+          if (e.metaKey) {
+            switch (e.key) {
+              case "z":
+                actions.dispatchUndoEvent(ref);
+                break;
+              case "Z":
+                actions.dispatchRedoEvent(ref);
+                break;
+            }
+          }
+        } else {
+          if (e.ctrlKey) {
+            switch (e.key) {
+              case "z":
+                actions.dispatchUndoEvent(ref);
+                break;
+              case "y":
+              case "Z":
+                actions.dispatchRedoEvent(ref);
+                break;
+            }
+          }
+        }
+      }}
     >
       <div>
-        <For each={getActiveDocument()?.blocks ?? []}>
+        <For each={actions.getActiveDocument()?.blocks ?? []}>
           {(block, index) => (
             <div class="flex relative">
-              <Show when={getActiveDocument()?.focusedBlockId === block.id}>
+              <Show
+                when={actions.getActiveDocument()?.focusedBlockId === block.id}
+              >
                 <DropdownMenu>
                   <DropdownMenuTrigger class="text-gray-300 absolute top-0 left-[-35px] cursor-pointer">
                     <GripVertical />
@@ -138,9 +122,7 @@ export const TextEditor: Component<TextEditorProps> = (props) => {
               <TextBlock
                 indexSequence={[index()]}
                 block={block}
-                setContentEditable={setContentEditable}
                 setFocusedBlockRef={setFocusedBlockRef}
-                setSavedCaretPosition={setCaretPosition}
               />
             </div>
           )}

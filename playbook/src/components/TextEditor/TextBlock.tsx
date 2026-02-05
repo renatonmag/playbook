@@ -10,7 +10,6 @@ import {
   Index,
   untrack,
 } from "solid-js";
-import { ContentEditable } from "@bigmistqke/solid-contenteditable";
 import { Block } from "~/types/document";
 import { useGlobalStore } from "~/stores/storeContext";
 import { Checkbox } from "../ui/checkbox";
@@ -27,6 +26,7 @@ import {
   getVisualLineRects,
   setCaretAtLineColumn,
 } from "~/lib/caret";
+import { ContentEditable } from "../ContentEditable";
 
 interface TextBlockProps {
   block: Block;
@@ -170,8 +170,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
           indexSequence: props.indexSequence,
           opts: { focus: "prev" },
         });
-        // actions.removeBlock(props.indexSequence);
-        console.log("props.indexSequence", props.indexSequence);
         return null;
       }
       return null;
@@ -225,7 +223,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
       untrack(() => {
         const blockCaretPositionToSet =
           actions.getActiveDocument()?.blockCaretPositionToSet;
-        console.log("blockCaretPositionToSet", blockCaretPositionToSet);
         if (blockCaretPositionToSet) {
           const rects = getVisualLineRects(blockRef);
           const lastLine = Math.max(0, rects.length - 1);
@@ -270,42 +267,31 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
     <div
       classList={{
         "flex flex-col justify-center items-center w-full mt-1": true,
-        "ml-[22px]":
+        "pl-[22px]":
           props.indexSequence.length > 1 && props.block.type === "text",
       }}
-      onKeyDown={(e) => {
-        if (e.ctrlKey && e.key === "z") {
-          actions.history.past.pop()?.undo();
-        }
-      }}
     >
-      <div class="flex w-full">
+      <div class="flex w-full items-center">
         <Show when={props.block.type == "ol"}>
-          <span class="mr-2">{props.block.order}.</span>
+          <span class="mr-2 leading-normal">{props.block.order}.</span>
         </Show>
         <Show when={props.block.type == "ul"}>
-          <span class="mr-2">🞄</span>
+          <span class="mr-2 leading-normal">🞄</span>
         </Show>
         <Show when={props.block.type == "radio"}>
-          <span class="mr-2">0</span>
+          <span class="mr-2 leading-normal">0</span>
         </Show>
         <Show when={props.block.type == "checkbox"}>
-          <Checkbox id="terms1" />
+          <Checkbox class="mr-[6px]" id="terms1" />
         </Show>
         <div class="w-full">
           <ContentEditable
+            blockId={props.block.id}
             data-block-id={props.block.id}
             data-block-type={props.block.type}
             ref={blockRef}
-            class="min-h-[1.5rem] w-full outline-none cursor-text"
+            class="min-h-[1.5rem] w-full outline-none cursor-text leading-normal"
             keyBindings={keyBindings}
-            // oninput={(e: InputEvent) => {
-            //   const it = (e as any).inputType || "";
-            //   if (typeof it === "string" && it.startsWith("insertFromPaste")) {
-            //     return;
-            //   }
-            //   actions.saveDocumentCaretPosition(blockRef, props.indexSequence);
-            // }}
             onMouseDown={() => {
               actions.setFocusedBlock(props.block.id);
             }}
@@ -413,7 +399,6 @@ export const TextBlock: Component<TextBlockProps> = (props) => {
               }
             }}
             onTextContent={(textContent) => {
-              console.log("textContent", textContent);
               actions.updateBlockContent(
                 textContent,
                 props.indexSequence,
