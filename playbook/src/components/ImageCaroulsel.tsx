@@ -1,15 +1,15 @@
-import { Index } from "solid-js"
- 
-import { Card, CardContent } from "~/components/card"
+import { Index } from "solid-js";
+
+import { Card, CardContent } from "~/components/card";
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
   CarouselNext,
-  CarouselPrevious
-} from "~/components/carousel"
- 
-export default function CarouselDemo() {
+  CarouselPrevious,
+} from "~/components/carousel";
+
+export function ImageCaroulsel(props: { images: string[] }) {
   return (
     <Carousel class="w-full max-w-xs">
       <CarouselContent>
@@ -18,7 +18,7 @@ export default function CarouselDemo() {
             <CarouselItem>
               <div class="p-1">
                 <Card>
-                  <CardContent class="flex aspect-square items-center justify-center p-6">
+                  <CardContent class="flex aspect-video items-center justify-center p-6">
                     <span class="text-4xl font-semibold">{index + 1}</span>
                   </CardContent>
                 </Card>
@@ -30,5 +30,5 @@ export default function CarouselDemo() {
       <CarouselPrevious />
       <CarouselNext />
     </Carousel>
-  )
+  );
 }

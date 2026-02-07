@@ -3,6 +3,7 @@
 
 @plugin 'tailwindcss-animate';
 @plugin '@kobalte/tailwindcss';
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (.dark &,[data-kb-theme="dark"] &);
 
@@ -100,7 +101,9 @@
 
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
   }
 
   @media (max-width: 640px) {
