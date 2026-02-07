@@ -5,6 +5,9 @@
 @plugin '@kobalte/tailwindcss';
 @plugin "@tailwindcss/typography";
 
+@import "uploadthing/tw/v4";
+@source "~/node_modules/@uploadthing/solid/dist";
+
 @custom-variant dark (.dark &,[data-kb-theme="dark"] &);
 
 @layer base {

@@ -10,6 +10,7 @@
     "@kobalte/core": "^0.13.11",
     "@solidjs/router": "^0.15.0",
     "@solidjs/start": "^1.1.0",
+    "@uploadthing/solid": "^7.3.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "embla-carousel-solid": "^8.6.0",
@@ -25,6 +26,7 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "unified": "^11.0.5",
+    "uploadthing": "^7.7.4",
     "vinxi": "^0.5.7"
   },
   "devDependencies": {

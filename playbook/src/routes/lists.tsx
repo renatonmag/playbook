@@ -14,7 +14,7 @@ import { DialogAddComponent } from "~/components/DialogAddComponent";
 import { Button, buttonVariants } from "~/components/button";
 import SquarePen from "lucide-solid/icons/square-pen";
 import PlusIcon from "lucide-solid/icons/plus";
-import { ImageCaroulsel } from "~/components/ImageCaroulsel";
+import { ImageCaroulsel } from "~/components/ImageCarousel";
 
 export default function Home() {
   const [markdown, setMarkdown] = createSignal("");
