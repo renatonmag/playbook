@@ -52,7 +52,7 @@ export default function Home() {
   return (
     <main class="flex w-full h-[calc(100vh-50px)] text-gray-800 p-1.5 gap-1">
       <Show when={checklistSelected()}>
-        <div class="w-1/2 py-8 flex flex-col h-full relative justify-center items-center">
+        <div class="w-1/2 py-8 flex flex-col h-full relative justify-start items-center">
           <Button
             as="a"
             class="absolute top-4 left-4"
@@ -66,6 +66,7 @@ export default function Home() {
             {findComponent(checklistID()[0], checklistID()[1])?.title}
           </div>
           <ImageCaroulsel
+          class="max-w-2xl"
             images={
               findComponent(checklistID()[0], checklistID()[1])?.images || []
             }
