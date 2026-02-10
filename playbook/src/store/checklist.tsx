@@ -1,4 +1,5 @@
-import { createStore } from "solid-js/store";
+import { createMemo } from "solid-js";
+import { createStore, produce } from "solid-js/store";
 
 export const [checklist, setChecklist] = createStore<
   {
@@ -50,3 +51,65 @@ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
     ],
   },
 ]);
+
+export const getListComponent = (listID: string, componentID: string) => {
+  return checklist
+    .find((item) => item.id === listID)
+    ?.components.find((component) => component.id === componentID);
+};
+
+export const [selectedComponentsID, setSelectedComponentsID] = createStore<
+  {
+    id: string;
+    components: string[];
+  }[]
+>([]);
+
+export const selectComponent = (listID: string, componentID: string) => {
+  setSelectedComponentsID(
+    produce((items) => {
+      const item = items.find((item) => item.id === listID);
+      if (item) {
+        if (item.components.includes(componentID)) return;
+        const components = checklist.find(
+          (item) => item.id === listID,
+        )?.components;
+        const index = components?.findIndex(
+          (component) => component.id === componentID,
+        );
+        if (index === -1) return;
+        const selectedSeq = components?.slice(0, index! + 1);
+        item.components = selectedSeq!.map((item) => item.id);
+      } else {
+        const components = checklist.find(
+          (item) => item.id === listID,
+        )?.components;
+        const index = components?.findIndex(
+          (component) => component.id === componentID,
+        );
+        if (index === -1) return;
+        const selectedSeq = components?.slice(0, index! + 1);
+        items.push({
+          id: listID,
+          components: [...selectedSeq!.map((item) => item.id)],
+        });
+      }
+    }),
+  );
+};
+
+export const deselectComponent = (listID: string, componentID: string) => {
+  setSelectedComponentsID(
+    produce((items) => {
+      const item = items.find((item) => item.id === listID);
+      if (item) {
+        const index = item.components?.findIndex(
+          (component) => component === componentID,
+        );
+        if (index === -1) return;
+        const selectedSeq = item.components?.slice(0, index!);
+        item.components = selectedSeq;
+      }
+    }),
+  );
+};

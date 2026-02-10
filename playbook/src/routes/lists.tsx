@@ -9,15 +9,16 @@ import {
   Switch,
 } from "solid-js";
 import { parseMarkdown } from "~/lib/parseMarkdown";
-import { checklist, setChecklist } from "~/store/checklist";
+import { checklist, getListComponent, setChecklist } from "~/store/checklist";
 import { DialogAddComponent } from "~/components/DialogAddComponent";
 import { Button, buttonVariants } from "~/components/button";
 import SquarePen from "lucide-solid/icons/square-pen";
 import PlusIcon from "lucide-solid/icons/plus";
+import Play from "lucide-solid/icons/play";
+
 import { ImageCaroulsel } from "~/components/ImageCarousel";
 
 export default function Home() {
-  const [markdown, setMarkdown] = createSignal("");
   const [checklistID, setChecklistID] = createSignal<string[]>(["", ""]);
 
   let previewDiv: HTMLDivElement | undefined;
@@ -35,14 +36,8 @@ export default function Home() {
     ]);
   };
 
-  const findComponent = (listId: string, componentId: string) => {
-    return checklist
-      .find((item) => item.id === listId)
-      ?.components.find((component) => component.id === componentId);
-  };
-
   const [html] = createResource(
-    () => findComponent(checklistID()[0], checklistID()[1])?.markdown,
+    () => getListComponent(checklistID()[0], checklistID()[1])?.markdown,
     parseMarkdown,
   );
 
@@ -63,12 +58,12 @@ export default function Home() {
             <SquarePen />
           </Button>
           <div class="text-lg font-bold text-gray-700 mb-4">
-            {findComponent(checklistID()[0], checklistID()[1])?.title}
+            {getListComponent(checklistID()[0], checklistID()[1])?.title}
           </div>
           <ImageCaroulsel
-          class="max-w-2xl"
+            class="max-w-2xl"
             images={
-              findComponent(checklistID()[0], checklistID()[1])?.images || []
+              getListComponent(checklistID()[0], checklistID()[1])?.images || []
             }
           />
           <div
@@ -77,7 +72,16 @@ export default function Home() {
           ></div>
         </div>
       </Show>
-      <div class="flex flex-col gap-2 w-1/2 py-8 h-full mx-auto items-center">
+      <div class="flex flex-col gap-2 w-1/2 py-8 h-full mx-auto items-center relative">
+        <Button
+          as="a"
+          class="absolute top-4 right-4"
+          href={"trade"}
+          variant="outline"
+          size="icon"
+        >
+          <Play />
+        </Button>
         <For each={checklist}>
           {(item) => (
             <div class="flex gap-2">
@@ -85,7 +89,9 @@ export default function Home() {
                 {(component, index) => {
                   return (
                     <span
-                      onClick={() => setChecklistID([item.id, component.id])}
+                      onMouseDown={() =>
+                        setChecklistID([item.id, component.id])
+                      }
                       classList={{
                         "py-2 px-4": true,
                         [buttonVariants({ variant: "secondary", size: "md" })]:
