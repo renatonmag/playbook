@@ -15,7 +15,7 @@ export default function Trade() {
     checklistID()[0] !== "" && checklistID()[1] !== "";
 
   const [html] = createResource(
-    () => getListComponent(checklistID()[0], checklistID()[1])?.markdown,
+    () => getListComponent(checklistID()[1])?.markdown,
     parseMarkdown,
   );
 

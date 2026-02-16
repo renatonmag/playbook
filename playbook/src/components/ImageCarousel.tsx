@@ -1,16 +1,16 @@
 import { Index } from "solid-js";
 
-import { Card, CardContent } from "~/components/card";
+import { Card, CardContent } from "~/components/ui/card";
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
-} from "~/components/carousel";
+} from "~/components/ui/carousel";
 import { cn } from "~/lib/utils";
 
-export function ImageCaroulsel(props: { images: string[], class?: string }) {
+export function ImageCaroulsel(props: { images: string[]; class?: string }) {
   return (
     <Carousel class={cn("w-full", props.class)}>
       <CarouselContent>

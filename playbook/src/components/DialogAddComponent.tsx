@@ -1,6 +1,6 @@
 import PlusIcon from "lucide-solid/icons/plus";
 import { createSignal } from "solid-js";
-import { Button, buttonVariants } from "~/components/button";
+import { Button, buttonVariants } from "~/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -10,12 +10,12 @@ import {
   DialogTitle,
   DialogTrigger,
   CloseButton,
-} from "~/components/dialog";
+} from "~/components/ui/dialog";
 import {
   TextField,
   TextFieldInput,
   TextFieldLabel,
-} from "~/components/text-field";
+} from "~/components/ui/text-field";
 
 export function DialogAddComponent(props: {
   setComponentName: (componentName: string) => void;

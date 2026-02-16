@@ -52,10 +52,47 @@ ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
   },
 ]);
 
-export const getListComponent = (listID: string, componentID: string) => {
-  return checklist
-    .find((item) => item.id === listID)
-    ?.components.find((component) => component.id === componentID);
+export const [patterns, setPatterns] = createStore<
+  {
+    id: string;
+    title: string;
+    markdown: string;
+  }[]
+>([
+  {
+    id: "1",
+    title: "Pattern 1",
+    markdown: "Pattern 1",
+    images: [],
+  },
+  {
+    id: "2",
+    title: "Pattern 2",
+    markdown: "Pattern 2",
+    images: [],
+  },
+  {
+    id: "3",
+    title: "Pattern 3",
+    markdown: "Pattern 3",
+    images: [],
+  },
+  {
+    id: "4",
+    title: "Pattern 4",
+    markdown: "Pattern 4",
+    images: [],
+  },
+  {
+    id: "5",
+    title: "Pattern 5",
+    markdown: "Pattern 5",
+    images: [],
+  },
+]);
+
+export const getListComponent = (componentID: string) => {
+  return patterns.find((component) => component.id === componentID);
 };
 
 export const [selectedComponentsID, setSelectedComponentsID] = createStore<
