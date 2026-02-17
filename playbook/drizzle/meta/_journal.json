@@ -43,6 +43,13 @@
       "when": 1771194072105,
       "tag": "0005_furry_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1771272483068,
+      "tag": "0006_stiff_mystique",
+      "breakpoints": true
     }
   ]
 }

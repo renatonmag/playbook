@@ -46,7 +46,7 @@ export const GET = async (event: APIEvent) => {
     }
     return jsonResponse(component);
   } catch (err) {
-    console.error("GET /api/componentsApi/[id]", err);
+    console.error("GET /api/components/[id]", err);
     return jsonResponse(
       { error: err instanceof Error ? err.message : "Internal server error" },
       500,
@@ -56,28 +56,30 @@ export const GET = async (event: APIEvent) => {
 
 export const PATCH = async (event: APIEvent) => {
   const id = parseId(event.params);
-  const userId = parseUserId(event);
-  if (id === null) {
-    return jsonResponse({ error: "Invalid or missing id" }, 400);
-  }
-  if (userId === null) {
-    return jsonResponse(
-      { error: "Missing or invalid query parameter: userId" },
-      400,
-    );
-  }
   let body: Partial<ComponentUpdate>;
   try {
     body = await event.request.json();
   } catch {
     return jsonResponse({ error: "Invalid JSON body" }, 400);
   }
+  const userId = body.userId;
+  if (id === null) {
+    return jsonResponse({ error: "Invalid or missing id" }, 400);
+  }
+  if (!userId) {
+    return jsonResponse(
+      { error: "Missing or invalid body parameter: userId" },
+      400,
+    );
+  }
+
   const data: ComponentUpdate = {};
   if (typeof body?.title === "string") data.title = body.title.trim();
   if (Array.isArray(body?.imageComparisons))
     data.imageComparisons = body.imageComparisons;
   if (body?.markdownId !== undefined)
     data.markdownId = body.markdownId === null ? null : body.markdownId;
+  if (Array.isArray(body?.exemples)) data.exemples = body.exemples;
   try {
     const row = await updateComponent(id, userId, data);
     if (row === null) {
@@ -85,7 +87,7 @@ export const PATCH = async (event: APIEvent) => {
     }
     return jsonResponse(row);
   } catch (err) {
-    console.error("PATCH /api/componentsApi/[id]", err);
+    console.error("PATCH /api/components/[id]", err);
     return jsonResponse(
       { error: err instanceof Error ? err.message : "Internal server error" },
       500,

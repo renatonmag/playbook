@@ -56,7 +56,6 @@ export const markdownTable = pgTable("markdown", {
   userId: integer("user_id")
     .references(() => usersTable.id)
     .notNull(),
-  title: varchar({ length: 255 }).notNull(),
   content: text().notNull(), // Changed from varchar to text for long markdown
 });
 

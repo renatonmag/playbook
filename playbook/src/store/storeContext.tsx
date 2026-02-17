@@ -22,19 +22,22 @@ export type IStoreContext = [state: IStoreState, actions: any];
  */
 
 export function createApplicationStore(): IStoreContext {
-  let componentsStore: InitializedResource<any> = undefined;
+  let componentsStore = undefined;
 
   const [state, setState] = createStore<IStoreState>({
     // The following getters map each of
     // the resource stores onto the global store
 
     get components() {
-      return componentsStore();
+      return componentsStore;
     },
 
-    displayComponentId: undefined,
+    displayComponentId: 3,
+    user: {
+      id: 1,
+    },
 
-    token: localStorage.getItem("jwt") || "",
+    token: "",
     appName: "playbook",
   });
 

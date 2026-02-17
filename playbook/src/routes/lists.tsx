@@ -23,9 +23,12 @@ import PlusIcon from "lucide-solid/icons/plus";
 import Play from "lucide-solid/icons/play";
 
 import { ImageCaroulsel } from "~/components/ImageCarousel";
+import { useStore } from "~/store/storeContext";
+import { createAsync } from "@solidjs/router";
 
 export default function Home() {
   const [checklistID, setChecklistID] = createSignal<string>("");
+  const [state, _] = useStore();
 
   let previewDiv: HTMLDivElement | undefined;
 
@@ -86,8 +89,9 @@ export default function Home() {
           <Play />
         </Button>
         <div class="flex flex-col gap-2">
-          <For each={patterns}>
+          <For each={state.components.components()}>
             {(component, index) => {
+              console.log(component);
               return (
                 <div
                   onMouseDown={() => setChecklistID(component.id)}
@@ -102,18 +106,7 @@ export default function Home() {
               );
             }}
           </For>
-          <DialogAddComponent
-            setComponentName={(componentName) => {
-              setPatterns((_items) => [
-                ..._items,
-                {
-                  id: crypto.randomUUID(),
-                  title: componentName,
-                  markdown: "",
-                },
-              ]);
-            }}
-          />
+          <DialogAddComponent />
         </div>
       </div>
     </main>

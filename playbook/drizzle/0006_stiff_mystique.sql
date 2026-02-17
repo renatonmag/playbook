@@ -1,0 +1,1 @@
+ALTER TABLE "markdown" DROP COLUMN "title";

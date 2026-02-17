@@ -5,12 +5,13 @@ import {
   createSignal,
   For,
   Match,
+  onCleanup,
   Switch,
 } from "solid-js";
 import { parseMarkdown } from "~/lib/parseMarkdown";
 import { Button } from "~/components/ui/button";
 import ArrowLeft from "lucide-solid/icons/arrow-left";
-import { createStore } from "solid-js/store";
+import { createStore, reconcile } from "solid-js/store";
 import { checklist, getListComponent, setChecklist } from "~/store/checklist";
 import { useParams, useSearchParams } from "@solidjs/router";
 import { UploadButton } from "~/lib/uploadthing";
@@ -21,18 +22,49 @@ import {
   TextFieldInput,
   TextFieldLabel,
 } from "~/components/ui/text-field";
+import { useStore } from "~/store/storeContext";
 
 export default function Home() {
   const [editTitle, setEditTitle] = createSignal(false);
-  const [title, setTitle] = createSignal("");
+  const [patternDraft, setPatternDraft] = createStore({
+    title: "",
+    categories: "",
+    markdown: "",
+  });
   const [params, _] = useSearchParams();
 
-  const [html] = createResource(
-    () => getListComponent(params.pattern)?.markdown,
-    parseMarkdown,
-  );
+  const [store, actions] = useStore();
+
+  createEffect(() => {
+    console.log(store.components.component());
+  });
+
+  createEffect(() => {
+    if (store.components.component())
+      setPatternDraft(reconcile(store.components.component()));
+  });
+
+  createEffect(() => {
+    // We "access" draft to track it
+    const dataToSave = { ...patternDraft };
+
+    // Set a 2-second debounce timer
+    const timer = setTimeout(async () => {
+      console.log("Auto-saving...", dataToSave);
+      await actions.updateComponent(
+        store.components.component()?.id,
+        dataToSave,
+      );
+      // Optional: revalidate() here if other parts of the UI need the update
+    }, 2000);
+
+    // If the user types again before 2s, this clears the previous timer
+    onCleanup(() => clearTimeout(timer));
+  });
+
+  const [html] = createResource(() => patternDraft.markdown, parseMarkdown);
   let previewDiv: HTMLDivElement | undefined;
-  let textareaRef: HTMLTextAreaElement | undefined;
+
   createEffect(() => {
     if (previewDiv) {
       previewDiv.innerHTML = html() || "";
@@ -57,11 +89,11 @@ export default function Home() {
         </Button>
 
         <div class="font-bold text-lg text-gray-700 mb-4">
-          {getListComponent(params.pattern)?.title}
+          {patternDraft.title}
         </div>
         <ImageCaroulsel
           class="max-w-2xl"
-          images={getListComponent(params.pattern)?.images || []}
+          images={patternDraft.exemples || []}
         />
         <div
           class="prose w-full h-full mt-[30px] wrap-break-word"
@@ -75,12 +107,12 @@ export default function Home() {
             <TextField class="w-3/4">
               <TextFieldInput
                 onBlur={() => setEditTitle(false)}
-                value={title() || getListComponent(params.pattern)?.title}
+                value={patternDraft.title || patternDraft.title}
                 class="w-full"
                 type="text"
                 id="text"
                 onInput={(e) => {
-                  setTitle(e.currentTarget.value);
+                  setPatternDraft("title", e.currentTarget.value);
                 }}
                 placeholder="categorias separadas por virgula."
               />
@@ -88,14 +120,11 @@ export default function Home() {
           </Match>
           <Match when={!editTitle()}>
             <div onMouseDown={() => setEditTitle(true)}>
-              {getListComponent(params.pattern)?.title}
+              {patternDraft.title}
             </div>
           </Match>
         </Switch>
-        <ImageCaroulsel
-          class="max-w-lg"
-          images={getListComponent(params.pattern)?.images || []}
-        />
+        <ImageCaroulsel class="max-w-lg" images={patternDraft.exemples || []} />
         <UploadButton
           onClientUploadComplete={(res) => {
             // Do something with the response
@@ -121,6 +150,10 @@ export default function Home() {
             Categorias
           </TextFieldLabel>
           <TextFieldInput
+            value={patternDraft.categories}
+            onChange={(e) => {
+              setPatternDraft("categories", e.currentTarget.value);
+            }}
             class="col-span-3"
             type="email"
             id="email"
@@ -133,16 +166,10 @@ export default function Home() {
             id="markdown"
             class="w-full min-h-full outline-none resize-none bg-transparent field-sizing-content"
             onInput={(e) => {
-              setChecklist(
-                (_item) => _item.id === params.list,
-                "components",
-                (component) => component.id === params.pattern,
-                "markdown",
-                e.currentTarget.value,
-              );
+              setPatternDraft("markdown", e.currentTarget.value);
             }}
           >
-            {getListComponent(params.pattern)?.markdown}
+            {patternDraft.markdown}
           </textarea>
         </div>
       </div>

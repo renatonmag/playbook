@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-API_ROOT = "http://localhost:3000";
+const API_ROOT = "http://localhost:3000";
 
 export default function createAgent([state, actions]) {
   async function send(method, url, data, resKey) {
@@ -20,6 +20,7 @@ export default function createAgent([state, actions]) {
       return resKey ? json[resKey] : json;
     } catch (err) {
       if (err && err.response && err.response.status === 401) {
+        console.log(err);
         actions.logout();
       }
       return err;
@@ -37,7 +38,23 @@ export default function createAgent([state, actions]) {
 
   const Components = {
     listByUser: (userId) =>
-      send("get", `/components?userId=${userId}`, undefined, "components"),
-    get: (id) => send("get", `/components/${id}`, undefined, "component"),
+      send("get", `/api/components?userId=${userId}`, undefined, undefined),
+    get: (id, userId) =>
+      send(
+        "get",
+        `/api/components/${id}?userId=${userId}`,
+        undefined,
+        undefined,
+      ),
+    create: (component) => send("post", "/api/components", { ...component }),
+    update: (id, userId, data) =>
+      send("patch", `/api/components/${id}`, { ...data, userId }, "component"),
+    delete: (id, userId) =>
+      send("delete", `/api/components/${id}`, undefined, "component"),
+  };
+
+  return {
+    Auth,
+    Components,
   };
 }

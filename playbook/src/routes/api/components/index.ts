@@ -31,7 +31,7 @@ export const GET = async (event: APIEvent) => {
     const components = await listComponentsByUser(userId);
     return jsonResponse(components);
   } catch (err) {
-    console.error("GET /api/componentsApi", err);
+    console.error("GET /api/components", err);
     return jsonResponse(
       { error: err instanceof Error ? err.message : "Internal server error" },
       500,
@@ -48,10 +48,14 @@ export const POST = async (event: APIEvent) => {
   }
   const userId = typeof body.userId === "number" ? body.userId : null;
   const title =
-    typeof body.title === "string" && body.title.trim() ? body.title.trim() : null;
+    typeof body.title === "string" && body.title.trim()
+      ? body.title.trim()
+      : null;
   if (userId === null || title === null) {
     return jsonResponse(
-      { error: "Body must include userId (number) and title (non-empty string)" },
+      {
+        error: "Body must include userId (number) and title (non-empty string)",
+      },
       400,
     );
   }

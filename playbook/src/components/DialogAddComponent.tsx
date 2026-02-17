@@ -16,11 +16,15 @@ import {
   TextFieldInput,
   TextFieldLabel,
 } from "~/components/ui/text-field";
+import { useStore } from "~/store/storeContext";
 
 export function DialogAddComponent(props: {
   setComponentName: (componentName: string) => void;
 }) {
   const [componentName, setComponentName] = createSignal("");
+
+  const [state, { createComponent }] = useStore();
+
   return (
     <Dialog>
       <DialogTrigger as={Button<"button">} variant="outline" size="icon">
@@ -49,7 +53,10 @@ export function DialogAddComponent(props: {
             class={buttonVariants({ variant: "default", size: "sm" })}
             type="submit"
             onClick={() => {
-              props.setComponentName(componentName());
+              createComponent({
+                title: componentName(),
+                userId: state.user.id,
+              });
               setComponentName("");
             }}
             disabled={componentName() === ""}
