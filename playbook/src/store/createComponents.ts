@@ -6,45 +6,18 @@ import {
   revalidate,
   useAction,
 } from "@solidjs/router";
-import { createComponent, createSignal, untrack } from "solid-js";
-import { fetchComponents, fetchSingleComponent } from "./querys/components";
+import { createEffect, createSignal, untrack } from "solid-js";
+import { createStore } from "solid-js/store";
 import { ComponentUpdate } from "~/db/queries/componentsCRUD";
 
-const _components = [
-  {
-    id: "1",
-    title: "Pattern 1",
-    markdown: "Pattern 1",
-    images: [],
-  },
-  {
-    id: "2",
-    title: "Pattern 2",
-    markdown: "Pattern 2",
-    images: [],
-  },
-  {
-    id: "3",
-    title: "Pattern 3",
-    markdown: "Pattern 3",
-    images: [],
-  },
-  {
-    id: "4",
-    title: "Pattern 4",
-    markdown: "Pattern 4",
-    images: [],
-  },
-  {
-    id: "5",
-    title: "Pattern 5",
-    markdown: "Pattern 5",
-    images: [],
-  },
-];
+
 
 export default function createComponents(agent, actions, state, setState) {
   const [componentsSource, setComponentsSource] = createSignal("mine");
+  const [compStore, setCompStore] = createStore({
+    components: {},
+    component: {},
+  })
 
   const fetchComponents = query(async (userId) => {
     const response = agent.Components.listByUser(userId);
@@ -58,7 +31,6 @@ export default function createComponents(agent, actions, state, setState) {
     if (componentsSource() === "mine") {
       try {
         components = await fetchComponents(1);
-        console.log(components);
       } catch (err) {
         console.log(err);
       }
@@ -74,30 +46,49 @@ export default function createComponents(agent, actions, state, setState) {
     return components;
   });
 
-  const fetchSingleComponent = query(async (id) => {
-    return await agent.Components.get(id, state.user.id);
+  const fetchSingleComponent = query(async (id, userId) => {
+    console.log("fetching single component")
+    return await agent.Components.get(id, userId);
   }, "single-component");
 
   const component = createAsync(async () => {
     const id = state.displayComponentId;
     if (!id) return {};
 
-    return await fetchSingleComponent(id);
+    return await fetchSingleComponent(id, state.user.id);
   });
 
-  const _saveComponent = action(async (id: string, data: ComponentUpdate) => {
+  createEffect(() => {
+    setCompStore("component", component());
+    setCompStore("components", components());
+  })
+
+
+  const _updateComponent = action(async (id: string, data: ComponentUpdate) => {
     const response = await agent.Components.update(id, state.user.id, data);
     return response;
   });
 
-  const updateComponent = useAction(_saveComponent);
+  const updateComponent = useAction(_updateComponent);
+
+  interface CategoriesUpdate {
+    id: number;
+    name: string;
+  }
+
+  const _updateCategory = action(async (data: CategoriesUpdate) => {
+    const response = await agent.Categories.update(state.user.id, data);
+    return response;
+  }, "update-category");
+
+  const updateCategory = useAction(_updateCategory);
 
   Object.assign(actions, {
     loadComponents(predicate) {
       setComponentsSource(predicate);
     },
     loadComponent(componentId) {
-      setState("displayedComponentId", componentId);
+      setState("displayComponentId", componentId);
     },
     async createComponent(componentData: { title: string }) {
       const component = await agent.Components.create(componentData);
@@ -107,10 +98,12 @@ export default function createComponents(agent, actions, state, setState) {
     deleteComponent(id, userId) {
       return agent.Components.delete(id, userId);
     },
+    async createCategory(componentData: { componentId: number, name: string }) {
+      await agent.Categories.create(componentData);
+      revalidate("components");
+    },
+    updateCategory
   });
 
-  return {
-    components,
-    component,
-  };
+  return compStore
 }

@@ -32,7 +32,7 @@ export function createApplicationStore(): IStoreContext {
       return componentsStore;
     },
 
-    displayComponentId: 3,
+    displayComponentId: null,
     user: {
       id: 1,
     },

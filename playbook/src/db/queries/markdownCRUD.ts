@@ -76,6 +76,8 @@ export const updateOrCreateMarkdown = async (
     }
   }
 
+  console.log("creating new markdown");
+
   // If no id provided or markdown doesn't exist, create new one
   return createMarkdown({
     userId: data.userId,

@@ -37,6 +37,7 @@ export const componentsTable = pgTable("components", {
     .$type<number[]>() // array of image ids
     .notNull()
     .default([]),
+  categories: varchar({ length: 255 }),
   // For 1-to-1, we store the reference here
   markdownId: integer("markdown_id").references(() => markdownTable.id),
 });
@@ -86,6 +87,17 @@ export const componentToCategories = pgTable("component_to_categories", {
   categoryId: integer("category_id").references(() => categoriesTable.id),
 });
 
+export const componentToCategoriesRelations = relations(componentToCategories, ({ one }) => ({
+  component: one(componentsTable, {
+    fields: [componentToCategories.componentId],
+    references: [componentsTable.id],
+  }),
+  category: one(categoriesTable, {
+    fields: [componentToCategories.categoryId],
+    references: [categoriesTable.id],
+  }),
+}));
+
 // junction table for Checklist <-> Components if a component can be in multiple checklists
 export const checklistToComponents = pgTable("checklist_to_components", {
   checklistId: integer("checklist_id").references(() => checklistTable.id),
@@ -111,6 +123,7 @@ export const componentsRelations = relations(
       references: [markdownTable.id],
     }),
     images: many(imagesTable),
+    categoryLinks: many(componentToCategories)
   }),
 );
 

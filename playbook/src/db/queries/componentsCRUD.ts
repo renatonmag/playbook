@@ -3,6 +3,7 @@ import type { ImageComparison } from "../schema";
 import { componentsTable } from "../schema";
 import { db } from "../index";
 import { updateOrCreateMarkdown } from "./markdownCRUD";
+import { createCategoryAndLinkToComponent, updateCategory } from "./categoriesCRUD";
 
 export type ComponentInsert = {
   userId: number;
@@ -17,6 +18,7 @@ export type ComponentUpdate = {
   exemples?: number[];
   userId?: number;
   markdownId?: number;
+  categories?: string;
   markdown?: string;
 };
 
@@ -46,11 +48,12 @@ export const getComponentById = async (id: number, userId: number) => {
 };
 
 export const listComponentsByUser = async (userId: number) => {
-  return db
-    .select()
-    .from(componentsTable)
-    .where(eq(componentsTable.userId, userId))
-    .orderBy(componentsTable.id);
+  return await db.query.componentsTable.findMany({
+    where: (components, { eq }) =>
+      eq(components.userId, userId),
+
+    orderBy: componentsTable.id,
+  });
 };
 
 export const updateComponent = async (
@@ -60,13 +63,18 @@ export const updateComponent = async (
 ) => {
   let markdownId = data.markdownId;
   // Handle markdown creation or update if markdown data is provided
+  console.log(data)
   if (data.markdown !== undefined) {
-    const newMarkdown = await updateOrCreateMarkdown({
-      userId,
-      id: data.markdownId,
-      content: data.markdown,
-    });
-    markdownId = newMarkdown.id;
+    try {
+      const newMarkdown = await updateOrCreateMarkdown({
+        userId,
+        id: data.markdownId,
+        content: data.markdown,
+      });
+      markdownId = newMarkdown.id;
+    } catch (err) {
+      throw new Error("Failed to create or update markdown");
+    }
   }
 
   // Update component with all fields
@@ -76,12 +84,15 @@ export const updateComponent = async (
       imageComparisons: data.imageComparisons,
     }),
     ...(data.exemples !== undefined && { exemples: data.exemples }),
+    ...(data.categories !== undefined && { categories: data.categories }),
   };
 
   // Handle markdownId: prioritize explicit markdownId, otherwise use the one from markdown handling
   if (markdownId !== undefined) {
     updateData.markdownId = markdownId;
   }
+
+  console.log(updateData)
 
   const [row] = await db
     .update(componentsTable)

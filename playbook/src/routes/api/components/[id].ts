@@ -5,27 +5,9 @@ import {
   updateComponent,
   type ComponentUpdate,
 } from "~/db/queries/componentsCRUD";
+import { jsonResponse, parseId, parseUserId } from "~/lib/utils";
 
-const parseId = (params: APIEvent["params"]): number | null => {
-  const id = params?.id;
-  if (id === undefined || id === null) return null;
-  const n = parseInt(String(id), 10);
-  return Number.isNaN(n) ? null : n;
-};
 
-const parseUserId = (event: APIEvent): number | null => {
-  const url = new URL(event.request.url);
-  const userId = url.searchParams.get("userId");
-  if (userId === null) return null;
-  const n = parseInt(userId, 10);
-  return Number.isNaN(n) ? null : n;
-};
-
-const jsonResponse = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 
 export const GET = async (event: APIEvent) => {
   const id = parseId(event.params);
@@ -54,7 +36,8 @@ export const GET = async (event: APIEvent) => {
   }
 };
 
-export const PATCH = async (event: APIEvent) => {
+export const PUT = async (event: APIEvent) => {
+  console.log("updating component")
   const id = parseId(event.params);
   let body: Partial<ComponentUpdate>;
   try {
@@ -77,9 +60,11 @@ export const PATCH = async (event: APIEvent) => {
   if (typeof body?.title === "string") data.title = body.title.trim();
   if (Array.isArray(body?.imageComparisons))
     data.imageComparisons = body.imageComparisons;
-  if (body?.markdownId !== undefined)
-    data.markdownId = body.markdownId === null ? null : body.markdownId;
+  if (!!body.markdownId)
+    data.markdownId = body.markdownId
+  if (body.markdown) data.markdown = body.markdown
   if (Array.isArray(body?.exemples)) data.exemples = body.exemples;
+  if (typeof body?.categories === "string") data.categories = body.categories;
   try {
     const row = await updateComponent(id, userId, data);
     if (row === null) {
@@ -87,7 +72,7 @@ export const PATCH = async (event: APIEvent) => {
     }
     return jsonResponse(row);
   } catch (err) {
-    console.error("PATCH /api/components/[id]", err);
+    console.error("PUT /api/components/[id]", err);
     return jsonResponse(
       { error: err instanceof Error ? err.message : "Internal server error" },
       500,

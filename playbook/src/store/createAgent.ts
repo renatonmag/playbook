@@ -15,12 +15,17 @@ export default function createAgent([state, actions]) {
     if (state.token) headers["Authorization"] = `Token ${state.token}`;
 
     try {
+      console.log(API_ROOT + url, opts);
       const response = await fetch(API_ROOT + url, opts);
-      const json = await response.json();
-      return resKey ? json[resKey] : json;
+      const text = await response.text(); // Get body as string first
+
+      if (text) {
+        const json = JSON.parse(text);
+        return resKey ? json[resKey] : json;
+      }
     } catch (err) {
+      console.log(err);
       if (err && err.response && err.response.status === 401) {
-        console.log(err);
         actions.logout();
       }
       return err;
@@ -48,10 +53,17 @@ export default function createAgent([state, actions]) {
       ),
     create: (component) => send("post", "/api/components", { ...component }),
     update: (id, userId, data) =>
-      send("patch", `/api/components/${id}`, { ...data, userId }, "component"),
+      send("put", `/api/components/${id}`, { ...data, userId }, undefined),
     delete: (id, userId) =>
-      send("delete", `/api/components/${id}`, undefined, "component"),
+      send("delete", `/api/components/${id}`, undefined, undefined),
   };
+
+  const Categories = {
+    update: (userId, data) =>
+      send("put", `/api/categories/${data.id}`, { ...data, userId }, undefined),
+    create: (userId, data) =>
+      send("post", `/api/categories`, { ...data, userId }, undefined),
+  }
 
   return {
     Auth,

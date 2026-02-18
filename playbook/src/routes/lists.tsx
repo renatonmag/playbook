@@ -89,9 +89,8 @@ export default function Home() {
           <Play />
         </Button>
         <div class="flex flex-col gap-2">
-          <For each={state.components.components()}>
+          <For each={state.components.components}>
             {(component, index) => {
-              console.log(component);
               return (
                 <div
                   onMouseDown={() => setChecklistID(component.id)}
