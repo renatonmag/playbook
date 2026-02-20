@@ -37,6 +37,7 @@
     "@kobalte/tailwindcss": "^0.9.0",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.0.7",
+    "@typescript/native-preview": "7.0.0-dev.20260220.1",
     "drizzle-kit": "^0.31.9",
     "tailwindcss": "^4.0.7"
   },
