@@ -32,14 +32,17 @@ export default function Home() {
   const [editTitle, setEditTitle] = createSignal(false);
 
   const [patternDraft, setPatternDraft] = createStore({
-    title: "",
-    categories: "",
-    markdown: { content: "" },
-  }), [patternDraftHistory, setPatternDraftHistory] = createStore({
-    title: "",
-    categories: "",
-    markdown: { content: "" },
-  })
+      title: "",
+      categories: "",
+      exemples: [{ uri: "", key: "" }],
+      markdown: { content: "" },
+    }),
+    [patternDraftHistory, setPatternDraftHistory] = createStore({
+      title: "",
+      categories: "",
+      exemples: [{ uri: "", key: "" }],
+      markdown: { content: "" },
+    });
 
   const [params, _] = useSearchParams();
 
@@ -48,7 +51,7 @@ export default function Home() {
   onMount(() => actions.loadComponent(params.pattern));
 
   createEffect(() => {
-    const componentData = { ...store.components.component }
+    const componentData = { ...store.components.component };
     setPatternDraft(reconcile(componentData));
     setPatternDraftHistory(reconcile(componentData));
   });
@@ -56,20 +59,17 @@ export default function Home() {
   createEffect(() => {
     // We "access" draft to track it
     const dataToSave = {
-      ...patternDraft, markdown: patternDraft.markdown?.content,
-    }
+      ...patternDraft,
+      markdown: patternDraft.markdown?.content,
+    };
 
     if (deepEqual(patternDraft, patternDraftHistory)) return;
-
 
     // Set a 2-second debounce timer
     const timer = setTimeout(async () => {
       // console.log("Auto-saving...", dataToSave);
-      await actions.updateComponent(
-        store.components.component?.id,
-        dataToSave,
-      );
-      setPatternDraftHistory(reconcile(patternDraft))
+      await actions.updateComponent(store.components.component?.id, dataToSave);
+      setPatternDraftHistory(reconcile(patternDraft));
       // Optional: revalidate() here if other parts of the UI need the update
     }, 2000);
 
@@ -77,7 +77,10 @@ export default function Home() {
     onCleanup(() => clearTimeout(timer));
   });
 
-  const [html] = createResource(() => patternDraft.markdown?.content || "", parseMarkdown);
+  const [html] = createResource(
+    () => patternDraft.markdown?.content || "",
+    parseMarkdown,
+  );
   let previewDiv: HTMLDivElement | undefined;
 
   createEffect(() => {
@@ -85,6 +88,13 @@ export default function Home() {
       previewDiv.innerHTML = html() || "";
     }
   });
+
+  const deleteImage = (key: string) => {
+    setPatternDraft(
+      "exemples",
+      patternDraft.exemples.filter((e) => e.key !== key),
+    );
+  };
 
   if (!params.pattern) {
     return <div>Lista ou Padrão não encontrado</div>;
@@ -109,6 +119,7 @@ export default function Home() {
         <ImageCaroulsel
           class="max-w-2xl"
           images={patternDraft.exemples || []}
+          onDelete={deleteImage}
         />
         <div
           class="prose w-full h-full mt-[30px] wrap-break-word"
@@ -139,11 +150,22 @@ export default function Home() {
             </div>
           </Match>
         </Switch>
-        <ImageCaroulsel class="max-w-lg" images={patternDraft.exemples || []} />
+        <ImageCaroulsel
+          class="max-w-lg"
+          images={patternDraft.exemples || []}
+          onDelete={deleteImage}
+        />
         <UploadButton
           onClientUploadComplete={(res) => {
             // Do something with the response
-            console.log("Files: ", res);
+            setPatternDraft("exemples", (state) => [
+              ...state,
+              ...res.map((r) => ({
+                uri: r.ufsUrl,
+                key: r.key,
+              })),
+            ]);
+            // console.log(res);
             alert("Upload Completed");
           }}
           onUploadError={(error: Error) => {
@@ -181,10 +203,12 @@ export default function Home() {
             id="markdown"
             class="w-full min-h-full outline-none resize-none bg-transparent field-sizing-content"
             onInput={(e) => {
-              setPatternDraft(produce((draft) => {
-                draft.markdown = { content: e.currentTarget.value }
-                return draft
-              }))
+              setPatternDraft(
+                produce((draft) => {
+                  draft.markdown = { content: e.currentTarget.value };
+                  return draft;
+                }),
+              );
             }}
           >
             {patternDraft.markdown?.content || ""}

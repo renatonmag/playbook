@@ -9,21 +9,34 @@ import {
   CarouselPrevious,
 } from "~/components/ui/carousel";
 import { cn } from "~/lib/utils";
+import { Button } from "./ui/button";
+import SquareMinus from "lucide-solid/icons/square-minus";
+import { deleteFiles } from "~/server/functions";
 
-export function ImageCaroulsel(props: { images: string[]; class?: string }) {
+export function ImageCaroulsel(props: { images: any[]; class?: string }) {
   return (
     <Carousel class={cn("w-full", props.class)}>
       <CarouselContent>
-        <Index each={Array.from({ length: 5 })}>
-          {(_, index) => (
+        <Index each={props.images}>
+          {(image, index) => (
             <CarouselItem>
-              <div class="p-1">
-                <Card>
-                  <CardContent class="flex aspect-video items-center justify-center p-6">
-                    <span class="text-4xl font-semibold">{index + 1}</span>
-                  </CardContent>
-                </Card>
-              </div>
+              <Card>
+                <CardContent class="flex aspect-video items-center justify-center p-2 relative">
+                  <Button
+                    class="absolute top-4 right-4"
+                    size="icon"
+                    onClick={async () => {
+                      const res = await deleteFiles([image().key]);
+                      if (res) {
+                        props.onDelete(image().key);
+                      }
+                    }}
+                  >
+                    <SquareMinus class="text-white" />
+                  </Button>
+                  <img src={image().uri} class="w-full h-full object-cover" />
+                </CardContent>
+              </Card>
             </CarouselItem>
           )}
         </Index>

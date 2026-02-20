@@ -34,7 +34,7 @@ export const componentsTable = pgTable("components", {
     .notNull()
     .default([]),
   exemples: jsonb("exemples")
-    .$type<number[]>() // array of image ids
+    .$type<{ uri: string; fileHash: string }[]>() // array of image uri
     .notNull()
     .default([]),
   categories: varchar({ length: 255 }),
@@ -87,16 +87,19 @@ export const componentToCategories = pgTable("component_to_categories", {
   categoryId: integer("category_id").references(() => categoriesTable.id),
 });
 
-export const componentToCategoriesRelations = relations(componentToCategories, ({ one }) => ({
-  component: one(componentsTable, {
-    fields: [componentToCategories.componentId],
-    references: [componentsTable.id],
+export const componentToCategoriesRelations = relations(
+  componentToCategories,
+  ({ one }) => ({
+    component: one(componentsTable, {
+      fields: [componentToCategories.componentId],
+      references: [componentsTable.id],
+    }),
+    category: one(categoriesTable, {
+      fields: [componentToCategories.categoryId],
+      references: [categoriesTable.id],
+    }),
   }),
-  category: one(categoriesTable, {
-    fields: [componentToCategories.categoryId],
-    references: [categoriesTable.id],
-  }),
-}));
+);
 
 // junction table for Checklist <-> Components if a component can be in multiple checklists
 export const checklistToComponents = pgTable("checklist_to_components", {
@@ -123,7 +126,7 @@ export const componentsRelations = relations(
       references: [markdownTable.id],
     }),
     images: many(imagesTable),
-    categoryLinks: many(componentToCategories)
+    categoryLinks: many(componentToCategories),
   }),
 );
 
