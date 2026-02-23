@@ -57,6 +57,13 @@
       "when": 1771422768785,
       "tag": "0007_fixed_warhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1771879964857,
+      "tag": "0008_sticky_cyclops",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,17 @@ export type ImageComparison = {
   after: number;
 };
 
+export type Question = {
+  question: string;
+  questionFunction: string;
+  answers: Answer[];
+};
+
+export type Answer = {
+  answer: string;
+  consequence: string;
+};
+
 export const componentsTable = pgTable("components", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id")
@@ -34,12 +45,13 @@ export const componentsTable = pgTable("components", {
     .notNull()
     .default([]),
   exemples: jsonb("exemples")
-    .$type<{ uri: string; fileHash: string }[]>() // array of image uri
+    .$type<{ uri: string; key: string }[]>() // array of image uri
     .notNull()
     .default([]),
   categories: varchar({ length: 255 }),
   // For 1-to-1, we store the reference here
   markdownId: integer("markdown_id").references(() => markdownTable.id),
+  questions: jsonb("questions").$type<Question[]>().notNull().default([]),
 });
 
 export const imagesTable = pgTable("images", {

@@ -24,11 +24,11 @@ import Play from "lucide-solid/icons/play";
 
 import { ImageCaroulsel } from "~/components/ImageCarousel";
 import { useStore } from "~/store/storeContext";
-import { createAsync } from "@solidjs/router";
+import { createAsync, A } from "@solidjs/router";
 
 export default function Home() {
   const [checklistID, setChecklistID] = createSignal<string>("");
-  const [state, _] = useStore();
+  const [store, actions] = useStore();
 
   let previewDiv: HTMLDivElement | undefined;
 
@@ -36,6 +36,10 @@ export default function Home() {
     if (previewDiv) {
       previewDiv.innerHTML = html() || "";
     }
+  });
+
+  const component = createMemo(() => {
+    return store.components?.find((c) => c.id === store.displayComponentId);
   });
 
   const addList = () => {
@@ -46,39 +50,47 @@ export default function Home() {
   };
 
   const [html] = createResource(
-    () => getListComponent(checklistID())?.markdown,
+    () => component()?.markdown?.content || "",
     parseMarkdown,
   );
 
   const checklistSelected = () => checklistID() !== "";
 
   return (
-    <main class="flex w-full h-[calc(100vh-50px)] text-gray-800 p-1.5 gap-1">
+    <main class="flex w-full h-[calc(100vh-51px)] text-gray-800 p-1.5 gap-1 relative">
       <Show when={checklistSelected()}>
-        <div class="w-1/2 py-8 flex flex-col h-full relative justify-start items-center">
-          <Button
-            as="a"
-            class="absolute top-4 left-4"
-            href={`/pattern/?pattern=${checklistID()}`}
-            variant="outline"
-            size="icon"
-          >
-            <SquarePen />
-          </Button>
+        <Button
+          as="A"
+          class="absolute top-4 left-4"
+          href={`/pattern/?pattern=${checklistID()}`}
+          variant="outline"
+          size="icon"
+        >
+          <SquarePen />
+        </Button>
+      </Show>
+      <Show when={checklistSelected()}>
+        <div class="w-2/3 py-4 flex flex-col h-full justify-start items-center overflow-y-auto">
           <div class="text-lg font-bold text-gray-700 mb-4">
-            {getListComponent(checklistID())?.title}
+            {component()?.title}
           </div>
           <ImageCaroulsel
             class="max-w-2xl"
-            images={getListComponent(checklistID())?.images || []}
+            images={component()?.exemples || []}
           />
           <div
-            class="prose w-full h-full mx-auto wrap-break-word"
+            class="prose w-full h-full mx-auto mt-5 wrap-break-word"
             innerHTML={html() || "Sem descrição..."}
           ></div>
         </div>
       </Show>
-      <div class="flex flex-col gap-2 w-1/2 py-8 h-full mx-auto items-center relative">
+      <div
+        classList={{
+          "flex flex-col gap-2 py-8 h-full mx-auto items-center relative": true,
+          "w-1/3": checklistSelected(),
+          "w-full": !checklistSelected(),
+        }}
+      >
         <Button
           as="a"
           class="absolute top-4 right-4"
@@ -88,15 +100,18 @@ export default function Home() {
         >
           <Play />
         </Button>
-        <div class="flex flex-col gap-2">
-          <For each={state.components.components}>
+        <div class="flex flex-col gap-2 items-center">
+          <For each={store.components}>
             {(component, index) => {
               return (
                 <div
-                  onMouseDown={() => setChecklistID(component.id)}
+                  onMouseDown={() => {
+                    setChecklistID(component.id);
+                    actions.loadComponent(component.id);
+                  }}
                   classList={{
-                    "py-2 px-4": true,
-                    [buttonVariants({ variant: "secondary", size: "md" })]:
+                    "py-2 px-4 w-fit": true,
+                    [buttonVariants({ variant: "default", size: "md" })]:
                       component.id === checklistID(),
                   }}
                 >

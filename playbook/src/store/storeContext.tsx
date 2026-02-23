@@ -63,7 +63,15 @@ export function createApplicationStore(): IStoreContext {
   return [state, actions];
 }
 
-export const StoreContext = createContext<IStoreContext>();
+export const _StoreContext = createContext<IStoreContext>();
+export const StoreContext = (props: any) => {
+  const store = createApplicationStore();
+  return (
+    <_StoreContext.Provider value={store}>
+      {props.children}
+    </_StoreContext.Provider>
+  );
+};
 
 /**
  * Globally accessible application store and associated utility
@@ -85,5 +93,5 @@ export const StoreContext = createContext<IStoreContext>();
  */
 
 export function useStore(): IStoreContext {
-  return useContext<IStoreContext>(StoreContext);
+  return useContext<IStoreContext>(_StoreContext);
 }

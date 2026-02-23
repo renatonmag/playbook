@@ -11,3 +11,4 @@ async function main() {
   return db;
 }
 export const db = await main();
+export type DB = typeof db;

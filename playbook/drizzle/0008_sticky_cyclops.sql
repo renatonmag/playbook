@@ -1,0 +1,1 @@
+ALTER TABLE "components" ADD COLUMN "questions" jsonb DEFAULT '[]'::jsonb NOT NULL;

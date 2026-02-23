@@ -1,4 +1,4 @@
-import { Index } from "solid-js";
+import { Index, Show } from "solid-js";
 
 import { Card, CardContent } from "~/components/ui/card";
 import {
@@ -21,20 +21,23 @@ export function ImageCaroulsel(props: { images: any[]; class?: string }) {
           {(image, index) => (
             <CarouselItem>
               <Card>
-                <CardContent class="flex aspect-video items-center justify-center p-2 relative">
-                  <Button
-                    class="absolute top-4 right-4"
-                    size="icon"
-                    onClick={async () => {
-                      const res = await deleteFiles([image().key]);
-                      if (res) {
-                        props.onDelete(image().key);
-                      }
-                    }}
-                  >
-                    <SquareMinus class="text-white" />
-                  </Button>
-                  <img src={image().uri} class="w-full h-full object-cover" />
+                <CardContent class="flex aspect-square items-center justify-center p-2 relative">
+                  <Show when={props.onDelete}>
+                    <Button
+                      class="absolute top-4 right-4"
+                      variant="destructive"
+                      size="icon"
+                      onClick={async () => {
+                        const res = await deleteFiles([image().key]);
+                        if (res) {
+                          props.onDelete(image().key);
+                        }
+                      }}
+                    >
+                      <SquareMinus class="text-white" />
+                    </Button>
+                  </Show>
+                  <img src={image().uri} class="w-full h-full object-contain" />
                 </CardContent>
               </Card>
             </CarouselItem>

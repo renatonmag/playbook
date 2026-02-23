@@ -6,18 +6,26 @@ import {
   revalidate,
   useAction,
 } from "@solidjs/router";
+import { useQuery } from "@tanstack/solid-query";
 import { createEffect, createSignal, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { ComponentUpdate } from "~/db/queries/componentsCRUD";
-
-
+import { orpc } from "~/lib/orpc";
 
 export default function createComponents(agent, actions, state, setState) {
   const [componentsSource, setComponentsSource] = createSignal("mine");
   const [compStore, setCompStore] = createStore({
-    components: {},
+    components: [],
     component: {},
-  })
+  });
+
+  const _componentsList = useQuery(() =>
+    orpc.component.listByUser.queryOptions({}),
+  );
+
+  createEffect(() => {
+    console.log("query", _componentsList.data);
+  });
 
   const fetchComponents = query(async (userId) => {
     const response = agent.Components.listByUser(userId);
@@ -47,7 +55,7 @@ export default function createComponents(agent, actions, state, setState) {
   });
 
   const fetchSingleComponent = query(async (id, userId) => {
-    console.log("fetching single component")
+    console.log("fetching single component");
     return await agent.Components.get(id, userId);
   }, "single-component");
 
@@ -61,8 +69,7 @@ export default function createComponents(agent, actions, state, setState) {
   createEffect(() => {
     setCompStore("component", component());
     setCompStore("components", components());
-  })
-
+  });
 
   const _updateComponent = action(async (id: string, data: ComponentUpdate) => {
     const response = await agent.Components.update(id, state.user.id, data);
@@ -98,12 +105,12 @@ export default function createComponents(agent, actions, state, setState) {
     deleteComponent(id, userId) {
       return agent.Components.delete(id, userId);
     },
-    async createCategory(componentData: { componentId: number, name: string }) {
+    async createCategory(componentData: { componentId: number; name: string }) {
       await agent.Categories.create(componentData);
       revalidate("components");
     },
-    updateCategory
+    updateCategory,
   });
 
-  return compStore
+  return _componentsList.data;
 }

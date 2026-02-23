@@ -3,7 +3,10 @@ import type { ImageComparison } from "../schema";
 import { componentsTable } from "../schema";
 import { db } from "../index";
 import { updateOrCreateMarkdown } from "./markdownCRUD";
-import { createCategoryAndLinkToComponent, updateCategory } from "./categoriesCRUD";
+import {
+  createCategoryAndLinkToComponent,
+  updateCategory,
+} from "./categoriesCRUD";
 
 export type ComponentInsert = {
   userId: number;
@@ -49,10 +52,10 @@ export const getComponentById = async (id: number, userId: number) => {
 
 export const listComponentsByUser = async (userId: number) => {
   return await db.query.componentsTable.findMany({
-    where: (components, { eq }) =>
-      eq(components.userId, userId),
-
-    orderBy: componentsTable.id,
+    where: (components, { eq }) => eq(components.userId, userId),
+    with: {
+      markdown: true, // This joins the markdownTable automatically
+    },
   });
 };
 
@@ -63,7 +66,6 @@ export const updateComponent = async (
 ) => {
   let markdownId = data.markdownId;
   // Handle markdown creation or update if markdown data is provided
-  console.log(data)
   if (data.markdown !== undefined) {
     try {
       const newMarkdown = await updateOrCreateMarkdown({
@@ -92,11 +94,11 @@ export const updateComponent = async (
     updateData.markdownId = markdownId;
   }
 
-  console.log(updateData)
+  console.log(data);
 
   const [row] = await db
     .update(componentsTable)
-    .set(updateData)
+    .set(data)
     .where(and(eq(componentsTable.id, id), eq(componentsTable.userId, userId)))
     .returning();
   return row ?? null;

@@ -16,4 +16,10 @@ export interface IStoreState {
    */
 
   appName: string;
+  displayComponentId: number | null;
+  user: {
+    id: number;
+    userName: string;
+    email: string;
+  };
 }
