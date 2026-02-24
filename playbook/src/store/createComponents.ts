@@ -14,10 +14,6 @@ import { orpc } from "~/lib/orpc";
 
 export default function createComponents(agent, actions, state, setState) {
   const [componentsSource, setComponentsSource] = createSignal("mine");
-  const [compStore, setCompStore] = createStore({
-    components: [],
-    component: {},
-  });
 
   const _componentsList = useQuery(() =>
     orpc.component.listByUser.queryOptions({}),
@@ -66,11 +62,6 @@ export default function createComponents(agent, actions, state, setState) {
     return await fetchSingleComponent(id, state.user.id);
   });
 
-  createEffect(() => {
-    setCompStore("component", component());
-    setCompStore("components", components());
-  });
-
   const _updateComponent = action(async (id: string, data: ComponentUpdate) => {
     const response = await agent.Components.update(id, state.user.id, data);
     return response;
@@ -112,5 +103,5 @@ export default function createComponents(agent, actions, state, setState) {
     updateCategory,
   });
 
-  return _componentsList.data;
+  return _componentsList;
 }

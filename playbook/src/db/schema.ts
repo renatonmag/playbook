@@ -24,6 +24,7 @@ export type ImageComparison = {
 };
 
 export type Question = {
+  id: string;
   question: string;
   questionFunction: string;
   answers: Answer[];
@@ -31,7 +32,7 @@ export type Question = {
 
 export type Answer = {
   answer: string;
-  consequence: string;
+  consequence: { id: string; title: string };
 };
 
 export const componentsTable = pgTable("components", {

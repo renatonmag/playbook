@@ -39,36 +39,42 @@ import {
 } from "~/components/ui/select";
 import SquareMinus from "lucide-solid/icons/square-minus";
 
+type QuestionType = {
+  id: string;
+  question: string;
+  questionFunction: string;
+  answers: { answer: string; consequence: number }[];
+};
+
 export default function Home() {
   const [editTitle, setEditTitle] = createSignal(false),
-    [questions, setQuestions] = createStore([
-      {
-        question: "",
-        questionFunction: "",
-        answers: [
-          { answer: "", consequence: "" },
-          { answer: "", consequence: "" },
-        ],
-      },
-    ]),
-    [questionsHistory, setQuestionsHistory] = createStore([
-      {
-        question: "",
-        questionFunction: "",
-        answers: [
-          { answer: "", consequence: "" },
-          { answer: "", consequence: "" },
-        ],
-      },
-    ]);
+    [questions, setQuestions] = createStore<QuestionType[]>([]),
+    [questionsHistory, setQuestionsHistory] = createStore<QuestionType[]>([]);
+
+  const [params, _] = useSearchParams();
+
+  const [store, actions] = useStore();
+
+  const component = createMemo(() => {
+    let id = Number(params.pattern);
+    if (!id) id = -1;
+
+    return store.components?.data?.find((c) => c.id === id);
+  });
+
+  createEffect(() => {
+    setQuestions(structuredClone(unwrap(component()?.questions) || []));
+    setQuestionsHistory(structuredClone(unwrap(component()?.questions) || []));
+  });
 
   const addQuestion = () => {
     setQuestions((state) => [
       ...state,
       {
+        id: crypto.randomUUID(),
         question: "",
         questionFunction: "",
-        answers: [{ answer: "", consequence: "" }],
+        answers: [{ answer: "", consequence: 0 }],
       },
     ]);
   };
@@ -78,7 +84,6 @@ export default function Home() {
     setQuestions((state) => {
       const next = [...state];
       next.splice(index, 1);
-      console.log("state", next);
       return next;
     });
   };
@@ -136,7 +141,7 @@ export default function Home() {
   const editConsequence = (
     index: number,
     answerIndex: number,
-    value: string,
+    value: number,
   ) => {
     setQuestions(
       produce((draft) => {
@@ -157,35 +162,22 @@ export default function Home() {
     {},
   );
 
-  const [params, _] = useSearchParams();
-
-  const [store, actions] = useStore();
-
-  const component = createMemo(() => {
-    const id = Number(params.pattern);
-    if (!id) return undefined;
-
-    return store.components?.find((c) => c.id === id);
-  });
-
   createEffect(() => {
-    console.log(JSON.stringify(questions));
-    // We "access" draft to track it
-    const dataToSave = {
-      ...patternDraft,
-      markdown: patternDraft?.markdown?.content,
-    };
-
+    JSON.stringify(questions);
     if (deepEqual(questions, questionsHistory)) return;
 
     const timer1 = setTimeout(async () => {
       await actions.updateComponent(component()?.id, { questions });
-      setQuestionsHistory(questions);
-      // Optional: revalidate() here if other parts of the UI need the update
+      setQuestionsHistory(structuredClone(unwrap(questions)));
     }, 2000);
-
-    // If the user types again before 2s, this clears the previous timer1
     onCleanup(() => clearTimeout(timer1));
+  });
+
+  createEffect(() => {
+    const dataToSave = {
+      ...patternDraft,
+      markdown: patternDraft?.markdown?.content,
+    };
 
     if (deepEqual(patternDraft, {})) return;
 
@@ -359,7 +351,11 @@ export default function Home() {
                     Pergunta
                   </TextFieldLabel>
                   <TextFieldInput
-                    value={question.question || ""}
+                    value={
+                      question.question ||
+                      component()?.questions[index()]?.question ||
+                      ""
+                    }
                     onInput={(e) => {
                       editQuestion(index(), e.currentTarget.value);
                     }}
@@ -399,7 +395,13 @@ export default function Home() {
                     {(answer, answerIndex) => (
                       <div class="grid grid-cols-2 gap-2">
                         <TextFieldInput
-                          value={answer.answer || ""}
+                          value={
+                            answer.answer ||
+                            component()?.questions[index()]?.answers[
+                              answerIndex()
+                            ]?.answer ||
+                            ""
+                          }
                           onInput={(e) =>
                             editAnswer(
                               index(),
@@ -415,26 +417,34 @@ export default function Home() {
                         <div class="flex gap-2">
                           <Select
                             value={answer.consequence || ""}
-                            onChange={(value) =>
-                              editConsequence(index(), answerIndex(), value)
-                            }
+                            onChange={(value) => {
+                              console.log(value);
+                              editConsequence(index(), answerIndex(), value);
+                            }}
                             class="flex-1"
                             options={
-                              store.components?.map((c) => c.title) || []
+                              store.components?.data?.map((c) => ({
+                                id: c.id,
+                                title: c.title,
+                              })) || []
                             }
                             placeholder="Selecione o componente"
                             itemComponent={(props) => (
                               <SelectItem item={props.item}>
-                                {props.item.rawValue}
+                                {props.item.rawValue?.title || ""}
                               </SelectItem>
                             )}
+                            optionValue={(value) => +value.id}
+                            optionTextValue={(value) => value.title}
                           >
                             <SelectTrigger
                               aria-label="Components"
                               class="w-full"
                             >
-                              <SelectValue<string>>
-                                {(state) => state.selectedOption()}
+                              <SelectValue<{ title: string }>>
+                                {(state) => {
+                                  return state.selectedOption()?.title || "";
+                                }}
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent />
@@ -458,7 +468,11 @@ export default function Home() {
                   <Button onMouseDown={() => removeQuestion(index())}>
                     Remover pergunta
                   </Button>
-                  <Show when={questions.length - 1 === index()}>
+                  <Show
+                    when={
+                      questions.length === 0 || questions.length - 1 === index()
+                    }
+                  >
                     <Button onMouseDown={() => addQuestion()}>
                       Adicionar pergunta
                     </Button>
@@ -467,6 +481,11 @@ export default function Home() {
               </div>
             )}
           </For>
+          <Show when={questions.length === 0}>
+            <Button onMouseDown={() => addQuestion()}>
+              Adicionar pergunta
+            </Button>
+          </Show>
         </div>
       </div>
     </main>

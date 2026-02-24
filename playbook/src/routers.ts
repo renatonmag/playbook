@@ -26,7 +26,7 @@ export const ComponentSchema = z.object({
       key: z.string(),
     }),
   ),
-  categories: z.string().nullable(), // or z.string().nullable() if allowed to be null
+  categories: z.string().nullable(),
   markdownId: z.number().int().nullable(),
   markdown: z
     .object({
@@ -36,6 +36,7 @@ export const ComponentSchema = z.object({
     })
     .optional()
     .nullable(),
+  questions: z.array(z.any()).optional(),
 });
 
 export const createComponent = authed
@@ -48,7 +49,7 @@ export const createComponent = authed
       title: z.string().trim().min(1),
     }),
   )
-  .output(ComponentSchema) // Matches your Drizzle return type
+  // .output(ComponentSchema) // Matches your Drizzle return type
   .handler(async ({ context, input }) => {
     try {
       const row = await _createComponent({
@@ -104,19 +105,7 @@ export const updateComponent = authed
     }),
   )
   .handler(async ({ context, input }) => {
-    // Extracting data from validated input
-    // Only includes fields that were actually sent in the request
-    // const data: ComponentUpdate = {
-    //   ...(input.title !== undefined && { title: input.title }),
-    //   ...(input.imageComparisons !== undefined && { imageComparisons: input.imageComparisons }),
-    //   ...(input.markdownId !== undefined && { markdownId: input.markdownId }),
-    //   ...(input.markdown !== undefined && { markdown: input.markdown }),
-    //   ...(input.exemples !== undefined && { exemples: input.exemples }),
-    //   ...(input.categories !== undefined && { categories: input.categories }),
-    // };
-
     const { id, ...data } = input;
-
     try {
       const row = await _updateComponent(id, context.user.id, data);
 

@@ -39,7 +39,9 @@ export default function Home() {
   });
 
   const component = createMemo(() => {
-    return store.components?.find((c) => c.id === store.displayComponentId);
+    return store.components?.data?.find(
+      (c) => c.id === store.displayComponentId,
+    );
   });
 
   const addList = () => {
@@ -101,7 +103,7 @@ export default function Home() {
           <Play />
         </Button>
         <div class="flex flex-col gap-2 items-center">
-          <For each={store.components}>
+          <For each={store.components.data ?? []}>
             {(component, index) => {
               return (
                 <div
