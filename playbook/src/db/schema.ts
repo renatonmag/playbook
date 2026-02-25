@@ -4,6 +4,7 @@ import {
   jsonb,
   pgTable,
   text,
+  timestamp,
   unique,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -32,7 +33,14 @@ export type Question = {
 
 export type Answer = {
   answer: string;
-  consequence: { id: string; title: string };
+  consequence: { id: number; title: string; parentId: number };
+};
+
+export type Setup = {
+  id: string;
+  selectedComps: number[];
+  detailsComps: number[];
+  contextComps: number[];
 };
 
 export const componentsTable = pgTable("components", {
@@ -53,6 +61,15 @@ export const componentsTable = pgTable("components", {
   // For 1-to-1, we store the reference here
   markdownId: integer("markdown_id").references(() => markdownTable.id),
   questions: jsonb("questions").$type<Question[]>().notNull().default([]),
+});
+
+export const setupsTable = pgTable("setups", {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id")
+    .references(() => usersTable.id)
+    .notNull(),
+  createdAt: timestamp().defaultNow(),
+  setups: jsonb("setups").$type<Setup[]>().notNull().default([]),
 });
 
 export const imagesTable = pgTable("images", {

@@ -64,6 +64,27 @@
       "when": 1771879964857,
       "tag": "0008_sticky_cyclops",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1772041954058,
+      "tag": "0009_brainy_jack_murdock",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1772042043367,
+      "tag": "0010_brown_magneto",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1772057718293,
+      "tag": "0011_smart_typhoid_mary",
+      "breakpoints": true
     }
   ]
 }

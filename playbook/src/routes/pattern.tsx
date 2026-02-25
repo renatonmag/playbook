@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import SquareMinus from "lucide-solid/icons/square-minus";
+import { param } from "drizzle-orm";
 
 type QuestionType = {
   id: string;
@@ -418,13 +419,13 @@ export default function Home() {
                           <Select
                             value={answer.consequence || ""}
                             onChange={(value) => {
-                              console.log(value);
                               editConsequence(index(), answerIndex(), value);
                             }}
                             class="flex-1"
                             options={
                               store.components?.data?.map((c) => ({
                                 id: c.id,
+                                parentId: Number(params.pattern),
                                 title: c.title,
                               })) || []
                             }

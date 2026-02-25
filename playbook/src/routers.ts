@@ -8,6 +8,10 @@ import {
   deleteComponent as _deleteComponent,
 } from "~/db/queries/componentsCRUD";
 import de from "zod/v4/locales/de.cjs";
+import {
+  updateSetupsRow as _updateSetups,
+  createSetupsRow as _createSetups,
+} from "~/db/queries/setupsCRUD";
 
 // Define your Schema (matches your earlier componentsTable logic)
 export const ComponentSchema = z.object({
@@ -178,6 +182,59 @@ export const removeComponent = authed
     }
   });
 
+const createSetup = authed
+  .route({
+    method: "POST",
+    path: "/setups",
+  })
+  .input(
+    z.object({
+      setups: z.array(z.any()),
+    }),
+  )
+  .handler(async ({ context, input }) => {
+    try {
+      const row = await _createSetups({
+        userId: context.user.id,
+        setups: input.setups,
+      });
+
+      return row;
+    } catch (err) {
+      throw new Error(
+        err instanceof Error ? err.message : "Internal server error",
+      );
+    }
+  });
+
+const updateSetup = authed
+  .route({
+    method: "PUT",
+    path: "/setups",
+  })
+  .input(
+    z.object({
+      id: z.number(),
+      setups: z.array(z.any()),
+    }),
+  )
+  .handler(async ({ context, input }) => {
+    try {
+      const row = await _updateSetups(input.id, context.user.id, input.setups);
+
+      if (row === null) {
+        throw new Error("Setup not found"); // oRPC will catch and you can map to 404
+      }
+
+      return row;
+    } catch (err) {
+      console.error(`PUT /api/setups/${input.id}`, err);
+      throw new Error(
+        err instanceof Error ? err.message : "Internal server error",
+      );
+    }
+  });
+
 export const router = {
   component: {
     listByUser: listComponentsByUser,
@@ -185,5 +242,9 @@ export const router = {
     update: updateComponent,
     getById: getComponentById,
     delete: removeComponent,
+  },
+  setup: {
+    create: createSetup,
+    update: updateSetup,
   },
 };
