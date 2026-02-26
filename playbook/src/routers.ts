@@ -11,6 +11,7 @@ import de from "zod/v4/locales/de.cjs";
 import {
   updateSetupsRow as _updateSetups,
   createSetupsRow as _createSetups,
+  listSetupsRowsByUser,
 } from "~/db/queries/setupsCRUD";
 
 // Define your Schema (matches your earlier componentsTable logic)
@@ -182,21 +183,23 @@ export const removeComponent = authed
     }
   });
 
-const createSetup = authed
+const createTrades = authed
   .route({
     method: "POST",
-    path: "/setups",
+    path: "/trades",
   })
   .input(
-    z.object({
-      setups: z.array(z.any()),
-    }),
+    z
+      .object({
+        setups: z.array(z.any()),
+      })
+      .optional(),
   )
   .handler(async ({ context, input }) => {
     try {
       const row = await _createSetups({
         userId: context.user.id,
-        setups: input.setups,
+        setups: input?.setups,
       });
 
       return row;
@@ -207,10 +210,10 @@ const createSetup = authed
     }
   });
 
-const updateSetup = authed
+const updateTrades = authed
   .route({
     method: "PUT",
-    path: "/setups",
+    path: "/trades/:id",
   })
   .input(
     z.object({
@@ -235,6 +238,20 @@ const updateSetup = authed
     }
   });
 
+const listTradeSessions = authed
+  .route({
+    method: "GET",
+    path: "/sessions",
+  })
+  .handler(async ({ context, input }) => {
+    try {
+      const sessions = await listSetupsRowsByUser(context.user.id);
+      return sessions;
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : "Database error");
+    }
+  });
+
 export const router = {
   component: {
     listByUser: listComponentsByUser,
@@ -243,8 +260,9 @@ export const router = {
     getById: getComponentById,
     delete: removeComponent,
   },
-  setup: {
-    create: createSetup,
-    update: updateSetup,
+  trade: {
+    create: createTrades,
+    update: updateTrades,
+    listByUser: listTradeSessions,
   },
 };

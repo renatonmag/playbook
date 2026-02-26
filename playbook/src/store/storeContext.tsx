@@ -9,6 +9,7 @@ import { createStore } from "solid-js/store";
 import { IStoreState, IArticleMap } from "./storeState";
 import createComponents from "./createComponents";
 import createAgent from "./createAgent";
+import createTradeSessions from "./createTradeSessions";
 
 // export interface IActions extends IUserActions, IArticleActions, ICommentsActions, IProfileActions, ICommonActions {}
 
@@ -22,7 +23,8 @@ export type IStoreContext = [state: IStoreState, actions: any];
  */
 
 export function createApplicationStore(): IStoreContext {
-  let componentsStore = undefined;
+  let componentsStore: any = undefined,
+    sessionsStore = undefined;
 
   const [state, setState] = createStore<IStoreState>({
     // The following getters map each of
@@ -30,6 +32,10 @@ export function createApplicationStore(): IStoreContext {
 
     get components() {
       return componentsStore;
+    },
+
+    get sessions() {
+      return sessionsStore;
     },
 
     displayComponentId: null,
@@ -41,24 +47,12 @@ export function createApplicationStore(): IStoreContext {
     appName: "playbook",
   });
 
-  // Container for ALL the store's actions
-
   const actions = {},
     store: [any, any] = [state, actions],
     agent = createAgent(store);
 
-  // Agent used for communication with the server
-
-  // Instantiate all the resource stores. Each of these functions
-  // returns an instance of a solidJS resource state that is updated
-  // by machinery embedded in the function that accesses the associated server API
-  //
-  // The functions also populate the actions container with utility
-  // methods that manage the resource
-
   componentsStore = createComponents(agent, actions, state, setState);
-
-  // Return the fully initialised store
+  sessionsStore = createTradeSessions(agent, actions, state, setState);
 
   return [state, actions];
 }

@@ -24,6 +24,7 @@
     "dotenv": "^17.2.4",
     "drizzle-orm": "^0.45.1",
     "embla-carousel-solid": "^8.6.0",
+    "immer": "^11.1.4",
     "lucide": "^0.563.0",
     "lucide-solid": "^0.563.0",
     "postgres": "^3.4.8",

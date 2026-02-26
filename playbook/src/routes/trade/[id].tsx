@@ -5,8 +5,10 @@ import {
   createSignal,
   For,
   Match,
+  onCleanup,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import { ImageCaroulsel } from "~/components/ImageCarousel";
 import { Badge } from "~/components/ui/badge";
@@ -21,21 +23,29 @@ import {
   deselectComponent,
 } from "~/store/checklist";
 import { useStore } from "~/store/storeContext";
-import { X } from "lucide-solid/icons/index";
-import { action } from "@solidjs/router";
+import { EllipsisVertical, X } from "lucide-solid/icons/index";
+import { useParams } from "@solidjs/router";
 import { Answer, Question, Setup } from "~/db/schema";
 import {
   TextField,
   TextFieldInput,
   TextFieldLabel,
 } from "~/components/ui/text-field";
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce, unwrap } from "solid-js/store";
 import { set } from "zod";
+import id from "zod/v4/locales/id.cjs";
+import { ComponentBadge } from "~/components/ComponentBadge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 
 export default function Trade() {
   const [store, actions] = useStore(),
     [selectedComps, setSelectedComps] = createSignal<number[]>([]),
-    [selectedSteup, setSelectedSteup] = createSignal<number>(0),
+    [selectedSetup, setSelectedSetup] = createSignal<number>(0),
     [detailsComps, setDetailsComps] = createSignal<number[]>([]),
     [contextComps, setContextComps] = createSignal<number[]>([]),
     [hoverItem1, setHoverItem1] = createSignal<string>(""),
@@ -58,6 +68,30 @@ export default function Trade() {
     ],
   });
 
+  const params = useParams();
+
+  createEffect(() => {
+    const _setups = store.sessions.data?.find(
+      (e: any) => e.id === Number(params.id),
+    );
+    if (!_setups?.setups) return;
+    setSetups("items", structuredClone(unwrap(_setups?.setups)));
+  });
+
+  createEffect(() => {
+    if (setups.version === 0) return;
+
+    untrack(() =>
+      actions.updateSession.mutate({
+        id: Number(params.id),
+        setups: setups.items,
+      }),
+    );
+    // const timer = setTimeout(async () => {
+    // }, 600);
+    // onCleanup(() => clearTimeout(timer));
+  });
+
   const component = createMemo(() => {
     return store.components.data?.find(
       (e: any) => e.id === store.displayComponentId,
@@ -65,15 +99,31 @@ export default function Trade() {
   });
 
   const addSetup = () => {
-    setSetups("items", [
-      ...setups.items,
-      {
-        id: crypto.randomUUID(),
-        selectedComps: [],
-        detailsComps: [],
-        contextComps: [],
-      },
-    ]);
+    setSetups(
+      produce((draft) => {
+        draft.version++;
+        draft.items = [
+          ...draft.items,
+          {
+            id: crypto.randomUUID(),
+            selectedComps: [],
+            detailsComps: [],
+            contextComps: [],
+          },
+        ];
+        return draft;
+      }),
+    );
+  };
+
+  const deleteSetup = (index: number) => {
+    setSetups(
+      produce((draft) => {
+        draft.items.splice(index, 1);
+        draft.version++;
+        return draft;
+      }),
+    );
   };
 
   const addSelectedComps = (index: number, id: number) => {
@@ -225,50 +275,14 @@ export default function Trade() {
             <div class="flex gap-2 flex-wrap items-start">
               <For each={filteredItems() ?? []}>
                 {(component) => (
-                  <Badge
-                    classList={{
-                      "cursor-pointer": true,
-                      "gap-3 py-2": hoverItem1() === component.id,
-                    }}
-                    onMouseDown={() => {
-                      setHoverItem1(component.id);
-                    }}
-                  >
-                    <Switch fallback={<div>Loading...</div>}>
-                      <Match when={hoverItem1() === component.id}>
-                        <Button
-                          variant={"secondary"}
-                          onMouseDown={() => {
-                            actions.loadComponent(component.id);
-                            setShowItem(component.id);
-                          }}
-                        >
-                          Mostrar
-                        </Button>
-                        <Button
-                          variant={"secondary"}
-                          onMouseDown={() => {
-                            addSelectedComps(selectedSteup(), component.id);
-                          }}
-                        >
-                          Adicionar
-                        </Button>
-                        <Button
-                          variant={"secondary"}
-                          size={"icon"}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            setHoverItem1("");
-                          }}
-                        >
-                          <X />
-                        </Button>
-                      </Match>
-                      <Match when={hoverItem1() !== component.id}>
-                        {component.title}
-                      </Match>
-                    </Switch>
-                  </Badge>
+                  <ComponentBadge
+                    component={component}
+                    loadComponent={actions.loadComponent}
+                    setShowItem={setShowItem}
+                    addSelectedComps={addSelectedComps}
+                    selectedSetup={selectedSetup}
+                    removeSelectedComps={removeSelectedComps}
+                  />
                 )}
               </For>
             </div>
@@ -280,13 +294,36 @@ export default function Trade() {
           {(setup, index) => (
             <Card
               class="w-lg max-w-lg h-fit mx-auto overflow-clip"
-              onMouseDown={() => setSelectedSteup(index())}
+              onMouseDown={(e) => {
+                setSelectedSetup(index());
+              }}
             >
-              <Show when={selectedSteup() === index()}>
+              <Show when={selectedSetup() === index()}>
                 <div class="bg-gray-600 h-1.5 w-full"></div>
               </Show>
               <CardContent class="flex flex-col gap-2 p-4 flex-wrap items-start mx-auto relative">
-                <div class="text-lg font-bold text-gray-700">Setup</div>
+                <div class="flex justify-between items-end w-full">
+                  <div class="text-lg font-bold text-gray-700">Setup</div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      as={Button<"button">}
+                      class="mt-[-8px] mr-[-6px]"
+                      variant="outline"
+                      size="icon"
+                    >
+                      <EllipsisVertical />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent class="w-48">
+                      <DropdownMenuItem
+                        onClick={() => {
+                          deleteSetup(index());
+                        }}
+                      >
+                        <span class="text-red-500">Deletar setup</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
                 <div class="flex gap-2 flex-wrap items-start">
                   <For
                     each={store.components.data?.filter((e: any) =>
@@ -294,53 +331,14 @@ export default function Trade() {
                     )}
                   >
                     {(component) => (
-                      <Badge
-                        classList={{
-                          "cursor-pointer": true,
-                          "gap-3 py-2": hoverItem2() === component.id,
-                        }}
-                        onMouseDown={() => {
-                          setHoverItem2(component.id);
-                        }}
-                      >
-                        <Switch fallback={<div>Loading...</div>}>
-                          <Match when={hoverItem2() === component.id}>
-                            <Button
-                              variant={"secondary"}
-                              onMouseDown={() => {
-                                actions.loadComponent(component.id);
-                                setShowItem(component.id);
-                              }}
-                            >
-                              Mostrar
-                            </Button>
-                            <Button
-                              variant={"secondary"}
-                              onMouseDown={() => {
-                                removeSelectedComps(
-                                  selectedSteup(),
-                                  component.id,
-                                );
-                              }}
-                            >
-                              Remover
-                            </Button>
-                            <Button
-                              variant={"secondary"}
-                              size={"icon"}
-                              onMouseDown={(e) => {
-                                e.stopPropagation();
-                                setHoverItem2("");
-                              }}
-                            >
-                              <X />
-                            </Button>
-                          </Match>
-                          <Match when={hoverItem2() !== component.id}>
-                            {component.title}
-                          </Match>
-                        </Switch>
-                      </Badge>
+                      <ComponentBadge
+                        component={component}
+                        added={true}
+                        loadComponent={actions.loadComponent}
+                        setShowItem={setShowItem}
+                        removeSelectedComps={removeSelectedComps}
+                        selectedSetup={selectedSetup}
+                      />
                     )}
                   </For>
                 </div>
@@ -354,50 +352,14 @@ export default function Trade() {
                     }
                   >
                     {(component) => (
-                      <Badge
-                        classList={{
-                          "cursor-pointer": true,
-                          "gap-3 py-2": hoverItem2() === component.id,
-                        }}
-                        onMouseDown={() => {
-                          setHoverItem2(component.id);
-                        }}
-                      >
-                        <Switch fallback={<div>Loading...</div>}>
-                          <Match when={hoverItem2() === component.id}>
-                            <Button
-                              variant={"secondary"}
-                              onMouseDown={() => {
-                                actions.loadComponent(component.id);
-                                setShowItem(component.id);
-                              }}
-                            >
-                              Mostrar
-                            </Button>
-                            <Button
-                              variant={"secondary"}
-                              onMouseDown={() => {
-                                removeDetails(index(), component.id);
-                              }}
-                            >
-                              Remover
-                            </Button>
-                            <Button
-                              variant={"secondary"}
-                              size={"icon"}
-                              onMouseDown={(e) => {
-                                e.stopPropagation();
-                                setHoverItem2("");
-                              }}
-                            >
-                              <X />
-                            </Button>
-                          </Match>
-                          <Match when={hoverItem2() !== component.id}>
-                            {component.title}
-                          </Match>
-                        </Switch>
-                      </Badge>
+                      <ComponentBadge
+                        component={component}
+                        added={true}
+                        loadComponent={actions.loadComponent}
+                        setShowItem={setShowItem}
+                        removeSelectedComps={removeSelectedComps}
+                        selectedSetup={selectedSetup}
+                      />
                     )}
                   </For>
                 </div>
@@ -409,50 +371,14 @@ export default function Trade() {
                     )}
                   >
                     {(component) => (
-                      <Badge
-                        classList={{
-                          "cursor-pointer": true,
-                          "gap-3 py-2": hoverItem2() === component.id,
-                        }}
-                        onMouseDown={() => {
-                          setHoverItem2(component.id);
-                        }}
-                      >
-                        <Switch fallback={<div>Loading...</div>}>
-                          <Match when={hoverItem2() === component.id}>
-                            <Button
-                              variant={"secondary"}
-                              onMouseDown={() => {
-                                actions.loadComponent(component.id);
-                                setShowItem(component.id);
-                              }}
-                            >
-                              Mostrar
-                            </Button>
-                            <Button
-                              variant={"secondary"}
-                              onMouseDown={() => {
-                                removeContext(index(), component.id);
-                              }}
-                            >
-                              Remover
-                            </Button>
-                            <Button
-                              variant={"secondary"}
-                              size={"icon"}
-                              onMouseDown={(e) => {
-                                e.stopPropagation();
-                                setHoverItem2("");
-                              }}
-                            >
-                              <X />
-                            </Button>
-                          </Match>
-                          <Match when={hoverItem2() !== component.id}>
-                            {component.title}
-                          </Match>
-                        </Switch>
-                      </Badge>
+                      <ComponentBadge
+                        component={component}
+                        added={true}
+                        loadComponent={actions.loadComponent}
+                        setShowItem={setShowItem}
+                        removeSelectedComps={removeSelectedComps}
+                        selectedSetup={selectedSetup}
+                      />
                     )}
                   </For>
                 </div>
