@@ -2,6 +2,7 @@ import { For } from "solid-js";
 import { Button } from "~/components/ui/button";
 import { useStore } from "~/store/storeContext";
 import { A } from "@solidjs/router";
+import { version } from "uploadthing/client";
 
 export default function TradeSessions() {
   const [store, actions] = useStore();
@@ -22,10 +23,12 @@ export default function TradeSessions() {
             actions.createSession.mutate({
               setups: [
                 {
+                  version: 0,
                   id: crypto.randomUUID(),
                   selectedComps: [],
                   detailsComps: [],
                   contextComps: [],
+                  result: "",
                 },
               ],
             })

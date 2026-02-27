@@ -37,10 +37,12 @@ export type Answer = {
 };
 
 export type Setup = {
+  version: number;
   id: string;
   selectedComps: number[];
   detailsComps: number[];
   contextComps: number[];
+  result: string;
 };
 
 export const componentsTable = pgTable("components", {

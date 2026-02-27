@@ -19,70 +19,25 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
-{
-  /* <DropdownMenu>
-        <DropdownMenuTrigger as={Button<"button">}>Git Settings</DropdownMenuTrigger>
-        <DropdownMenuContent class="w-48">
-          <DropdownMenuItem>
-            <span>Commit</span>
-            <DropdownMenuShortcut>⌘+K</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <span>Push</span>
-            <DropdownMenuShortcut>⇧+⌘+K</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
-            <span>Update Project</span>
-            <DropdownMenuShortcut>⌘+T</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSub overlap>
-            <DropdownMenuSubTrigger>GitHub</DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem>Create Pull Request…</DropdownMenuItem>
-                <DropdownMenuItem>View Pull Requests</DropdownMenuItem>
-                <DropdownMenuItem>Sync Fork</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem>Open on GitHub</DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem checked={showGitLog()} onChange={setShowGitLog}>
-            Show Git Log
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem checked={showHistory()} onChange={setShowHistory}>
-            Show History
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuGroup>
-            <DropdownMenuGroupLabel>Branches</DropdownMenuGroupLabel>
-            <DropdownMenuRadioGroup value={branch()} onChange={setBranch}>
-              <DropdownMenuRadioItem value="main">main</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="develop">develop</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu> */
-}
-
 export const ComponentBadge = (props: {
   component: any;
   added?: boolean;
   loadComponent: any;
   setShowItem: any;
   addSelectedComps?: any;
-  removeSelectedComps?: any;
+  addDetails?: any;
+  addContext?: any;
+  removeComps?: any;
   selectedSetup: any;
 }) => {
   return (
     <Switch fallback={<div>Loading...</div>}>
       <Match when={props.added}>
         <DropdownMenu>
-          <DropdownMenuTrigger as={Badge}>
+          <DropdownMenuTrigger as={Badge} class="cursor-pointer">
             {props.component.title}
           </DropdownMenuTrigger>
-          <DropdownMenuContent class="w-48">
+          <DropdownMenuContent class="w-36">
             <DropdownMenuItem
               onMouseDown={() => {
                 props.loadComponent(props.component.id);
@@ -93,10 +48,7 @@ export const ComponentBadge = (props: {
             </DropdownMenuItem>
             <DropdownMenuItem
               onMouseDown={() => {
-                props.removeSelectedComps(
-                  props.selectedSetup(),
-                  props.component.id,
-                );
+                props.removeComps(props.selectedSetup(), props.component.id);
               }}
             >
               <span>Remover</span>
@@ -106,10 +58,10 @@ export const ComponentBadge = (props: {
       </Match>
       <Match when={!props.added}>
         <DropdownMenu>
-          <DropdownMenuTrigger as={Badge}>
+          <DropdownMenuTrigger as={Badge} class="cursor-pointer">
             {props.component.title}
           </DropdownMenuTrigger>
-          <DropdownMenuContent class="w-48">
+          <DropdownMenuContent class="w-40">
             <DropdownMenuItem
               onMouseDown={() => {
                 props.loadComponent(props.component.id);
@@ -128,10 +80,18 @@ export const ComponentBadge = (props: {
             >
               <span>Adicionar setup</span>
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onMouseDown={() => {
+                props.addDetails(props.selectedSetup(), props.component.id);
+              }}
+            >
               <span>Adicionar detalhe</span>
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem
+              onMouseDown={() => {
+                props.addContext(props.selectedSetup(), props.component.id);
+              }}
+            >
               <span>Adicionar contexto</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

@@ -13,6 +13,7 @@ import {
   createSetupsRow as _createSetups,
   listSetupsRowsByUser,
 } from "~/db/queries/setupsCRUD";
+import { version } from "uploadthing/client";
 
 // Define your Schema (matches your earlier componentsTable logic)
 export const ComponentSchema = z.object({
@@ -191,7 +192,16 @@ const createTrades = authed
   .input(
     z
       .object({
-        setups: z.array(z.any()),
+        setups: z.array(
+          z.object({
+            version: z.number().int(),
+            id: z.string(),
+            selectedComps: z.array(z.number().int()),
+            detailsComps: z.array(z.number().int()),
+            contextComps: z.array(z.number().int()),
+            result: z.string(),
+          }),
+        ),
       })
       .optional(),
   )
