@@ -1,11 +1,12 @@
 import { and, eq } from "drizzle-orm";
-import type { Setup } from "../schema";
+import type { Setup, Setup2 } from "../schema";
 import { setupsTable } from "../schema";
 import { db } from "../index";
 
 export type SetupsRowInsert = {
   userId: number;
   setups?: Setup[];
+  setups2?: Setup2[];
 };
 
 export type SetupsRowUpdate = {
@@ -17,6 +18,7 @@ export const createSetupsRow = async (data: SetupsRowInsert) => {
     .insert(setupsTable)
     .values({
       userId: data.userId,
+      setups2: data.setups2 ?? [],
       setups: data.setups ?? [],
     })
     .returning();
@@ -53,12 +55,12 @@ export const listSetupsRowsByUser = async (userId: number) => {
 export const updateSetupsRow = async (
   id: number,
   userId: number,
-  setups: Setup[],
+  setups: Setup2[],
 ) => {
   const [row] = await db
     .update(setupsTable)
     .set({
-      setups,
+      setups2: setups,
     })
     .where(and(eq(setupsTable.id, id), eq(setupsTable.userId, userId)))
     .returning();

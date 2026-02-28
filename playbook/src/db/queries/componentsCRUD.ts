@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, DrizzleQueryError, eq } from "drizzle-orm";
 import type { ImageComparison } from "../schema";
 import { componentsTable } from "../schema";
 import { db } from "../index";
@@ -11,6 +11,7 @@ import {
 export type ComponentInsert = {
   userId: number;
   title: string;
+  kind?: string;
   imageComparisons?: ImageComparison[];
   markdownId?: number | null;
 };
@@ -26,16 +27,25 @@ export type ComponentUpdate = {
 };
 
 export const createComponent = async (data: ComponentInsert) => {
-  const [row] = await db
-    .insert(componentsTable)
-    .values({
-      userId: data.userId,
-      title: data.title,
-      imageComparisons: data.imageComparisons ?? [],
-      markdownId: data.markdownId ?? null,
-    })
-    .returning();
-  return row;
+  try {
+    const [row] = await db
+      .insert(componentsTable)
+      .values({
+        userId: data.userId,
+        title: data.title,
+        kind: data.kind,
+        imageComparisons: data.imageComparisons ?? [],
+        markdownId: data.markdownId ?? null,
+      })
+      .returning();
+    return row;
+  } catch (err) {
+    if (err instanceof DrizzleQueryError) {
+      if (err?.cause?.constraint_name == "components_user_id_title_unique")
+        throw new Error("Duplicate component");
+    }
+    throw new Error("Failed to create component");
+  }
 };
 
 export const getComponentById = async (id: number, userId: number) => {

@@ -24,8 +24,8 @@ import {
 } from "~/store/checklist";
 import { useStore } from "~/store/storeContext";
 import { EllipsisVertical, X } from "lucide-solid/icons/index";
-import { A, useParams } from "@solidjs/router";
-import { Answer, Question, Setup, Setup2 } from "~/db/schema";
+import { useParams } from "@solidjs/router";
+import { Answer, Question, Setup } from "~/db/schema";
 import {
   TextField,
   TextFieldInput,
@@ -65,9 +65,7 @@ export default function Trade() {
   const [store, actions] = useStore(),
     [selectedSheetId, setSelectedSheetId] = createSignal<number | undefined>(),
     [selectedSetup, setSelectedSetup] = createSignal<number | undefined>(),
-    [taggedComps, setTaggedComps] = createSignal<
-      [number, number, string] | undefined
-    >(),
+    [detailsComps, setDetailsComps] = createSignal<number[]>([]),
     [contextComps, setContextComps] = createSignal<number[]>([]),
     [hoverItem1, setHoverItem1] = createSignal<string>(""),
     [hoverItem2, setHoverItem2] = createSignal<string>(""),
@@ -76,7 +74,7 @@ export default function Trade() {
 
   const [setups, setSetups] = createStore<{
     version: number;
-    items: Setup2[];
+    items: Setup[];
   }>({
     version: 0,
     items: [
@@ -84,6 +82,8 @@ export default function Trade() {
         version: 0,
         id: crypto.randomUUID(),
         selectedComps: [],
+        detailsComps: [],
+        contextComps: [],
         result: "",
       },
     ],
@@ -95,8 +95,8 @@ export default function Trade() {
     const _setups = store.sessions.data?.find(
       (e: any) => e.id === Number(params.id),
     );
-    if (!_setups?.setups2) return;
-    setSetups("items", reconcile(structuredClone(unwrap(_setups.setups2))));
+    if (!_setups?.setups) return;
+    setSetups("items", reconcile(structuredClone(unwrap(_setups.setups))));
   });
 
   createEffect(() => {
@@ -129,6 +129,8 @@ export default function Trade() {
             version: 0,
             id: crypto.randomUUID(),
             selectedComps: [],
+            detailsComps: [],
+            contextComps: [],
             result: "",
           },
         ];
@@ -150,26 +152,11 @@ export default function Trade() {
 
   const addSelectedComps = (index: number, id: number) => {
     if (setups.items.length === 0) return;
-    if (!setups.items?.[index]?.selectedComps) {
-      // TOODO Change this to a toast
-      alert("Selecione um setup");
-      return;
-    }
-    if (
-      setups.items[index].selectedComps.findIndex((c) => c.component === id) !==
-      -1
-    )
-      return;
+    // if (setups.items[index].selectedComps.includes(id)) return;
     setSetups(
       produce((draft) => {
         const setup = draft.items[index];
-        setup.selectedComps = [
-          ...setup.selectedComps,
-          {
-            component: id,
-            details: [],
-          },
-        ];
+        setup.selectedComps = [...setup.selectedComps, id];
         setup.version++;
         draft.version++;
         return draft;
@@ -180,9 +167,7 @@ export default function Trade() {
     setSetups(
       produce((draft) => {
         const setup = draft.items[index];
-        setup.selectedComps = setup.selectedComps.filter(
-          (e) => e.component !== id,
-        );
+        setup.selectedComps = setup.selectedComps.filter((e) => e !== id);
         setup.version++;
         draft.version++;
         return draft;
@@ -203,18 +188,11 @@ export default function Trade() {
     );
   };
 
-  const addDetails = (insertId: number) => {
-    if (taggedComps()?.[0] === undefined || taggedComps()?.[1] === undefined)
-      return;
-    const [componentId, setupIndex] = taggedComps() as [number, number];
+  const addDetails = (index: number, id: number) => {
     setSetups(
       produce((draft) => {
-        const setup = draft.items[setupIndex],
-          component = setup.selectedComps.find(
-            (e) => e.component === componentId,
-          );
-        if (!component) return;
-        component.details = [...component.details, insertId];
+        const setup = draft.items[index];
+        setup.detailsComps = [...setup.detailsComps, id];
         setup.version++;
         draft.version++;
         return draft;
@@ -222,19 +200,11 @@ export default function Trade() {
     );
   };
 
-  const removeDetails = (
-    setupIndex: number,
-    componentId: number,
-    detailId: number,
-  ) => {
+  const removeDetails = (index: number, id: number) => {
     setSetups(
       produce((draft) => {
-        const setup = draft.items[setupIndex],
-          component = setup.selectedComps.find(
-            (e) => e.component === componentId,
-          );
-        if (!component) return;
-        component.details = component.details.filter((e) => e !== detailId);
+        const setup = draft.items[index];
+        setup.detailsComps = setup.detailsComps.filter((e) => e !== id);
         setup.version++;
         draft.version++;
         return draft;
@@ -276,17 +246,6 @@ export default function Trade() {
       }),
     );
   };
-
-  const tagComponent = (id: number, setup: number, type: string) => {
-    setTaggedComps([id, setup, type]);
-  };
-  const untagComponent = () => {
-    setTaggedComps(undefined);
-  };
-
-  createEffect(() => {
-    console.log(taggedComps());
-  });
 
   const decideQuestioFunction = (
     index: number,
@@ -341,21 +300,6 @@ export default function Trade() {
     }, 200);
   };
 
-  const createSelectedComps = (setup: any, allComps?: any) => {
-    if (!allComps) return [];
-    return setup.selectedComps.map((e: any) => {
-      const component = allComps?.find((c: any) => c.id === e.component);
-      const details = e.details.map((detailId: any) => {
-        return allComps?.find((c: any) => c.id === detailId);
-      });
-      return {
-        ...e,
-        details,
-        component,
-      };
-    });
-  };
-
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-1.5 gap-1">
       <Sheet
@@ -363,6 +307,7 @@ export default function Trade() {
           selectedSetup() !== undefined && selectedSheetId() === selectedSetup()
         }
         onOpenChange={(value) => {
+          console.log(value);
           !value ? setSelectedSheetId(undefined) : () => {};
         }}
         modal={false}
@@ -430,15 +375,15 @@ export default function Trade() {
       </div>
       <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
         <For each={setups.items}>
-          {(setup, setupIndex) => (
+          {(setup, index) => (
             <Card
               class="w-lg max-w-lg h-fit mx-auto overflow-clip"
               onMouseDown={(e) => {
-                setSelectedSetup(setupIndex());
+                setSelectedSetup(index());
               }}
             >
               <Show
-                when={selectedSetup() === setupIndex()}
+                when={selectedSetup() === index()}
                 fallback={<div class="h-1 w-full"></div>}
               >
                 <div class="bg-gray-700 h-1 w-full"></div>
@@ -460,7 +405,7 @@ export default function Trade() {
                       <DropdownMenuTrigger
                         as={Button<"button">}
                         class="mt-[-8px] mr-[-6px]"
-                        variant="ghost"
+                        variant="outline"
                         size="icon"
                       >
                         <EllipsisVertical />
@@ -473,7 +418,7 @@ export default function Trade() {
                           <DropdownMenuRadioGroup
                             value={setup.result}
                             onChange={(value) => {
-                              setResult(setupIndex(), value);
+                              setResult(index(), value);
                             }}
                           >
                             <DropdownMenuRadioItem value="gain">
@@ -510,7 +455,7 @@ export default function Trade() {
                             <DropdownMenuSubContent>
                               <DropdownMenuItem
                                 onClick={() => {
-                                  deleteSetup(setupIndex());
+                                  deleteSetup(index());
                                 }}
                               >
                                 <span class="text-red-500">Confirmar</span>
@@ -523,21 +468,117 @@ export default function Trade() {
                   </div>
                 </div>
                 <div class="flex gap-2 flex-wrap items-start">
-                  <For each={createSelectedComps(setup, store.components.data)}>
+                  <For
+                    each={store.components.data?.filter((e: any) =>
+                      setup.selectedComps.includes(e.id),
+                    )}
+                  >
                     {(component) => (
                       <ComponentBadge
                         component={component}
                         added={true}
-                        setupIndex={setupIndex()}
                         loadComponent={actions.loadComponent}
                         setShowItem={setShowItem}
                         removeComps={removeSelectedComps}
                         selectedSetup={selectedSetup}
-                        tagComponent={tagComponent}
-                        untagComponent={untagComponent}
-                        taggedComp={taggedComps()}
-                        removeDetails={removeDetails}
                       />
+                    )}
+                  </For>
+                </div>
+                <div class="text-lg font-bold text-gray-700">Detalhes</div>
+                <div class="flex gap-2 flex-wrap items-start">
+                  <For
+                    each={
+                      store.components.data?.filter((e: any) =>
+                        setup.detailsComps.includes(e.id),
+                      ) || []
+                    }
+                  >
+                    {(component) => (
+                      <ComponentBadge
+                        component={component}
+                        added={true}
+                        loadComponent={actions.loadComponent}
+                        setShowItem={setShowItem}
+                        removeComps={removeDetails}
+                        selectedSetup={selectedSetup}
+                      />
+                    )}
+                  </For>
+                </div>
+                <div class="text-lg font-bold text-gray-700">Contexto</div>
+                <div class="flex gap-2 flex-wrap items-start">
+                  <For
+                    each={store.components.data?.filter((e: any) =>
+                      setup.contextComps.includes(e.id),
+                    )}
+                  >
+                    {(component) => (
+                      <ComponentBadge
+                        component={component}
+                        added={true}
+                        loadComponent={actions.loadComponent}
+                        setShowItem={setShowItem}
+                        removeComps={removeContext}
+                        selectedSetup={selectedSetup}
+                      />
+                    )}
+                  </For>
+                </div>
+                <div class="text-lg font-bold text-gray-700 mt-2">
+                  Direcionamentos:
+                </div>
+                <div class="flex flex-col gap-3">
+                  <For
+                    each={store.components.data?.filter((e: any) =>
+                      setup.selectedComps.includes(e.id),
+                    )}
+                  >
+                    {(component) => (
+                      <Show when={component.questions.length > 0}>
+                        <div class="flex flex-col gap-2">
+                          <div class="text-sm font-bold text-gray-700">
+                            {component.title}
+                          </div>
+                          <div class="flex flex-col gap-2">
+                            <For each={component.questions}>
+                              {(question) => (
+                                <div class="flex flex-col gap-1">
+                                  <div
+                                    class="text-sm text-gray-700 cursor-pointer"
+                                    onMouseDown={() => {
+                                      setShowAnswers(question.id);
+                                    }}
+                                  >
+                                    {question.question}
+                                  </div>
+                                  <Show when={showAnswers() === question.id}>
+                                    <div class="flex gap-2 mb-2">
+                                      <For each={question.answers}>
+                                        {(answer) => (
+                                          <Button
+                                            variant={"secondary"}
+                                            size={"sm"}
+                                            onMouseDown={() => {
+                                              decideQuestioFunction(
+                                                index(),
+                                                question,
+                                                answer,
+                                              );
+                                            }}
+                                          >
+                                            {answer.answer}
+                                          </Button>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
                     )}
                   </For>
                 </div>

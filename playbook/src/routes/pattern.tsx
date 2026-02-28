@@ -39,6 +39,17 @@ import {
 } from "~/components/ui/select";
 import SquareMinus from "lucide-solid/icons/square-minus";
 import { param } from "drizzle-orm";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxControl,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxItemIndicator,
+  ComboboxItemLabel,
+  ComboboxSection,
+  ComboboxTrigger,
+} from "~/components/ui/combobox";
 
 type QuestionType = {
   id: string;
@@ -488,7 +499,118 @@ export default function Home() {
             </Button>
           </Show>
         </div>
+        {/* ---------- DETAILS ---------- */}
+        <div>
+          <Combobox<Food, Category>
+            options={ALL_OPTIONS}
+            optionValue="value"
+            optionTextValue="label"
+            optionLabel="label"
+            optionDisabled="disabled"
+            optionGroupChildren="options"
+            placeholder="Search a food…"
+            itemComponent={(props) => (
+              <ComboboxItem item={props.item}>
+                <ComboboxItemLabel>
+                  {props.item.rawValue.label}
+                </ComboboxItemLabel>
+                <ComboboxItemIndicator />
+              </ComboboxItem>
+            )}
+            sectionComponent={(props) => (
+              <ComboboxSection>{props.section.rawValue.label}</ComboboxSection>
+            )}
+          >
+            <ComboboxControl aria-label="Food">
+              <ComboboxInput />
+              <ComboboxTrigger />
+            </ComboboxControl>
+            <ComboboxContent class="w-full max-h-96 overflow-y-auto"></ComboboxContent>
+          </Combobox>
+        </div>
       </div>
     </main>
   );
 }
+
+interface Food {
+  value: string;
+  label: string;
+  disabled: boolean;
+}
+interface Category {
+  label: string;
+  options: Food[];
+}
+
+const ALL_OPTIONS: Category[] = [
+  {
+    label: "Fruits",
+    options: [
+      { value: "apple", label: "Apple", disabled: false },
+      { value: "banana", label: "Banana", disabled: false },
+      { value: "blueberry", label: "Blueberry", disabled: false },
+      { value: "grapes", label: "Grapes", disabled: true },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+      { value: "pineapple", label: "Pineapple", disabled: false },
+    ],
+  },
+  {
+    label: "Meat",
+    options: [
+      { value: "beef", label: "Beef", disabled: false },
+      { value: "chicken", label: "Chicken", disabled: false },
+      { value: "lamb", label: "Lamb", disabled: false },
+      { value: "pork", label: "Pork", disabled: false },
+    ],
+  },
+];

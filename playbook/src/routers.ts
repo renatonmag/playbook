@@ -53,18 +53,21 @@ export const createComponent = authed
   .input(
     z.object({
       title: z.string().trim().min(1),
+      kind: z.string().trim().min(1).optional(),
     }),
   )
   // .output(ComponentSchema) // Matches your Drizzle return type
   .handler(async ({ context, input }) => {
     try {
       const row = await _createComponent({
-        userId: context.user.id, // Provided by authedProcedure middleware
+        userId: context.user.id,
         title: input.title,
+        kind: input.kind,
       });
 
       return row;
     } catch (err) {
+      console.error(`POST /api/components`, err);
       throw new Error(
         err instanceof Error ? err.message : "Internal server error",
       );
@@ -196,9 +199,7 @@ const createTrades = authed
           z.object({
             version: z.number().int(),
             id: z.string(),
-            selectedComps: z.array(z.number().int()),
-            detailsComps: z.array(z.number().int()),
-            contextComps: z.array(z.number().int()),
+            selectedComps: z.array(z.any()),
             result: z.string(),
           }),
         ),
@@ -209,7 +210,7 @@ const createTrades = authed
     try {
       const row = await _createSetups({
         userId: context.user.id,
-        setups: input?.setups,
+        setups2: input?.setups,
       });
 
       return row;

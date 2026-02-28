@@ -45,25 +45,42 @@ export type Setup = {
   result: string;
 };
 
-export const componentsTable = pgTable("components", {
-  id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id")
-    .references(() => usersTable.id)
-    .notNull(),
-  title: varchar({ length: 255 }).notNull(),
-  imageComparisons: jsonb("image_comparisons")
-    .$type<ImageComparison[]>()
-    .notNull()
-    .default([]),
-  exemples: jsonb("exemples")
-    .$type<{ uri: string; key: string }[]>() // array of image uri
-    .notNull()
-    .default([]),
-  categories: varchar({ length: 255 }),
-  // For 1-to-1, we store the reference here
-  markdownId: integer("markdown_id").references(() => markdownTable.id),
-  questions: jsonb("questions").$type<Question[]>().notNull().default([]),
-});
+export type SelectedComp = {
+  component: number;
+  details: number[];
+};
+export type Setup2 = {
+  version: number;
+  id: string;
+  selectedComps: SelectedComp[];
+  result: string;
+};
+
+export const componentsTable = pgTable(
+  "components",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    userId: integer("user_id")
+      .references(() => usersTable.id)
+      .notNull(),
+    title: varchar({ length: 255 }).notNull(),
+    imageComparisons: jsonb("image_comparisons")
+      .$type<ImageComparison[]>()
+      .notNull()
+      .default([]),
+    exemples: jsonb("exemples")
+      .$type<{ uri: string; key: string }[]>() // array of image uri
+      .notNull()
+      .default([]),
+    categories: varchar({ length: 255 }),
+    // For 1-to-1, we store the reference here
+    markdownId: integer("markdown_id").references(() => markdownTable.id),
+    // `kind` can be "component" or "detail". Default is "component"
+    kind: varchar({ length: 255 }).notNull().default("component"),
+    questions: jsonb("questions").$type<Question[]>().notNull().default([]),
+  },
+  (t) => [unique().on(t.userId, t.title)],
+);
 
 export const setupsTable = pgTable("setups", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
@@ -72,6 +89,7 @@ export const setupsTable = pgTable("setups", {
     .notNull(),
   createdAt: timestamp().defaultNow(),
   setups: jsonb("setups").$type<Setup[]>().notNull().default([]),
+  setups2: jsonb("setups2").$type<Setup2[]>().notNull().default([]),
 });
 
 export const imagesTable = pgTable("images", {
