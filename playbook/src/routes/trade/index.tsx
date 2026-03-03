@@ -26,8 +26,6 @@ export default function TradeSessions() {
                   version: 0,
                   id: crypto.randomUUID(),
                   selectedComps: [],
-                  detailsComps: [],
-                  contextComps: [],
                   result: "",
                 },
               ],

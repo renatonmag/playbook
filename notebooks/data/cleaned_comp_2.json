@@ -1,0 +1,257 @@
+[
+  {
+    "id": 1,
+    "title": "sideways",
+    "occurrence": 1,
+    "signal": "gain"
+  },
+  {
+    "id": 2,
+    "title": "pullback",
+    "signal": "loss"
+  },
+  {
+    "id": 3,
+    "title": "breakout",
+    "signal": "loss"
+  },
+  {
+    "id": 4,
+    "title": "spike and channel",
+    "signal": "loss"
+  },
+  {
+    "id": 5,
+    "title": "trading range",
+    "signal": "loss"
+  },
+  {
+    "id": 6,
+    "title": "small pb",
+    "signal": "loss"
+  },
+  {
+    "id": 7,
+    "title": "50% pb bar"
+  },
+  {
+    "id": 8,
+    "title": "wedge"
+  },
+  {
+    "id": 9,
+    "title": "mini wedge"
+  },
+  {
+    "id": 10,
+    "title": "conspicuous bar"
+  },
+  {
+    "id": 11,
+    "title": "big pb"
+  },
+  {
+    "id": 12,
+    "title": "trending pb"
+  },
+  {
+    "id": 13,
+    "title": "climax"
+  },
+  {
+    "id": 14,
+    "title": "reversal"
+  },
+  {
+    "id": 15,
+    "title": "parabolic wedge"
+  },
+  {
+    "id": 16,
+    "title": "consecutive wedges"
+  },
+  {
+    "id": 17,
+    "title": "late in trend"
+  },
+  {
+    "id": 18,
+    "title": "reversal bar"
+  },
+  {
+    "id": 19,
+    "title": "rejection candle"
+  },
+  {
+    "id": 20,
+    "title": "impulse bar"
+  },
+  {
+    "id": 21,
+    "title": "ma touch"
+  },
+  {
+    "id": 22,
+    "title": "trend"
+  },
+  {
+    "id": 23,
+    "title": "broad channel"
+  },
+  {
+    "id": 24,
+    "title": "tight channel"
+  },
+  {
+    "id": 25,
+    "title": "3 bars growing"
+  },
+  {
+    "id": 26,
+    "title": "failed wedge"
+  },
+  {
+    "id": 27,
+    "title": "triangle"
+  },
+  {
+    "id": 28,
+    "title": "small triangle"
+  },
+  {
+    "id": 29,
+    "title": "surprise bar"
+  },
+  {
+    "id": 30,
+    "title": "hod"
+  },
+  {
+    "id": 31,
+    "title": "lod"
+  },
+  {
+    "id": 32,
+    "title": "hoy"
+  },
+  {
+    "id": 33,
+    "title": "loy"
+  },
+  {
+    "id": 34,
+    "title": "double top"
+  },
+  {
+    "id": 35,
+    "title": "double bottom"
+  },
+  {
+    "id": 36,
+    "title": "micro dt"
+  },
+  {
+    "id": 37,
+    "title": "micro db"
+  },
+  {
+    "id": 38,
+    "title": "lower high"
+  },
+  {
+    "id": 39,
+    "title": "higher low"
+  },
+  {
+    "id": 40,
+    "title": "ttr"
+  },
+  {
+    "id": 41,
+    "title": "thousand"
+  },
+  {
+    "id": 42,
+    "title": "big up big down"
+  },
+  {
+    "id": 43,
+    "title": "big"
+  },
+  {
+    "id": 44,
+    "title": "small"
+  },
+  {
+    "id": 45,
+    "title": "medium"
+  },
+  {
+    "id": 46,
+    "title": "gap"
+  },
+  {
+    "id": 47,
+    "title": "head and shoulders"
+  },
+  {
+    "id": 48,
+    "title": "endless pb"
+  },
+  {
+    "id": 49,
+    "title": "low"
+  },
+  {
+    "id": 50,
+    "title": "high"
+  },
+  {
+    "id": 51,
+    "title": "middle"
+  },
+  {
+    "id": 52,
+    "title": "bull"
+  },
+  {
+    "id": 53,
+    "title": "bear"
+  },
+  {
+    "id": 54,
+    "title": "continuation bar"
+  },
+  {
+    "id": 55,
+    "title": "continuation"
+  },
+  {
+    "id": 56,
+    "title": "third leg"
+  },
+  {
+    "id": 57,
+    "title": "signal bar"
+  },
+  {
+    "id": 58,
+    "title": "good"
+  },
+  {
+    "id": 59,
+    "title": "bad"
+  },
+  {
+    "id": 60,
+    "title": "channel line"
+  },
+  {
+    "id": 61,
+    "title": "trend line"
+  },
+  {
+    "id": 62,
+    "title": "touch"
+  }
+]

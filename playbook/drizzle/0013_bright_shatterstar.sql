@@ -1,0 +1,2 @@
+ALTER TABLE "components" ADD COLUMN "kind" varchar(255) DEFAULT 'component' NOT NULL;--> statement-breakpoint
+ALTER TABLE "components" ADD CONSTRAINT "components_user_id_title_unique" UNIQUE("user_id","title");

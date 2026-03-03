@@ -11,6 +11,8 @@ llama-index-core = "^0.13.2"
 llama-index-llms-google-genai = "^0.3.0"
 llama-index-embeddings-google-genai = "^0.3.0"
 python-dotenv = "^1.1.1"
+scikit-learn = "^1.8.0"
+shap = "^0.50.0"
 
 
 [tool.poetry.group.dev.dependencies]

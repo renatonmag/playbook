@@ -27,8 +27,10 @@ export function DialogAddComponent(props: {
 
   return (
     <Dialog>
-      <DialogTrigger as={Button<"button">} variant="outline" size="icon">
-        <PlusIcon />
+      <DialogTrigger as={Button<"button">} class="w-1/3">
+        <div class="flex items-center gap-2">
+          <div>Adicionar padrão</div> <PlusIcon class="w-3 h-3 text-white" />
+        </div>
       </DialogTrigger>
       <DialogContent class="sm:max-w-[500px]">
         <DialogHeader>
