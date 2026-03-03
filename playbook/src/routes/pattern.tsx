@@ -24,6 +24,7 @@ import { UploadButton } from "~/lib/uploadthing";
 import { ImageCaroulsel } from "~/components/ImageCarousel";
 
 import {
+  labelVariants,
   TextField,
   TextFieldInput,
   TextFieldLabel,
@@ -50,6 +51,7 @@ import {
   ComboboxSection,
   ComboboxTrigger,
 } from "~/components/ui/combobox";
+import { cn } from "~/lib/utils";
 
 type QuestionType = {
   id: string;
@@ -224,6 +226,22 @@ export default function Home() {
     );
   };
 
+  const [value, setValue] = createSignal<Food | null>(null);
+  const onInputChange = (value: string) => {
+    // Remove selection when input is cleared.
+    console.log({ value });
+    if (value === "") {
+      setValue(null);
+    }
+  };
+
+  const createDetail = () => {
+    actions._createComponent.mutate({
+      title: value()?.label || "",
+      kind: "detail",
+    });
+  };
+
   if (!params.pattern) {
     return <div>Lista ou Padrão não encontrado</div>;
   }
@@ -348,7 +366,7 @@ export default function Home() {
           </textarea>
         </div>
         <Separator class="my-6" />
-        <div class="w-full h-full">
+        <div class="w-full mb-6">
           <div
             class="text-xl font-bold text-gray-700 mb-4"
             onMouseDown={() => setEditTitle(true)}
@@ -500,33 +518,42 @@ export default function Home() {
           </Show>
         </div>
         {/* ---------- DETAILS ---------- */}
-        <div>
-          <Combobox<Food, Category>
-            options={ALL_OPTIONS}
-            optionValue="value"
-            optionTextValue="label"
-            optionLabel="label"
-            optionDisabled="disabled"
-            optionGroupChildren="options"
-            placeholder="Search a food…"
-            itemComponent={(props) => (
-              <ComboboxItem item={props.item}>
-                <ComboboxItemLabel>
-                  {props.item.rawValue.label}
-                </ComboboxItemLabel>
-                <ComboboxItemIndicator />
-              </ComboboxItem>
-            )}
-            sectionComponent={(props) => (
-              <ComboboxSection>{props.section.rawValue.label}</ComboboxSection>
-            )}
-          >
-            <ComboboxControl aria-label="Food">
-              <ComboboxInput />
-              <ComboboxTrigger />
-            </ComboboxControl>
-            <ComboboxContent class="w-full max-h-96 overflow-y-auto"></ComboboxContent>
-          </Combobox>
+        <div class="w-full">
+          <div>
+            <div class={cn(labelVariants(), "mb-2")}>Detalhes</div>
+            <Combobox<Food, Category>
+              options={ALL_OPTIONS}
+              value={value()}
+              onChange={setValue}
+              onInputChange={onInputChange}
+              optionValue="value"
+              optionTextValue="label"
+              optionLabel="label"
+              optionDisabled="disabled"
+              optionGroupChildren="options"
+              placeholder="Search a food…"
+              itemComponent={(props) => (
+                <ComboboxItem item={props.item}>
+                  <ComboboxItemLabel>
+                    {props.item.rawValue.label}
+                  </ComboboxItemLabel>
+                  <ComboboxItemIndicator />
+                </ComboboxItem>
+              )}
+              sectionComponent={(props) => (
+                <ComboboxSection>
+                  {props.section.rawValue.label}
+                </ComboboxSection>
+              )}
+            >
+              <ComboboxControl aria-label="Food">
+                <ComboboxInput />
+                <ComboboxTrigger />
+              </ComboboxControl>
+              <ComboboxContent class="w-full max-h-96 overflow-y-auto"></ComboboxContent>
+            </Combobox>
+          </div>
+          <Button onMouseDown={createDetail}>Salvar detalhe</Button>
         </div>
       </div>
     </main>

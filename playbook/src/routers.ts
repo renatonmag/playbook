@@ -14,6 +14,7 @@ import {
   listSetupsRowsByUser,
 } from "~/db/queries/setupsCRUD";
 import { version } from "uploadthing/client";
+import { ORPCError } from "@orpc/server";
 
 // Define your Schema (matches your earlier componentsTable logic)
 export const ComponentSchema = z.object({
@@ -67,10 +68,10 @@ export const createComponent = authed
 
       return row;
     } catch (err) {
-      console.error(`POST /api/components`, err);
-      throw new Error(
-        err instanceof Error ? err.message : "Internal server error",
-      );
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
+      console.error(`POST /api/components`, message);
+      throw new ORPCError("CONFLICT", { message });
     }
   });
 

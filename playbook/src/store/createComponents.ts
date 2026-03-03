@@ -6,7 +6,7 @@ import {
   revalidate,
   useAction,
 } from "@solidjs/router";
-import { useQuery } from "@tanstack/solid-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { ComponentUpdate } from "~/db/queries/componentsCRUD";
@@ -14,6 +14,8 @@ import { orpc } from "~/lib/orpc";
 
 export default function createComponents(agent, actions, state, setState) {
   const [componentsSource, setComponentsSource] = createSignal("mine");
+
+  const queryClient = useQueryClient();
 
   const _componentsList = useQuery(() =>
     orpc.component.listByUser.queryOptions({}),
@@ -81,6 +83,19 @@ export default function createComponents(agent, actions, state, setState) {
 
   const updateCategory = useAction(_updateCategory);
 
+  const createComponent = useMutation(() =>
+    orpc.component.create.mutationOptions({
+      onSuccess: (res) => {
+        queryClient.setQueryData(
+          orpc.component.listByUser.queryKey(),
+          (old) => {
+            return [...(old || []), res];
+          },
+        );
+      },
+    }),
+  );
+
   Object.assign(actions, {
     loadComponents(predicate) {
       setComponentsSource(predicate);
@@ -92,6 +107,7 @@ export default function createComponents(agent, actions, state, setState) {
       const component = await agent.Components.create(componentData);
       revalidate("components");
     },
+    _createComponent: createComponent,
     updateComponent,
     deleteComponent(id, userId) {
       return agent.Components.delete(id, userId);

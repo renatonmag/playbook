@@ -1,0 +1,374 @@
+[
+  {
+    "id": 1,
+    "title": "sideways",
+    "occurrence": 0.5,
+    "signal": "gain"
+  },
+  {
+    "id": 2,
+    "title": "pullback",
+    "occurrence": 0.6,
+    "signal": "loss"
+  },
+  {
+    "id": 3,
+    "title": "breakout",
+    "occurrence": 0.3,
+    "signal": "loss"
+  },
+  {
+    "id": 4,
+    "title": "spike and channel",
+    "occurrence": 0.3,
+    "signal": "loss"
+  },
+  {
+    "id": 5,
+    "title": "trading range",
+    "occurrence": 0.7,
+    "signal": "gain"
+  },
+  {
+    "id": 6,
+    "title": "small pb",
+    "occurrence": 0.6,
+    "signal": "gain"
+  },
+  {
+    "id": 7,
+    "title": "50% pb bar",
+    "occurrence": 0.7,
+    "signal": "gain"
+  },
+  {
+    "id": 8,
+    "title": "wedge",
+    "occurrence": 0.8,
+    "signal": "flat"
+  },
+  {
+    "id": 9,
+    "title": "mini wedge",
+    "occurrence": 0.1,
+    "signal": "flat"
+  },
+  {
+    "id": 10,
+    "title": "conspicuous bar",
+    "occurrence": 0.2,
+    "signal": "flat"
+  },
+  {
+    "id": 11,
+    "occurrence": 0.3,
+    "signal": "gain",
+    "title": "big pb"
+  },
+  {
+    "id": 12,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "trending pb"
+  },
+  {
+    "id": 13,
+    "occurrence": 0.4,
+    "signal": "gain",
+    "title": "climax"
+  },
+  {
+    "id": 14,
+    "occurrence": 0.6,
+    "signal": "flat",
+    "title": "reversal"
+  },
+  {
+    "id": 15,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "parabolic wedge"
+  },
+  {
+    "id": 16,
+    "occurrence": 0.6,
+    "signal": "flat",
+    "title": "consecutive wedges"
+  },
+  {
+    "id": 17,
+    "occurrence": 0.1,
+    "signal": "gain",
+    "title": "late in trend"
+  },
+  {
+    "id": 18,
+    "occurrence": 0.2,
+    "signal": "gain",
+    "title": "reversal bar"
+  },
+  {
+    "id": 19,
+    "occurrence": 0.3,
+    "signal": "gain",
+    "title": "rejection candle"
+  },
+  {
+    "id": 20,
+    "occurrence": 0.4,
+    "signal": "flat",
+    "title": "impulse bar"
+  },
+  {
+    "id": 21,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "ma touch"
+  },
+  {
+    "id": 22,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "trend"
+  },
+  {
+    "id": 23,
+    "occurrence": 0.7,
+    "signal": "loss",
+    "title": "broad channel"
+  },
+  {
+    "id": 24,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "tight channel"
+  },
+  {
+    "id": 25,
+    "occurrence": 0.2,
+    "signal": "loss",
+    "title": "3 bars growing"
+  },
+  {
+    "id": 26,
+    "occurrence": 0.4,
+    "signal": "loss",
+    "title": "failed wedge"
+  },
+  {
+    "id": 27,
+    "occurrence": 0.4,
+    "signal": "gain",
+    "title": "triangle"
+  },
+  {
+    "id": 28,
+    "occurrence": 0.4,
+    "signal": "loss",
+    "title": "small triangle"
+  },
+  {
+    "id": 29,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "surprise bar"
+  },
+  {
+    "id": 30,
+    "occurrence": 0.4,
+    "signal": "loss",
+    "title": "hod"
+  },
+  {
+    "id": 31,
+    "occurrence": 0.3,
+    "signal": "gain",
+    "title": "lod"
+  },
+  {
+    "id": 32,
+    "occurrence": 0.4,
+    "signal": "gain",
+    "title": "hoy"
+  },
+  {
+    "id": 33,
+    "occurrence": 0.5,
+    "signal": "loss",
+    "title": "loy"
+  },
+  {
+    "id": 34,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "double top"
+  },
+  {
+    "id": 35,
+    "occurrence": 0.3,
+    "signal": "loss",
+    "title": "double bottom"
+  },
+  {
+    "id": 36,
+    "occurrence": 0.4,
+    "signal": "gain",
+    "title": "micro dt"
+  },
+  {
+    "id": 37,
+    "occurrence": 0.5,
+    "signal": "loss",
+    "title": "micro db"
+  },
+  {
+    "id": 38,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "lower high"
+  },
+  {
+    "id": 39,
+    "occurrence": 0.2,
+    "signal": "loss",
+    "title": "higher low"
+  },
+  {
+    "id": 40,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "ttr"
+  },
+  {
+    "id": 41,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "thousand"
+  },
+  {
+    "id": 42,
+    "occurrence": 0.6,
+    "signal": "loss",
+    "title": "big up big down"
+  },
+  {
+    "id": 43,
+    "occurrence": 0.5,
+    "signal": "gain",
+    "title": "big"
+  },
+  {
+    "id": 44,
+    "occurrence": 0.6,
+    "signal": "loss",
+    "title": "small"
+  },
+  {
+    "id": 45,
+    "occurrence": 0.3,
+    "signal": "gain",
+    "title": "medium"
+  },
+  {
+    "id": 46,
+    "occurrence": 0.6,
+    "signal": "loss",
+    "title": "gap"
+  },
+  {
+    "id": 47,
+    "occurrence": 0.3,
+    "signal": "gain",
+    "title": "head and shoulders"
+  },
+  {
+    "id": 48,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "endless pb"
+  },
+  {
+    "id": 49,
+    "occurrence": 0.36,
+    "signal": "gain",
+    "title": "low"
+  },
+  {
+    "id": 50,
+    "occurrence": 0.6,
+    "signal": "loss",
+    "title": "high"
+  },
+  {
+    "id": 51,
+    "occurrence": 0.3,
+    "signal": "gain",
+    "title": "middle"
+  },
+  {
+    "id": 52,
+    "occurrence": 0.6,
+    "signal": "loss",
+    "title": "bull"
+  },
+  {
+    "id": 53,
+    "occurrence": 0.4,
+    "signal": "gain",
+    "title": "bear"
+  },
+  {
+    "id": 54,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "continuation bar"
+  },
+  {
+    "id": 55,
+    "occurrence": 0.4,
+    "signal": "loss",
+    "title": "continuation"
+  },
+  {
+    "id": 56,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "third leg"
+  },
+  {
+    "id": 57,
+    "occurrence": 0.4,
+    "signal": "loss",
+    "title": "signal bar"
+  },
+  {
+    "id": 58,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "good"
+  },
+  {
+    "id": 59,
+    "occurrence": 0.4,
+    "signal": "loss",
+    "title": "bad"
+  },
+  {
+    "id": 60,
+    "occurrence": 0.6,
+    "signal": "gain",
+    "title": "channel line"
+  },
+  {
+    "id": 61,
+    "occurrence": 0.4,
+    "signal": "loss",
+    "title": "trend line"
+  },
+  {
+    "id": 62,
+    "occurrence": 0.3,
+    "signal": "loss",
+    "title": "touch"
+  }
+]
