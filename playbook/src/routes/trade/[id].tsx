@@ -277,6 +277,51 @@ export default function Trade() {
     );
   };
 
+  const moveComponent = (setupIndex: number, componentId: number, direction: "left" | "right") => {
+    setSetups(
+      produce((draft) => {
+        const setup = draft.items[setupIndex];
+        const idx = setup.selectedComps.findIndex((c) => c.component === componentId);
+        if (idx === -1) return draft;
+        const newIdx = direction === "left" ? idx - 1 : idx + 1;
+        if (newIdx < 0 || newIdx >= setup.selectedComps.length) return draft;
+        [setup.selectedComps[idx], setup.selectedComps[newIdx]] = [
+          setup.selectedComps[newIdx],
+          setup.selectedComps[idx],
+        ];
+        setup.version++;
+        draft.version++;
+        return draft;
+      }),
+    );
+  };
+
+  const copyComponentToSetup = (sourceSetupIndex: number, componentId: number) => {
+    const targetIndex = selectedSetup();
+    if (targetIndex === undefined || targetIndex === sourceSetupIndex) return;
+
+    const sourceComp = setups.items[sourceSetupIndex].selectedComps.find(
+      (c) => c.component === componentId,
+    );
+    if (!sourceComp) return;
+
+    if (setups.items[targetIndex].selectedComps.some((c) => c.component === componentId))
+      return;
+
+    setSetups(
+      produce((draft) => {
+        const target = draft.items[targetIndex];
+        target.selectedComps = [
+          ...target.selectedComps,
+          { component: sourceComp.component, details: [...sourceComp.details] },
+        ];
+        target.version++;
+        draft.version++;
+        return draft;
+      }),
+    );
+  };
+
   const tagComponent = (id: number, setup: number, type: string) => {
     setTaggedComps([id, setup, type]);
   };
@@ -287,6 +332,17 @@ export default function Trade() {
   createEffect(() => {
     console.log(taggedComps());
   });
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (!e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    const tagged = taggedComps();
+    if (!tagged) return;
+    e.preventDefault();
+    const [componentId, setupIndex] = tagged;
+    moveComponent(setupIndex, componentId, e.key === "ArrowLeft" ? "left" : "right");
+  };
+  window.addEventListener("keydown", handleKeyDown);
+  onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
 
   const decideQuestioFunction = (
     index: number,
@@ -434,6 +490,7 @@ export default function Trade() {
             <Card
               class="w-lg max-w-lg h-fit mx-auto overflow-clip"
               onMouseDown={(e) => {
+                if (e.button === 2) return;
                 setSelectedSetup(setupIndex());
               }}
             >
@@ -537,6 +594,13 @@ export default function Trade() {
                         untagComponent={untagComponent}
                         taggedComp={taggedComps()}
                         removeDetails={removeDetails}
+                        copyToActiveSetup={(componentId) =>
+                          copyComponentToSetup(setupIndex(), componentId)
+                        }
+                        isInActiveSetup={selectedSetup() === setupIndex()}
+                        moveComponent={(componentId, direction) =>
+                          moveComponent(setupIndex(), componentId, direction)
+                        }
                       />
                     )}
                   </For>
