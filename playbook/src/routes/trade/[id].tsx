@@ -59,6 +59,7 @@ import {
 } from "~/components/ui/dialog";
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
@@ -108,6 +109,9 @@ export default function Trade() {
     [showItem, setShowItem] = createSignal<string>(""),
     [search, setSearch] = createSignal(""),
     [refsDialogTarget, setRefsDialogTarget] = createSignal<
+      [number, number] | undefined
+    >(),
+    [verdadeTarget, setVerdadeTarget] = createSignal<
       [number, number] | undefined
     >();
 
@@ -296,20 +300,32 @@ export default function Trade() {
     );
   };
 
-  // Reads taggedComps to know which setup to add the detail to
+  // Reads taggedComps to know which setup to add the detail to.
+  // Routes to truth[] if the tagged component lives there.
   const addDetails = (insertId: number) => {
     const tagged = taggedComps();
     if (!tagged) return;
     const [componentId, cardIdx, subIdx] = tagged;
+    const truth: any[] =
+      (setups.items[cardIdx].setups[subIdx] as any).truth ?? [];
+    const isInTruth = truth.some((c: any) => c.component === componentId);
     setSetups(
       produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx];
-        const component = setup.selectedComps.find(
-          (e) => e.component === componentId,
-        );
-        if (!component) return;
-        component.details = [...component.details, insertId];
-        setup.version++;
+        const s = draft.items[cardIdx].setups[subIdx] as any;
+        if (isInTruth) {
+          const comp = (s.truth ?? []).find(
+            (c: any) => c.component === componentId,
+          );
+          if (!comp) return;
+          comp.details = [...(comp.details ?? []), insertId];
+        } else {
+          const comp = s.selectedComps.find(
+            (e: any) => e.component === componentId,
+          );
+          if (!comp) return;
+          comp.details = [...comp.details, insertId];
+        }
+        s.version++;
         draft.version++;
         return draft;
       }),
@@ -395,6 +411,74 @@ export default function Trade() {
       }),
     );
     setRefsDialogTarget(undefined);
+  };
+
+  const toggleVerdade = (cardIdx: number, subIdx: number) => {
+    const current =
+      (setups.items[cardIdx].setups[subIdx] as any).showTruth ?? false;
+    setSetups(
+      produce((draft) => {
+        (draft.items[cardIdx].setups[subIdx] as any).showTruth = !current;
+        draft.version++;
+        return draft;
+      }),
+    );
+    if (!current) {
+      setVerdadeTarget([cardIdx, subIdx]);
+    } else {
+      const v = verdadeTarget();
+      if (v && v[0] === cardIdx && v[1] === subIdx) setVerdadeTarget(undefined);
+    }
+  };
+
+  const addTruthComp = (id: number) => {
+    const target = verdadeTarget();
+    if (!target) return;
+    const [cardIdx, subIdx] = target;
+    const truth: any[] =
+      (setups.items[cardIdx].setups[subIdx] as any).truth ?? [];
+    if (truth.some((c: any) => c.component === id)) return;
+    setSetups(
+      produce((draft) => {
+        const s = draft.items[cardIdx].setups[subIdx] as any;
+        s.truth = [...(s.truth ?? []), { component: id, details: [] }];
+        draft.version++;
+        return draft;
+      }),
+    );
+  };
+
+  const removeTruthComp = (cardIdx: number, subIdx: number, id: number) => {
+    setSetups(
+      produce((draft) => {
+        const s = draft.items[cardIdx].setups[subIdx] as any;
+        s.truth = (s.truth ?? []).filter((c: any) => c.component !== id);
+        draft.version++;
+        return draft;
+      }),
+    );
+  };
+
+  const removeTruthDetail = (
+    cardIdx: number,
+    subIdx: number,
+    componentId: number,
+    detailId: number,
+  ) => {
+    setSetups(
+      produce((draft) => {
+        const s = draft.items[cardIdx].setups[subIdx] as any;
+        const comp = (s.truth ?? []).find(
+          (c: any) => c.component === componentId,
+        );
+        if (!comp) return;
+        comp.details = (comp.details ?? []).filter(
+          (e: number) => e !== detailId,
+        );
+        draft.version++;
+        return draft;
+      }),
+    );
   };
 
   const moveComponent = (
@@ -671,7 +755,13 @@ export default function Trade() {
                     component={component}
                     loadComponent={actions.loadComponent}
                     setShowItem={setShowItem}
-                    addSelectedComps={addSelectedComps}
+                    addSelectedComps={(_sel, id) => {
+                      if (verdadeTarget()) {
+                        addTruthComp(id);
+                      } else {
+                        addSelectedComps(selectedSetup(), id);
+                      }
+                    }}
                     addDetails={addDetails}
                     addContext={addContext}
                     selectedSetup={selectedSetup}
@@ -836,6 +926,16 @@ export default function Trade() {
                             >
                               Referência
                             </ContextMenuItem>
+                            <ContextMenuCheckboxItem
+                              checked={
+                                (setup as any).showTruth ?? false
+                              }
+                              onChange={() =>
+                                toggleVerdade(cardIndex(), subIndex())
+                              }
+                            >
+                              Verdade
+                            </ContextMenuCheckboxItem>
                           </ContextMenuContent>
                         </ContextMenu>
 
@@ -897,6 +997,56 @@ export default function Trade() {
                             )}
                           </For>
                         </div>
+
+                        {/* Verdade section */}
+                        <Show when={(setup as any).showTruth}>
+                          <div class="mt-2">
+                            <div class="text-xs font-medium mb-1 text-amber-500">
+                              Verdade
+                            </div>
+                            <div class="flex gap-2 flex-wrap items-start">
+                              <For
+                                each={createSelectedComps(
+                                  {
+                                    selectedComps:
+                                      (setup as any).truth ?? [],
+                                  },
+                                  store.components.data,
+                                )}
+                              >
+                                {(component) => (
+                                  <ComponentBadge
+                                    component={component}
+                                    added={true}
+                                    cardIndex={cardIndex()}
+                                    subIndex={subIndex()}
+                                    loadComponent={actions.loadComponent}
+                                    setShowItem={setShowItem}
+                                    removeComps={(id) =>
+                                      removeTruthComp(
+                                        cardIndex(),
+                                        subIndex(),
+                                        id,
+                                      )
+                                    }
+                                    selectedSetup={verdadeTarget}
+                                    tagComponent={tagComponent}
+                                    untagComponent={untagComponent}
+                                    taggedComp={taggedComps()}
+                                    removeDetails={(compId, detailId) =>
+                                      removeTruthDetail(
+                                        cardIndex(),
+                                        subIndex(),
+                                        compId,
+                                        detailId,
+                                      )
+                                    }
+                                  />
+                                )}
+                              </For>
+                            </div>
+                          </div>
+                        </Show>
                       </div>
                     )}
                   </For>
