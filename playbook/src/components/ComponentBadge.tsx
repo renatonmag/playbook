@@ -29,6 +29,7 @@ import {
   ContextMenuRadioGroup,
   ContextMenuRadioItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -52,6 +53,9 @@ export const ComponentBadge = (props: {
   untagComponent?: any;
   taggedComp?: any;
   removeDetails?: any;
+  copyToActiveSetup?: (componentId: number) => void;
+  isInActiveSetup?: boolean;
+  moveComponent?: (componentId: number, direction: "left" | "right") => void;
 }) => {
   createEffect(() => {
     console.log(props.component?.details);
@@ -140,6 +144,36 @@ export const ComponentBadge = (props: {
                 >
                   <span>Remover</span>
                 </ContextMenuItem>
+                {props.copyToActiveSetup && !props.isInActiveSetup && (
+                  <ContextMenuItem
+                    onMouseDown={() =>
+                      props.copyToActiveSetup!(props.component.component.id)
+                    }
+                  >
+                    <span>Copiar para setup ativo</span>
+                  </ContextMenuItem>
+                )}
+                {props.moveComponent && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      onMouseDown={() =>
+                        props.moveComponent!(props.component.component.id, "left")
+                      }
+                    >
+                      <span>Mover para esquerda</span>
+                      <ContextMenuShortcut>⌃←</ContextMenuShortcut>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onMouseDown={() =>
+                        props.moveComponent!(props.component.component.id, "right")
+                      }
+                    >
+                      <span>Mover para direita</span>
+                      <ContextMenuShortcut>⌃→</ContextMenuShortcut>
+                    </ContextMenuItem>
+                  </>
+                )}
               </ContextMenuContent>
             </ContextMenuPortal>
           </ContextMenu>
