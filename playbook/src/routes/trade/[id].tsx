@@ -6,6 +6,7 @@ import {
   For,
   Match,
   onCleanup,
+  onMount,
   Show,
   Switch,
   untrack,
@@ -15,25 +16,16 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { parseMarkdown } from "~/lib/parseMarkdown";
-import {
-  checklist,
-  selectedComponentsID,
-  selectComponent,
-  getListComponent,
-  deselectComponent,
-} from "~/store/checklist";
 import { useStore } from "~/store/storeContext";
-import { EllipsisVertical, X } from "lucide-solid/icons/index";
-import { A, useParams } from "@solidjs/router";
-import { Answer, Question, Setup, Setup2 } from "~/db/schema";
+import { EllipsisVertical } from "lucide-solid/icons/index";
+import { useParams } from "@solidjs/router";
+import { Setup2 } from "~/db/schema";
 import {
   TextField,
   TextFieldInput,
   TextFieldLabel,
 } from "~/components/ui/text-field";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
-import { set } from "zod";
-import id from "zod/v4/locales/id.cjs";
 import { ComponentBadge } from "~/components/ComponentBadge";
 import {
   DropdownMenu,
@@ -49,7 +41,6 @@ import {
   DropdownMenuPortal,
   DropdownMenuSeparator,
   DropdownMenuSubTrigger,
-  DropdownMenuShortcut,
 } from "~/components/ui/dropdown-menu";
 import {
   SheetContent,
@@ -57,60 +48,129 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
   Sheet,
 } from "~/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "~/components/ui/dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "~/components/ui/context-menu";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxControl,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxItemLabel,
+  ComboboxTrigger,
+} from "~/components/ui/combobox";
+
+const TIMEFRAMES = [
+  "m1",
+  "m2",
+  "m3",
+  "m5",
+  "m10",
+  "m15",
+  "m30",
+  "h1",
+  "h2",
+  "h4",
+  "h6",
+  "h8",
+  "h12",
+  "d1",
+  "w1",
+];
+
+type BarRef = { timeframe: string; begin: number; end: number };
+type SetupCard = { id: string; setups: Setup2[] };
 
 export default function Trade() {
   const [store, actions] = useStore(),
-    [selectedSheetId, setSelectedSheetId] = createSignal<number | undefined>(),
-    [selectedSetup, setSelectedSetup] = createSignal<number | undefined>(),
-    [taggedComps, setTaggedComps] = createSignal<
-      [number, number, string] | undefined
+    [selectedSheetId, setSelectedSheetId] = createSignal<
+      [number, number] | undefined
     >(),
-    [contextComps, setContextComps] = createSignal<number[]>([]),
-    [hoverItem1, setHoverItem1] = createSignal<string>(""),
-    [hoverItem2, setHoverItem2] = createSignal<string>(""),
+    [selectedSetup, setSelectedSetup] = createSignal<
+      [number, number] | undefined
+    >(),
+    [taggedComps, setTaggedComps] = createSignal<
+      [number, number, number, string] | undefined
+    >(),
     [showItem, setShowItem] = createSignal<string>(""),
-    [showAnswers, setShowAnswers] = createSignal<string>("");
+    [search, setSearch] = createSignal(""),
+    [refsDialogTarget, setRefsDialogTarget] = createSignal<
+      [number, number] | undefined
+    >();
+
+  const [refsDraft, setRefsDraft] = createStore<BarRef[]>([]);
 
   const [setups, setSetups] = createStore<{
     version: number;
-    items: Setup2[];
+    items: SetupCard[];
   }>({
     version: 0,
     items: [
       {
-        version: 0,
         id: crypto.randomUUID(),
-        selectedComps: [],
-        result: "",
+        setups: [
+          {
+            version: 0,
+            id: crypto.randomUUID(),
+            selectedComps: [],
+            result: "",
+          },
+        ],
       },
     ],
   });
 
   const params = useParams();
 
+  // Load: group raw Setup2[] by cardId
   createEffect(() => {
     const _setups = store.sessions.data?.find(
       (e: any) => e.id === Number(params.id),
     );
     if (!_setups?.setups2) return;
-    setSetups("items", reconcile(structuredClone(unwrap(_setups.setups2))));
+
+    const raw: any[] = _setups.setups2;
+    const grouped = new Map<string, Setup2[]>();
+    for (const s of raw) {
+      const key = s.cardId ?? s.id; // backward compat: old data each Setup2 is its own card
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(s);
+    }
+    const cards: SetupCard[] = [...grouped.entries()].map(([id, setups]) => ({
+      id,
+      setups,
+    }));
+    setSetups("items", reconcile(structuredClone(unwrap(cards))));
   });
 
+  // Save: flatten cards into Setup2[] with cardId field (debounced 300ms)
   createEffect(() => {
     if (setups.version === 0) return;
 
-    untrack(() =>
-      actions.updateSession.mutate({
-        id: Number(params.id),
-        setups: setups.items,
-      }),
+    const id = Number(params.id);
+    const payload = untrack(() =>
+      setups.items.flatMap((card) =>
+        card.setups.map((s) => ({ ...s, cardId: card.id })),
+      ),
     );
-    // const timer = setTimeout(async () => {
-    // }, 600);
-    // onCleanup(() => clearTimeout(timer));
+
+    const timer = setTimeout(() => {
+      actions.updateSession.mutate({ id, setups: payload });
+    }, 500);
+    onCleanup(() => clearTimeout(timer));
   });
 
   const component = createMemo(() => {
@@ -119,56 +179,101 @@ export default function Trade() {
     );
   });
 
-  const addSetup = () => {
+  const isActiveSetup = (cardIndex: number, subIndex: number) => {
+    const sel = selectedSetup();
+    return sel !== undefined && sel[0] === cardIndex && sel[1] === subIndex;
+  };
+
+  const sheetOpen = () => {
+    const sel = selectedSetup();
+    const sheet = selectedSheetId();
+    return (
+      sel !== undefined &&
+      sheet !== undefined &&
+      sel[0] === sheet[0] &&
+      sel[1] === sheet[1]
+    );
+  };
+
+  // Add a new card with one empty sub-setup
+  const addCard = () => {
+    const newCardId = crypto.randomUUID();
     setSetups(
       produce((draft) => {
         draft.version++;
         draft.items = [
           ...draft.items,
           {
-            version: 0,
-            id: crypto.randomUUID(),
-            selectedComps: [],
-            result: "",
+            id: newCardId,
+            setups: [
+              {
+                version: 0,
+                id: crypto.randomUUID(),
+                selectedComps: [],
+                result: "",
+              },
+            ],
           },
         ];
-        setSelectedSetup(draft.items.length - 1);
         return draft;
       }),
     );
+    setSelectedSetup([setups.items.length - 1, 0]);
   };
 
-  const deleteSetup = (index: number) => {
+  // Add a sub-setup within an existing card
+  const addSubSetup = (cardIndex: number) => {
     setSetups(
       produce((draft) => {
-        draft.items.splice(index, 1);
+        draft.items[cardIndex].setups.push({
+          version: 0,
+          id: crypto.randomUUID(),
+          selectedComps: [],
+          result: "",
+        });
+        draft.version++;
+        return draft;
+      }),
+    );
+    setSelectedSetup([cardIndex, setups.items[cardIndex].setups.length - 1]);
+  };
+
+  // Delete sub-setup; remove card if it was the last one
+  const deleteSetup = (cardIdx: number, subIdx: number) => {
+    setSetups(
+      produce((draft) => {
+        draft.items[cardIdx].setups.splice(subIdx, 1);
+        if (draft.items[cardIdx].setups.length === 0) {
+          draft.items.splice(cardIdx, 1);
+        }
         draft.version++;
         return draft;
       }),
     );
   };
 
-  const addSelectedComps = (index: number, id: number) => {
-    if (setups.items.length === 0) return;
-    if (!setups.items?.[index]?.selectedComps) {
-      // TOODO Change this to a toast
+  const addSelectedComps = (sel: [number, number] | undefined, id: number) => {
+    if (!sel) {
+      alert("Selecione um setup");
+      return;
+    }
+    const [cardIdx, subIdx] = sel;
+    if (!setups.items?.[cardIdx]?.setups?.[subIdx]?.selectedComps) {
       alert("Selecione um setup");
       return;
     }
     if (
-      setups.items[index].selectedComps.findIndex((c) => c.component === id) !==
-      -1
+      setups.items[cardIdx].setups[subIdx].selectedComps.findIndex(
+        (c) => c.component === id,
+      ) !== -1
     )
       return;
     setSetups(
       produce((draft) => {
-        const setup = draft.items[index];
+        const setup = draft.items[cardIdx].setups[subIdx];
         setup.selectedComps = [
           ...setup.selectedComps,
-          {
-            component: id,
-            details: [],
-          },
+          { component: id, details: [] },
         ];
         setup.version++;
         draft.version++;
@@ -176,10 +281,11 @@ export default function Trade() {
       }),
     );
   };
-  const removeSelectedComps = (index: number, id: number) => {
+
+  const removeSelectedComps = (cardIdx: number, subIdx: number, id: number) => {
     setSetups(
       produce((draft) => {
-        const setup = draft.items[index];
+        const setup = draft.items[cardIdx].setups[subIdx];
         setup.selectedComps = setup.selectedComps.filter(
           (e) => e.component !== id,
         );
@@ -190,29 +296,17 @@ export default function Trade() {
     );
   };
 
-  const specifyComponent = (index: number, parentId: number, id: number) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[index];
-        // setup.selectedComps = setup.selectedComps.filter((e) => e !== parentId);
-        setup.selectedComps = [...setup.selectedComps, id];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
+  // Reads taggedComps to know which setup to add the detail to
   const addDetails = (insertId: number) => {
-    if (taggedComps()?.[0] === undefined || taggedComps()?.[1] === undefined)
-      return;
-    const [componentId, setupIndex] = taggedComps() as [number, number];
+    const tagged = taggedComps();
+    if (!tagged) return;
+    const [componentId, cardIdx, subIdx] = tagged;
     setSetups(
       produce((draft) => {
-        const setup = draft.items[setupIndex],
-          component = setup.selectedComps.find(
-            (e) => e.component === componentId,
-          );
+        const setup = draft.items[cardIdx].setups[subIdx];
+        const component = setup.selectedComps.find(
+          (e) => e.component === componentId,
+        );
         if (!component) return;
         component.details = [...component.details, insertId];
         setup.version++;
@@ -223,16 +317,17 @@ export default function Trade() {
   };
 
   const removeDetails = (
-    setupIndex: number,
+    cardIdx: number,
+    subIdx: number,
     componentId: number,
     detailId: number,
   ) => {
     setSetups(
       produce((draft) => {
-        const setup = draft.items[setupIndex],
-          component = setup.selectedComps.find(
-            (e) => e.component === componentId,
-          );
+        const setup = draft.items[cardIdx].setups[subIdx];
+        const component = setup.selectedComps.find(
+          (e) => e.component === componentId,
+        );
         if (!component) return;
         component.details = component.details.filter((e) => e !== detailId);
         setup.version++;
@@ -242,11 +337,11 @@ export default function Trade() {
     );
   };
 
-  const addContext = (index: number, id: number) => {
+  const addContext = (cardIdx: number, subIdx: number, id: number) => {
     setSetups(
       produce((draft) => {
-        const setup = draft.items[index];
-        setup.contextComps = [...setup.contextComps, id];
+        const setup = draft.items[cardIdx].setups[subIdx] as any;
+        setup.contextComps = [...(setup.contextComps || []), id];
         setup.version++;
         draft.version++;
         return draft;
@@ -254,11 +349,13 @@ export default function Trade() {
     );
   };
 
-  const removeContext = (index: number, id: number) => {
+  const removeContext = (cardIdx: number, subIdx: number, id: number) => {
     setSetups(
       produce((draft) => {
-        const setup = draft.items[index];
-        setup.contextComps = setup.contextComps.filter((e) => e !== id);
+        const setup = draft.items[cardIdx].setups[subIdx] as any;
+        setup.contextComps = (setup.contextComps || []).filter(
+          (e: number) => e !== id,
+        );
         setup.version++;
         draft.version++;
         return draft;
@@ -266,10 +363,10 @@ export default function Trade() {
     );
   };
 
-  const setResult = (index: number, result: string) => {
+  const setResult = (cardIdx: number, subIdx: number, result: string) => {
     setSetups(
       produce((draft) => {
-        const setup = draft.items[index];
+        const setup = draft.items[cardIdx].setups[subIdx];
         setup.result = result;
         draft.version++;
         return draft;
@@ -277,11 +374,41 @@ export default function Trade() {
     );
   };
 
-  const moveComponent = (setupIndex: number, componentId: number, direction: "left" | "right") => {
+  const openRefsDialog = (cardIdx: number, subIdx: number) => {
+    const existing = unwrap(
+      (setups.items[cardIdx].setups[subIdx] as any).refs ?? [],
+    );
+    setRefsDraft(reconcile(structuredClone(existing)));
+    setRefsDialogTarget([cardIdx, subIdx]);
+  };
+
+  const saveRefs = () => {
+    const target = refsDialogTarget();
+    if (!target) return;
+    const [cardIdx, subIdx] = target;
     setSetups(
       produce((draft) => {
-        const setup = draft.items[setupIndex];
-        const idx = setup.selectedComps.findIndex((c) => c.component === componentId);
+        (draft.items[cardIdx].setups[subIdx] as any).refs = unwrap(refsDraft);
+        draft.items[cardIdx].setups[subIdx].version++;
+        draft.version++;
+        return draft;
+      }),
+    );
+    setRefsDialogTarget(undefined);
+  };
+
+  const moveComponent = (
+    cardIdx: number,
+    subIdx: number,
+    componentId: number,
+    direction: "left" | "right",
+  ) => {
+    setSetups(
+      produce((draft) => {
+        const setup = draft.items[cardIdx].setups[subIdx];
+        const idx = setup.selectedComps.findIndex(
+          (c) => c.component === componentId,
+        );
         if (idx === -1) return draft;
         const newIdx = direction === "left" ? idx - 1 : idx + 1;
         if (newIdx < 0 || newIdx >= setup.selectedComps.length) return draft;
@@ -296,100 +423,91 @@ export default function Trade() {
     );
   };
 
-  const copyComponentToSetup = (sourceSetupIndex: number, componentId: number) => {
-    const targetIndex = selectedSetup();
-    if (targetIndex === undefined || targetIndex === sourceSetupIndex) return;
+  const copyComponentToSetup = (
+    srcCard: number,
+    srcSub: number,
+    componentId: number,
+  ) => {
+    const target = selectedSetup();
+    if (!target) return;
+    const [targetCard, targetSub] = target;
+    if (targetCard === srcCard && targetSub === srcSub) return;
 
-    const sourceComp = setups.items[sourceSetupIndex].selectedComps.find(
+    const sourceComp = setups.items[srcCard].setups[srcSub].selectedComps.find(
       (c) => c.component === componentId,
     );
     if (!sourceComp) return;
 
-    if (setups.items[targetIndex].selectedComps.some((c) => c.component === componentId))
+    if (
+      setups.items[targetCard].setups[targetSub].selectedComps.some(
+        (c) => c.component === componentId,
+      )
+    )
       return;
 
     setSetups(
       produce((draft) => {
-        const target = draft.items[targetIndex];
-        target.selectedComps = [
-          ...target.selectedComps,
-          { component: sourceComp.component, details: [...sourceComp.details] },
+        const tgt = draft.items[targetCard].setups[targetSub];
+        tgt.selectedComps = [
+          ...tgt.selectedComps,
+          {
+            component: sourceComp.component,
+            details: [...sourceComp.details],
+          },
         ];
-        target.version++;
+        tgt.version++;
         draft.version++;
         return draft;
       }),
     );
   };
 
-  const tagComponent = (id: number, setup: number, type: string) => {
-    setTaggedComps([id, setup, type]);
+  const tagComponent = (
+    id: number,
+    cardIdx: number,
+    subIdx: number,
+    type: string,
+  ) => {
+    setTaggedComps([id, cardIdx, subIdx, type]);
   };
+
   const untagComponent = () => {
     setTaggedComps(undefined);
   };
-
-  createEffect(() => {
-    console.log(taggedComps());
-  });
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
     const tagged = taggedComps();
     if (!tagged) return;
     e.preventDefault();
-    const [componentId, setupIndex] = tagged;
-    moveComponent(setupIndex, componentId, e.key === "ArrowLeft" ? "left" : "right");
+    const [componentId, cardIdx, subIdx] = tagged;
+    moveComponent(
+      cardIdx,
+      subIdx,
+      componentId,
+      e.key === "ArrowLeft" ? "left" : "right",
+    );
   };
-  window.addEventListener("keydown", handleKeyDown);
-  onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
-
-  const decideQuestioFunction = (
-    index: number,
-    question: Question,
-    answer: Answer,
-  ) => {
-    switch (question.questionFunction) {
-      case "Especificação":
-        specifyComponent(
-          index,
-          answer.consequence.parentId,
-          answer.consequence.id,
-        );
-        return;
-      case "Detalhe":
-        if (setups.items[index].detailsComps.includes(answer.consequence.id))
-          return;
-        addDetails(index, answer.consequence.id);
-        return;
-      case "Contexto":
-        if (setups.items[index].contextComps.includes(answer.consequence.id))
-          return;
-        addContext(index, answer.consequence.id);
-        return;
-      default:
-        return;
-    }
-  };
+  onMount(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
 
   const [html] = createResource(
     () => component()?.markdown?.content || "",
     parseMarkdown,
   );
 
-  const [search, setSearch] = createSignal("");
-
   const filteredItems = createMemo(() => {
     const query = search().toLowerCase();
     if (!query) return store.components.data;
-
     return store.components.data.filter((item) =>
       item.title.toLowerCase().includes(query),
     );
   });
 
-  let timer;
-  const handleSearchInput = (e) => {
+  let timer: ReturnType<typeof setTimeout>;
+  const handleSearchInput = (e: any) => {
     clearTimeout(timer);
     const value = e.currentTarget.value;
     timer = setTimeout(() => {
@@ -404,20 +522,14 @@ export default function Trade() {
       const details = e.details.map((detailId: any) => {
         return allComps?.find((c: any) => c.id === detailId);
       });
-      return {
-        ...e,
-        details,
-        component,
-      };
+      return { ...e, details, component };
     });
   };
 
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-1.5 gap-1">
       <Sheet
-        open={
-          selectedSetup() !== undefined && selectedSheetId() === selectedSetup()
-        }
+        open={sheetOpen()}
         onOpenChange={(value) => {
           !value ? setSelectedSheetId(undefined) : () => {};
         }}
@@ -453,6 +565,93 @@ export default function Trade() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* Refs dialog */}
+      <Dialog
+        open={refsDialogTarget() !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setRefsDialogTarget(undefined);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Referência de barras</DialogTitle>
+          </DialogHeader>
+          <div class="flex flex-col gap-2 mt-2">
+            <For each={refsDraft}>
+              {(row, i) => (
+                <div class="flex gap-2 items-center">
+                  <Combobox
+                    options={TIMEFRAMES}
+                    value={row.timeframe || null}
+                    onChange={(val) =>
+                      setRefsDraft(i(), "timeframe", val ?? "")
+                    }
+                    onInputChange={(val) => setRefsDraft(i(), "timeframe", val)}
+                    noResetInputOnBlur
+                    itemComponent={(props) => (
+                      <ComboboxItem item={props.item}>
+                        <ComboboxItemLabel>
+                          {props.item.rawValue}
+                        </ComboboxItemLabel>
+                      </ComboboxItem>
+                    )}
+                  >
+                    <ComboboxControl>
+                      <ComboboxInput placeholder="Timeframe" />
+                      <ComboboxTrigger />
+                    </ComboboxControl>
+                    <ComboboxContent />
+                  </Combobox>
+                  <TextField>
+                    <TextFieldInput
+                      type="number"
+                      placeholder="Início"
+                      min="1"
+                      value={String(row.begin)}
+                      onInput={(e) =>
+                        setRefsDraft(
+                          i(),
+                          "begin",
+                          Number(e.currentTarget.value),
+                        )
+                      }
+                    />
+                  </TextField>
+                  <TextField>
+                    <TextFieldInput
+                      type="number"
+                      placeholder="Fim"
+                      value={String(row.end)}
+                      onInput={(e) =>
+                        setRefsDraft(i(), "end", Number(e.currentTarget.value))
+                      }
+                    />
+                  </TextField>
+                </div>
+              )}
+            </For>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setRefsDraft(
+                  produce((d) => {
+                    d.push({ timeframe: "", begin: 1, end: 0 });
+                  }),
+                )
+              }
+            >
+              Adicionar
+            </Button>
+          </div>
+          <DialogFooter class="mt-4">
+            <Button onClick={saveRefs}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Left panel: component palette */}
       <div class="w-1/3">
         <TextField class="grid w-full max-w-lg mx-auto items-center mb-6 mt-4">
           <TextFieldInput
@@ -476,7 +675,10 @@ export default function Trade() {
                     addDetails={addDetails}
                     addContext={addContext}
                     selectedSetup={selectedSetup}
-                    removeComps={removeSelectedComps}
+                    removeComps={(id) => {
+                      const sel = selectedSetup();
+                      if (sel) removeSelectedComps(sel[0], sel[1], id);
+                    }}
                   />
                 )}
               </For>
@@ -484,34 +686,29 @@ export default function Trade() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Middle panel: setup cards */}
       <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
         <For each={setups.items}>
-          {(setup, setupIndex) => (
-            <Card
-              class="w-lg max-w-lg h-fit mx-auto overflow-clip"
-              onMouseDown={(e) => {
-                if (e.button === 2) return;
-                setSelectedSetup(setupIndex());
-              }}
-            >
-              <Show
-                when={selectedSetup() === setupIndex()}
-                fallback={<div class="h-1 w-full"></div>}
-              >
-                <div class="bg-gray-700 h-1 w-full"></div>
-              </Show>
-              <CardContent class="flex flex-col w-full gap-2 p-4 flex-wrap items-start relative">
-                <div class="flex justify-between items-end w-full">
-                  <div class="text-lg font-bold text-gray-700">Setup</div>
-                  <div class="flex gap-5 items-center">
-                    <div class="text-xs text-gray-600 capitalize">
-                      {setup.result}
-                    </div>
-                    <div class="text-xs text-gray-600">
-                      {"v" + setup.version}
-                    </div>
-                    <div class="text-xs text-gray-600">
-                      {setup.id.slice(0, 6)}
+          {(card, cardIndex) => {
+            const activeSubIdx = () => {
+              const sel = selectedSetup();
+              return sel && sel[0] === cardIndex() ? sel[1] : undefined;
+            };
+            const activeSetupResult = () => {
+              const subIdx = activeSubIdx();
+              return subIdx !== undefined
+                ? (card.setups[subIdx]?.result ?? "")
+                : "";
+            };
+
+            return (
+              <Card class="w-lg max-w-lg h-fit mx-auto overflow-clip">
+                <CardContent class="flex flex-col w-full gap-2 p-4 flex-wrap items-start relative">
+                  {/* Card header */}
+                  <div class="flex justify-between items-center w-full">
+                    <div class="text-xs text-gray-400">
+                      {card.id.slice(0, 6)}
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger
@@ -528,9 +725,11 @@ export default function Trade() {
                             Resultado
                           </DropdownMenuGroupLabel>
                           <DropdownMenuRadioGroup
-                            value={setup.result}
+                            value={activeSetupResult()}
                             onChange={(value) => {
-                              setResult(setupIndex(), value);
+                              const subIdx = activeSubIdx();
+                              if (subIdx !== undefined)
+                                setResult(cardIndex(), subIdx, value);
                             }}
                           >
                             <DropdownMenuRadioItem value="gain">
@@ -548,7 +747,7 @@ export default function Trade() {
                           </DropdownMenuRadioGroup>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onMouseDown={(e) => {
+                            onMouseDown={() => {
                               setTimeout(
                                 () => setSelectedSheetId(selectedSetup()),
                                 350,
@@ -557,7 +756,11 @@ export default function Trade() {
                           >
                             <span>Gerenciar imagens</span>
                           </DropdownMenuItem>
-                          <DropdownMenuItem></DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => addSubSetup(cardIndex())}
+                          >
+                            Adicionar setup
+                          </DropdownMenuItem>
                         </DropdownMenuGroup>
                         <DropdownMenuSub overlap>
                           <DropdownMenuSubTrigger>
@@ -567,7 +770,9 @@ export default function Trade() {
                             <DropdownMenuSubContent>
                               <DropdownMenuItem
                                 onClick={() => {
-                                  deleteSetup(setupIndex());
+                                  const subIdx = activeSubIdx();
+                                  if (subIdx !== undefined)
+                                    deleteSetup(cardIndex(), subIdx);
                                 }}
                               >
                                 <span class="text-red-500">Confirmar</span>
@@ -578,41 +783,134 @@ export default function Trade() {
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                </div>
-                <div class="flex gap-2 flex-wrap items-start">
-                  <For each={createSelectedComps(setup, store.components.data)}>
-                    {(component) => (
-                      <ComponentBadge
-                        component={component}
-                        added={true}
-                        setupIndex={setupIndex()}
-                        loadComponent={actions.loadComponent}
-                        setShowItem={setShowItem}
-                        removeComps={removeSelectedComps}
-                        selectedSetup={selectedSetup}
-                        tagComponent={tagComponent}
-                        untagComponent={untagComponent}
-                        taggedComp={taggedComps()}
-                        removeDetails={removeDetails}
-                        copyToActiveSetup={(componentId) =>
-                          copyComponentToSetup(setupIndex(), componentId)
-                        }
-                        isInActiveSetup={selectedSetup() === setupIndex()}
-                        moveComponent={(componentId, direction) =>
-                          moveComponent(setupIndex(), componentId, direction)
-                        }
-                      />
+
+                  {/* Sub-setups rendered concurrently */}
+                  <For each={card.setups}>
+                    {(setup, subIndex) => (
+                      <div
+                        class="w-full border-l-2 pl-2"
+                        classList={{
+                          "border-gray-700": isActiveSetup(
+                            cardIndex(),
+                            subIndex(),
+                          ),
+                          "border-transparent": !isActiveSetup(
+                            cardIndex(),
+                            subIndex(),
+                          ),
+                        }}
+                      >
+                        {/* Sub-setup title row — click to select */}
+                        <ContextMenu>
+                          <ContextMenuTrigger
+                            as="div"
+                            class="flex gap-3 items-center cursor-pointer text-sm font-semibold text-gray-700"
+                            onMouseDown={() =>
+                              setSelectedSetup([cardIndex(), subIndex()])
+                            }
+                          >
+                            Setup {subIndex() + 1}
+                            <span class="text-xs text-gray-500 font-normal capitalize">
+                              {setup.result}
+                            </span>
+                            <span class="text-xs text-gray-400 font-normal">
+                              v{setup.version}
+                            </span>
+                            <Show when={(setup as any).refs?.length > 0}>
+                              <span class="text-xs text-gray-400 font-normal">
+                                {(setup as any).refs
+                                  .map((r: BarRef) =>
+                                    r.end === 0
+                                      ? `${r.timeframe} b${r.begin}`
+                                      : `${r.timeframe} b${r.begin}..${r.end}`,
+                                  )
+                                  .join(", ")}
+                              </span>
+                            </Show>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent class="w-36">
+                            <ContextMenuItem
+                              onSelect={() =>
+                                openRefsDialog(cardIndex(), subIndex())
+                              }
+                            >
+                              Referência
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+
+                        {/* Component badges */}
+                        <div class="flex gap-2 flex-wrap items-start mt-1">
+                          <For
+                            each={createSelectedComps(
+                              setup,
+                              store.components.data,
+                            )}
+                          >
+                            {(component) => (
+                              <ComponentBadge
+                                component={component}
+                                added={true}
+                                cardIndex={cardIndex()}
+                                subIndex={subIndex()}
+                                loadComponent={actions.loadComponent}
+                                setShowItem={setShowItem}
+                                removeComps={(id) =>
+                                  removeSelectedComps(
+                                    cardIndex(),
+                                    subIndex(),
+                                    id,
+                                  )
+                                }
+                                selectedSetup={selectedSetup}
+                                tagComponent={tagComponent}
+                                untagComponent={untagComponent}
+                                taggedComp={taggedComps()}
+                                removeDetails={(compId, detailId) =>
+                                  removeDetails(
+                                    cardIndex(),
+                                    subIndex(),
+                                    compId,
+                                    detailId,
+                                  )
+                                }
+                                copyToActiveSetup={(componentId) =>
+                                  copyComponentToSetup(
+                                    cardIndex(),
+                                    subIndex(),
+                                    componentId,
+                                  )
+                                }
+                                isInActiveSetup={isActiveSetup(
+                                  cardIndex(),
+                                  subIndex(),
+                                )}
+                                moveComponent={(componentId, direction) =>
+                                  moveComponent(
+                                    cardIndex(),
+                                    subIndex(),
+                                    componentId,
+                                    direction,
+                                  )
+                                }
+                              />
+                            )}
+                          </For>
+                        </div>
+                      </div>
                     )}
                   </For>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                </CardContent>
+              </Card>
+            );
+          }}
         </For>
-        <Button class="w-1/3" onMouseDown={addSetup}>
-          Adicionar setup
+        <Button class="w-1/3" onMouseDown={addCard}>
+          Adicionar card
         </Button>
       </div>
+
+      {/* Right panel: component detail */}
       <div class="w-1/3">
         <Show when={showItem() === component()?.id}>
           <div class="pt-4 flex flex-col h-full relative justify-start items-center">

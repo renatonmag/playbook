@@ -1,71 +1,43 @@
-import { createEffect, For, Match, Switch } from "solid-js";
+import { For, Match, Switch } from "solid-js";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuGroupLabel,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
 import {
   ContextMenu,
-  ContextMenuCheckboxItem,
   ContextMenuContent,
-  ContextMenuGroup,
-  ContextMenuGroupLabel,
   ContextMenuItem,
   ContextMenuPortal,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
-  ContextMenuSub,
-  ContextMenuSubContent,
-  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "./ui/context-menu";
-import { selectComponent } from "~/store/checklist";
 
 export const ComponentBadge = (props: {
   component: any;
   added?: boolean;
   location?: string;
-  setupIndex?: number;
+  cardIndex?: number;
+  subIndex?: number;
   loadComponent: any;
   setShowItem: any;
   addSelectedComps?: any;
   addDetails?: any;
   addContext?: any;
-  removeComps?: any;
-  selectedSetup: any;
+  removeComps?: (componentId: number) => void;
+  selectedSetup?: any;
   tagComponent?: any;
   untagComponent?: any;
   taggedComp?: any;
-  removeDetails?: any;
+  removeDetails?: (componentId: number, detailId: number) => void;
   copyToActiveSetup?: (componentId: number) => void;
   isInActiveSetup?: boolean;
   moveComponent?: (componentId: number, direction: "left" | "right") => void;
 }) => {
-  createEffect(() => {
-    console.log(props.component?.details);
-  });
-
+  // taggedComp shape: [compId, cardIdx, subIdx, type]
   const isTagged = (type: string, componentId: number) =>
     Array.isArray(props.taggedComp) &&
     props.taggedComp[0] === componentId &&
-    props.taggedComp[1] === props.setupIndex &&
-    props.taggedComp[2] === type;
+    props.taggedComp[1] === props.cardIndex &&
+    props.taggedComp[2] === props.subIndex &&
+    props.taggedComp[3] === type;
 
   if (props.location === "lists")
     return (
@@ -73,9 +45,6 @@ export const ComponentBadge = (props: {
         <ContextMenuTrigger
           as={Badge}
           class="cursor-default"
-          onDblClick={() => {
-            // props.addSelectedComps(props.selectedSetup(), props.component.id);
-          }}
           onMouseDown={() => {
             props.loadComponent(props.component.id);
             props.setShowItem(props.component.id);
@@ -117,7 +86,8 @@ export const ComponentBadge = (props: {
                   return props.untagComponent();
                 props.tagComponent(
                   props.component.component.id,
-                  props.setupIndex,
+                  props.cardIndex,
+                  props.subIndex,
                   "main-component",
                 );
               }}
@@ -136,10 +106,7 @@ export const ComponentBadge = (props: {
                 </ContextMenuItem>
                 <ContextMenuItem
                   onMouseDown={() => {
-                    props.removeComps(
-                      props.setupIndex,
-                      props.component.component.id,
-                    );
+                    props.removeComps?.(props.component.component.id);
                   }}
                 >
                   <span>Remover</span>
@@ -158,18 +125,24 @@ export const ComponentBadge = (props: {
                     <ContextMenuSeparator />
                     <ContextMenuItem
                       onMouseDown={() =>
-                        props.moveComponent!(props.component.component.id, "left")
+                        props.moveComponent!(
+                          props.component.component.id,
+                          "left",
+                        )
                       }
                     >
-                      <span>Mover para esquerda</span>
+                      <span>Esquerda</span>
                       <ContextMenuShortcut>⌃←</ContextMenuShortcut>
                     </ContextMenuItem>
                     <ContextMenuItem
                       onMouseDown={() =>
-                        props.moveComponent!(props.component.component.id, "right")
+                        props.moveComponent!(
+                          props.component.component.id,
+                          "right",
+                        )
                       }
                     >
-                      <span>Mover para direita</span>
+                      <span>Direita</span>
                       <ContextMenuShortcut>⌃→</ContextMenuShortcut>
                     </ContextMenuItem>
                   </>
@@ -183,16 +156,7 @@ export const ComponentBadge = (props: {
                 <ContextMenuTrigger
                   as={Badge}
                   variant={"secondary"}
-                  classList={{
-                    "cursor-default": true,
-                    // "outline outline-2 outline-offset-2 outline-gray-700":
-                    //   isTagged("detail", detail.id),
-                  }}
-                  // onMouseDown={() => {
-                  //   if (isTagged("detail", detail.id))
-                  //     return props.untagComponent();
-                  //   props.tagComponent(detail.id, props.setupIndex, "detail");
-                  // }}
+                  class="cursor-default"
                 >
                   {detail?.title}
                 </ContextMenuTrigger>
@@ -208,8 +172,7 @@ export const ComponentBadge = (props: {
                     </ContextMenuItem>
                     <ContextMenuItem
                       onMouseDown={() => {
-                        props.removeDetails(
-                          props.setupIndex,
+                        props.removeDetails?.(
                           props.component.component.id,
                           detail.id,
                         );
