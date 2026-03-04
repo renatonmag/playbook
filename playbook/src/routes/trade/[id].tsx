@@ -284,6 +284,7 @@ export default function Trade() {
         return draft;
       }),
     );
+    setTaggedComps([id, cardIdx, subIdx, "main-component"]);
   };
 
   const removeSelectedComps = (cardIdx: number, subIdx: number, id: number) => {
@@ -927,9 +928,7 @@ export default function Trade() {
                               Referência
                             </ContextMenuItem>
                             <ContextMenuCheckboxItem
-                              checked={
-                                (setup as any).showTruth ?? false
-                              }
+                              checked={(setup as any).showTruth ?? false}
                               onChange={() =>
                                 toggleVerdade(cardIndex(), subIndex())
                               }
@@ -1008,8 +1007,7 @@ export default function Trade() {
                               <For
                                 each={createSelectedComps(
                                   {
-                                    selectedComps:
-                                      (setup as any).truth ?? [],
+                                    selectedComps: (setup as any).truth ?? [],
                                   },
                                   store.components.data,
                                 )}
