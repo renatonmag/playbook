@@ -9,7 +9,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
-import { ComponentUpdate } from "~/db/queries/componentsCRUD";
 import { orpc } from "~/lib/orpc";
 
 export default function createComponents(agent, actions, state, setState) {
@@ -64,12 +63,17 @@ export default function createComponents(agent, actions, state, setState) {
     return await fetchSingleComponent(id, state.user.id);
   });
 
-  const _updateComponent = action(async (id: string, data: ComponentUpdate) => {
-    const response = await agent.Components.update(id, state.user.id, data);
-    return response;
-  });
-
-  const updateComponent = useAction(_updateComponent);
+  const _updateComponent = useMutation(() =>
+    orpc.component.update.mutationOptions({
+      onSuccess: (res) => {
+        queryClient.setQueryData(
+          orpc.component.listByUser.queryKey(),
+          (old: any[]) =>
+            old?.map((c) => (c.id === res.id ? { ...c, ...res } : c)) ?? [],
+        );
+      },
+    }),
+  );
 
   interface CategoriesUpdate {
     id: number;
@@ -108,7 +112,9 @@ export default function createComponents(agent, actions, state, setState) {
       revalidate("components");
     },
     _createComponent: createComponent,
-    updateComponent,
+    updateComponent(id: number, data: Record<string, any>) {
+      return _updateComponent.mutateAsync({ id, ...data });
+    },
     deleteComponent(id, userId) {
       return agent.Components.delete(id, userId);
     },

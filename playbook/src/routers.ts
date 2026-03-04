@@ -102,14 +102,7 @@ export const updateComponent = authed
       imageComparisons: z.array(z.any()).optional(),
       markdownId: z.number().optional(),
       markdown: z.string().optional(),
-      exemples: z
-        .array(
-          z.object({
-            uri: z.string(),
-            key: z.string(),
-          }),
-        )
-        .optional(),
+      exemples: z.array(z.any()).optional(),
       categories: z.string().optional(),
       questions: z.array(z.any()).optional(),
     }),

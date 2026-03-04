@@ -19,7 +19,7 @@ export type ComponentInsert = {
 export type ComponentUpdate = {
   title?: string;
   imageComparisons?: ImageComparison[];
-  exemples?: number[];
+  exemples?: any[];
   userId?: number;
   markdownId?: number;
   categories?: string;
@@ -104,11 +104,11 @@ export const updateComponent = async (
     updateData.markdownId = markdownId;
   }
 
-  console.log(data);
+  console.log(updateData);
 
   const [row] = await db
     .update(componentsTable)
-    .set(data)
+    .set(updateData)
     .where(and(eq(componentsTable.id, id), eq(componentsTable.userId, userId)))
     .returning();
   return row ?? null;
