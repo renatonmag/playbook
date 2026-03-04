@@ -3,10 +3,6 @@ import type { ImageComparison } from "../schema";
 import { componentsTable } from "../schema";
 import { db } from "../index";
 import { updateOrCreateMarkdown } from "./markdownCRUD";
-import {
-  createCategoryAndLinkToComponent,
-  updateCategory,
-} from "./categoriesCRUD";
 
 export type ComponentInsert = {
   userId: number;

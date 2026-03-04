@@ -1,10 +1,8 @@
 import {
-  action,
   createAsync,
   createAsyncStore,
   query,
   revalidate,
-  useAction,
 } from "@solidjs/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createEffect, createSignal, untrack } from "solid-js";
@@ -75,18 +73,6 @@ export default function createComponents(agent, actions, state, setState) {
     }),
   );
 
-  interface CategoriesUpdate {
-    id: number;
-    name: string;
-  }
-
-  const _updateCategory = action(async (data: CategoriesUpdate) => {
-    const response = await agent.Categories.update(state.user.id, data);
-    return response;
-  }, "update-category");
-
-  const updateCategory = useAction(_updateCategory);
-
   const createComponent = useMutation(() =>
     orpc.component.create.mutationOptions({
       onSuccess: (res) => {
@@ -118,11 +104,6 @@ export default function createComponents(agent, actions, state, setState) {
     deleteComponent(id, userId) {
       return agent.Components.delete(id, userId);
     },
-    async createCategory(componentData: { componentId: number; name: string }) {
-      await agent.Categories.create(componentData);
-      revalidate("components");
-    },
-    updateCategory,
   });
 
   return _componentsList;
