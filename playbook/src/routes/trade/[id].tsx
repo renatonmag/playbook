@@ -42,14 +42,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuSubTrigger,
 } from "~/components/ui/dropdown-menu";
-import {
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  Sheet,
-} from "~/components/ui/sheet";
+import { UploadButton } from "~/lib/uploadthing";
 import {
   Dialog,
   DialogContent,
@@ -196,6 +189,32 @@ export default function Trade() {
       sheet !== undefined &&
       sel[0] === sheet[0] &&
       sel[1] === sheet[1]
+    );
+  };
+
+  const addSetupImage = (
+    cardIdx: number,
+    subIdx: number,
+    img: { uri: string; key: string },
+  ) => {
+    setSetups(
+      produce((s) => {
+        const setup = s.items[cardIdx].setups[subIdx] as any;
+        if (!setup.images) setup.images = [];
+        setup.images.push(img);
+        s.version++;
+      }),
+    );
+  };
+
+  const removeSetupImage = (cardIdx: number, subIdx: number, key: string) => {
+    setSetups(
+      produce((s) => {
+        const setup = s.items[cardIdx].setups[subIdx] as any;
+        if (setup.images)
+          setup.images = setup.images.filter((i: any) => i.key !== key);
+        s.version++;
+      }),
     );
   };
 
@@ -613,43 +632,64 @@ export default function Trade() {
 
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-1.5 gap-1">
-      <Sheet
+      <Dialog
         open={sheetOpen()}
-        onOpenChange={(value) => {
-          !value ? setSelectedSheetId(undefined) : () => {};
+        onOpenChange={(open) => {
+          if (!open) setSelectedSheetId(undefined);
         }}
-        modal={false}
       >
-        <SheetContent position="right">
-          <SheetHeader>
-            <SheetTitle>Edit profile</SheetTitle>
-            <SheetDescription>
-              Make changes to your profile here. Click save when you're done.
-            </SheetDescription>
-          </SheetHeader>
-          <div class="grid gap-4 py-4">
-            <TextField class="grid grid-cols-4 items-center gap-4">
-              <TextFieldLabel class="text-right">Name</TextFieldLabel>
-              <TextFieldInput
-                value="Pedro Duarte"
-                class="col-span-3"
-                type="text"
+        <DialogContent class="min-w-3xl px-20">
+          <DialogHeader>
+            <DialogTitle>Gerenciar imagens</DialogTitle>
+          </DialogHeader>
+          <Show when={selectedSheetId() !== undefined}>
+            <Show
+              when={
+                ((
+                  setups.items[selectedSheetId()![0]]?.setups[
+                    selectedSheetId()![1]
+                  ] as any
+                )?.images?.length ?? 0) > 0
+              }
+            >
+              <ImageCaroulsel
+                images={
+                  (
+                    setups.items[selectedSheetId()![0]]?.setups[
+                      selectedSheetId()![1]
+                    ] as any
+                  )?.images ?? []
+                }
+                onDelete={(key) =>
+                  removeSetupImage(
+                    selectedSheetId()![0],
+                    selectedSheetId()![1],
+                    key,
+                  )
+                }
               />
-            </TextField>
-            <TextField class="grid grid-cols-4 items-center gap-4">
-              <TextFieldLabel class="text-right">Username</TextFieldLabel>
-              <TextFieldInput
-                value="@peduarte"
-                class="col-span-3"
-                type="text"
-              />
-            </TextField>
-          </div>
-          <SheetFooter>
-            <Button type="submit">Save changes</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+            </Show>
+            <UploadButton
+              endpoint="imageUploader"
+              class="ut-button:inline-flex ut-button:items-center ut-button:justify-center ut-button:rounded-md ut-button:text-sm ut-button:font-medium ut-button:h-10 ut-button:px-4 ut-button:py-2 ut-button:bg-primary ut-button:text-primary-foreground ut-button:transition-colors ut-button:hover:bg-primary/90 ut-button:ut-readying:bg-primary/70 ut-button:ut-uploading:bg-primary/70 ut-allowed-content:hidden"
+              onClientUploadComplete={(res) => {
+                const [cardIdx, subIdx] = selectedSheetId()!;
+                for (const r of res) {
+                  addSetupImage(cardIdx, subIdx, { uri: r.ufsUrl, key: r.key });
+                }
+              }}
+              content={{
+                button({ ready, isUploading }) {
+                  if (!ready()) return "Preparando...";
+                  if (isUploading()) return "Enviando...";
+                  return "Escolher imagem"; // The default text whens ready
+                },
+              }}
+              onUploadError={(error: Error) => alert(`ERROR! ${error.message}`)}
+            />
+          </Show>
+        </DialogContent>
+      </Dialog>
 
       {/* Refs dialog */}
       <Dialog
@@ -838,6 +878,7 @@ export default function Trade() {
                           </DropdownMenuRadioGroup>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
+                            disabled={selectedSetup()?.[0] !== cardIndex()}
                             onMouseDown={() => {
                               setTimeout(
                                 () => setSelectedSheetId(selectedSetup()),
@@ -854,7 +895,9 @@ export default function Trade() {
                           </DropdownMenuItem>
                         </DropdownMenuGroup>
                         <DropdownMenuSub overlap>
-                          <DropdownMenuSubTrigger>
+                          <DropdownMenuSubTrigger
+                            disabled={selectedSetup()?.[0] !== cardIndex()}
+                          >
                             <span class="text-red-500">Deletar setup</span>
                           </DropdownMenuSubTrigger>
                           <DropdownMenuPortal>

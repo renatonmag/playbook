@@ -54,6 +54,7 @@ export type Setup2 = {
   id: string;
   selectedComps: SelectedComp[];
   result: string;
+  images?: { uri: string; key: string }[];
 };
 
 export const componentsTable = pgTable(
