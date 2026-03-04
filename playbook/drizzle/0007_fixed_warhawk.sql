@@ -1,1 +1,0 @@
-ALTER TABLE "components" ADD COLUMN "categories" varchar(255);

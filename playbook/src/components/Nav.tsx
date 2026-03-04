@@ -16,6 +16,9 @@ export default function Nav() {
         <li class={`border-b-2 ${active("/lists")} mx-1.5 sm:mx-6`}>
           <a href="/lists">Lists</a>
         </li>
+        <li class={`border-b-2 ${active("/auth/signup")} mx-1.5 sm:mx-6`}>
+          <a href="/auth/signup">Sign Up</a>
+        </li>
       </ul>
       {/* <ModeToggle /> */}
     </nav>
