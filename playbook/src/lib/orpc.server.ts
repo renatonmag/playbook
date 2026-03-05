@@ -24,7 +24,11 @@ globalThis.$client = createRouterClient(router, {
 
     return {
       headers, // provide headers if initial context required
-      user: { id: 1, userName: "rnm", email: "rnm@rnm.com" },
+      user: {
+        id: "8uheCEwi7w0x4KktkKBv22XRgqsafucc",
+        userName: "rnm",
+        email: "rnm@rnm.com",
+      },
     };
   },
 });

@@ -1,3 +1,4 @@
+import { onSuccess } from "@orpc/client";
 import {
   createAsync,
   createAsyncStore,
@@ -5,7 +6,7 @@ import {
   revalidate,
 } from "@solidjs/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, untrack } from "solid-js";
+import { createEffect, createSignal, on, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import { orpc } from "~/lib/orpc";
 
@@ -19,46 +20,7 @@ export default function createComponents(agent, actions, state, setState) {
   );
 
   createEffect(() => {
-    console.log("query", _componentsList.data);
-  });
-
-  const fetchComponents = query(async (userId) => {
-    const response = agent.Components.listByUser(userId);
-    return response;
-  }, "components");
-
-  const components = createAsync(async () => {
-    if (!componentsSource()) return {};
-
-    let components;
-    if (componentsSource() === "mine") {
-      try {
-        components = await fetchComponents(1);
-      } catch (err) {
-        console.log(err);
-      }
-    } else if (componentsSource() === "public") {
-    }
-
-    // // Normalize into the map
-    // const mapped = components.reduce((memo, a) => {
-    //   memo[a.slug] = a;
-    //   return memo;
-    // }, {});
-
-    return components;
-  });
-
-  const fetchSingleComponent = query(async (id, userId) => {
-    console.log("fetching single component");
-    return await agent.Components.get(id, userId);
-  }, "single-component");
-
-  const component = createAsync(async () => {
-    const id = state.displayComponentId;
-    if (!id) return {};
-
-    return await fetchSingleComponent(id, state.user.id);
+    console.log("query", _componentsList.isError);
   });
 
   const _updateComponent = useMutation(() =>
@@ -92,10 +54,6 @@ export default function createComponents(agent, actions, state, setState) {
     },
     loadComponent(componentId) {
       setState("displayComponentId", componentId);
-    },
-    async createComponent(componentData: { title: string }) {
-      const component = await agent.Components.create(componentData);
-      revalidate("components");
     },
     _createComponent: createComponent,
     updateComponent(id: number, data: Record<string, any>) {

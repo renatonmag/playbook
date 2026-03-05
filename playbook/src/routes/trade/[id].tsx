@@ -20,6 +20,8 @@ import { useStore } from "~/store/storeContext";
 import { EllipsisVertical } from "lucide-solid/icons/index";
 import { useParams } from "@solidjs/router";
 import { Setup2 } from "~/db/schema";
+import { useQuery } from "@tanstack/solid-query";
+import { orpc } from "~/lib/orpc";
 import {
   TextField,
   TextFieldInput,
@@ -132,9 +134,11 @@ export default function Trade() {
 
   const params = useParams();
 
+  const sessionsQuery = useQuery(() => orpc.trade.listByUser.queryOptions({}));
+
   // Load: group raw Setup2[] by cardId
   createEffect(() => {
-    const _setups = store.sessions.data?.find(
+    const _setups = sessionsQuery.data?.find(
       (e: any) => e.id === Number(params.id),
     );
     if (!_setups?.setups2) return;
