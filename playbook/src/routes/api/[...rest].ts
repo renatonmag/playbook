@@ -1,73 +1,75 @@
-import type { APIEvent } from '@solidjs/start/server'
-import { OpenAPIHandler } from '@orpc/openapi/fetch'
-import { router } from '~/routers'
-import { ZodToJsonSchemaConverter } from '@orpc/zod/zod4'
-import { SmartCoercionPlugin } from '@orpc/json-schema'
-import { onError } from '@orpc/server'
-import { OpenAPIReferencePlugin } from '@orpc/openapi/plugins'
+import type { APIEvent } from "@solidjs/start/server";
+import { OpenAPIHandler } from "@orpc/openapi/fetch";
+import { router } from "~/routers";
+import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
+import { SmartCoercionPlugin } from "@orpc/json-schema";
+import { onError } from "@orpc/server";
+import { OpenAPIReferencePlugin } from "@orpc/openapi/plugins";
 
 const handler = new OpenAPIHandler(router, {
   interceptors: [
     onError((error) => {
-      console.error(error)
+      console.error(error);
     }),
   ],
   plugins: [
     new SmartCoercionPlugin({
-      schemaConverters: [
-        new ZodToJsonSchemaConverter(),
-      ],
+      schemaConverters: [new ZodToJsonSchemaConverter()],
     }),
     new OpenAPIReferencePlugin({
-      schemaConverters: [
-        new ZodToJsonSchemaConverter(),
-      ],
+      schemaConverters: [new ZodToJsonSchemaConverter()],
       specGenerateOptions: {
         info: {
-          title: 'ORPC Playground',
-          version: '1.0.0',
+          title: "ORPC Playground",
+          version: "1.0.0",
         },
         security: [{ bearerAuth: [] }],
         components: {
           securitySchemes: {
             bearerAuth: {
-              type: 'http',
-              scheme: 'bearer',
+              type: "http",
+              scheme: "bearer",
             },
           },
         },
       },
-      docsPath: '/docs',
+      docsPath: "/docs",
       docsConfig: {
         authentication: {
           securitySchemes: {
             bearerAuth: {
-              token: 'default-token',
+              token: "default-token",
             },
           },
         },
       },
     }),
   ],
-})
+});
 
 async function handle({ request }: APIEvent) {
-//   const context = request.headers.get('Authorization')
-//     ? { user: { id: '1', userName: 'John Doe', email: 'john@doe.com' } }
-//     : {}
-  const context = { user: { id: '1', userName: 'John Doe', email: 'john@doe.com' } }
+  //   const context = request.headers.get('Authorization')
+  //     ? { user: { id: '1', userName: 'John Doe', email: 'john@doe.com' } }
+  //     : {}
+  const context = {
+    user: {
+      id: "8uheCEwi7w0x4KktkKBv22XRgqsafucc",
+      userName: "John Doe",
+      email: "john@doe.com",
+    },
+  };
 
   const { response } = await handler.handle(request, {
-    prefix: '/api',
+    prefix: "/api",
     context,
-  })
+  });
 
-  return response ?? new Response('Not Found', { status: 404 })
+  return response ?? new Response("Not Found", { status: 404 });
 }
 
-export const HEAD = handle
-export const GET = handle
-export const POST = handle
-export const PUT = handle
-export const PATCH = handle
-export const DELETE = handle
+export const HEAD = handle;
+export const GET = handle;
+export const POST = handle;
+export const PUT = handle;
+export const PATCH = handle;
+export const DELETE = handle;

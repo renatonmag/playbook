@@ -80,8 +80,8 @@ export const listComponentsByUser = authed
     method: "GET",
     path: "/components",
   })
-  .output(z.array(ComponentSchema))
-  .handler(async ({ context, input }) => {
+  // .output(z.array(ComponentSchema))
+  .handler(async ({ context }) => {
     try {
       const components = await _listComponentsByUser(context.user.id);
       return components;

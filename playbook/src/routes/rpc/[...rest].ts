@@ -1,34 +1,38 @@
-import type { APIEvent } from '@solidjs/start/server'
-import { RPCHandler } from '@orpc/server/fetch'
-import { router } from '~/routers'
-import { onError } from '@orpc/server'
-import { BatchHandlerPlugin } from '@orpc/server/plugins'
+import type { APIEvent } from "@solidjs/start/server";
+import { RPCHandler } from "@orpc/server/fetch";
+import { router } from "~/routers";
+import { onError } from "@orpc/server";
+import { BatchHandlerPlugin } from "@orpc/server/plugins";
 
 const handler = new RPCHandler(router, {
   interceptors: [
     onError((error) => {
-      console.error(error)
+      console.error(error);
     }),
   ],
-  plugins: [
-    new BatchHandlerPlugin(),
-  ],
-})
+  plugins: [new BatchHandlerPlugin()],
+});
 
 async function handle({ request }: APIEvent) {
-  const context = { user: { id: '1', userName: 'John Doe', email: 'john@doe.com' } }
+  const context = {
+    user: {
+      id: "8uheCEwi7w0x4KktkKBv22XRgqsafucc",
+      userName: "John Doe",
+      email: "john@doe.com",
+    },
+  };
 
   const { response } = await handler.handle(request, {
-    prefix: '/rpc',
+    prefix: "/rpc",
     context,
-  })
+  });
 
-  return response ?? new Response('Not Found', { status: 404 })
+  return response ?? new Response("Not Found", { status: 404 });
 }
 
-export const HEAD = handle
-export const GET = handle
-export const POST = handle
-export const PUT = handle
-export const PATCH = handle
-export const DELETE = handle
+export const HEAD = handle;
+export const GET = handle;
+export const POST = handle;
+export const PUT = handle;
+export const PATCH = handle;
+export const DELETE = handle;
