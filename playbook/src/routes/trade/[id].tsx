@@ -3,91 +3,23 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
-  Match,
   onCleanup,
   onMount,
-  Show,
-  Switch,
   untrack,
 } from "solid-js";
-import { ImageCaroulsel } from "~/components/ImageCarousel";
-import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
-import { Card, CardContent } from "~/components/ui/card";
 import { parseMarkdown } from "~/lib/parseMarkdown";
 import { useStore } from "~/store/storeContext";
-import { EllipsisVertical } from "lucide-solid/icons/index";
 import { useParams } from "@solidjs/router";
 import { Setup2 } from "~/db/schema";
 import { useQuery } from "@tanstack/solid-query";
 import { orpc } from "~/lib/orpc";
-import {
-  TextField,
-  TextFieldInput,
-  TextFieldLabel,
-} from "~/components/ui/text-field";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
-import { ComponentBadge } from "~/components/ComponentBadge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuRadioItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuTrigger,
-  DropdownMenuGroupLabel,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuPortal,
-  DropdownMenuSeparator,
-  DropdownMenuSubTrigger,
-} from "~/components/ui/dropdown-menu";
-import { UploadButton } from "~/lib/uploadthing";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "~/components/ui/dialog";
-import {
-  ContextMenu,
-  ContextMenuCheckboxItem,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "~/components/ui/context-menu";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxControl,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxItemLabel,
-  ComboboxTrigger,
-} from "~/components/ui/combobox";
+import { ImageDialog } from "~/components/trade/ImageDialog";
+import { RefsDialog, BarRef } from "~/components/trade/RefsDialog";
+import { LeftPanel } from "~/components/trade/LeftPanel";
+import { MiddlePanel } from "~/components/trade/MiddlePanel";
+import { RightPanel } from "~/components/trade/RightPanel";
 
-const TIMEFRAMES = [
-  "m1",
-  "m2",
-  "m3",
-  "m5",
-  "m10",
-  "m15",
-  "m30",
-  "h1",
-  "h2",
-  "h4",
-  "h6",
-  "h8",
-  "h12",
-  "d1",
-  "w1",
-];
-
-type BarRef = { timeframe: string; begin: number; end: number };
 type SetupCard = { id: string; setups: Setup2[] };
 
 export default function Trade() {
@@ -636,495 +568,70 @@ export default function Trade() {
 
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-1.5 gap-1">
-      <Dialog
+      <ImageDialog
         open={sheetOpen()}
-        onOpenChange={(open) => {
-          if (!open) setSelectedSheetId(undefined);
-        }}
-      >
-        <DialogContent class="min-w-3xl px-20">
-          <DialogHeader>
-            <DialogTitle>Gerenciar imagens</DialogTitle>
-          </DialogHeader>
-          <Show when={selectedSheetId() !== undefined}>
-            <Show
-              when={
-                ((
-                  setups.items[selectedSheetId()![0]]?.setups[
-                    selectedSheetId()![1]
-                  ] as any
-                )?.images?.length ?? 0) > 0
-              }
-            >
-              <ImageCaroulsel
-                images={
-                  (
-                    setups.items[selectedSheetId()![0]]?.setups[
-                      selectedSheetId()![1]
-                    ] as any
-                  )?.images ?? []
-                }
-                onDelete={(key) =>
-                  removeSetupImage(
-                    selectedSheetId()![0],
-                    selectedSheetId()![1],
-                    key,
-                  )
-                }
-              />
-            </Show>
-            <UploadButton
-              endpoint="imageUploader"
-              class="ut-button:inline-flex ut-button:items-center ut-button:justify-center ut-button:rounded-md ut-button:text-sm ut-button:font-medium ut-button:h-10 ut-button:px-4 ut-button:py-2 ut-button:bg-primary ut-button:text-primary-foreground ut-button:transition-colors ut-button:hover:bg-primary/90 ut-button:ut-readying:bg-primary/70 ut-button:ut-uploading:bg-primary/70 ut-allowed-content:hidden"
-              onClientUploadComplete={(res) => {
-                const [cardIdx, subIdx] = selectedSheetId()!;
-                for (const r of res) {
-                  addSetupImage(cardIdx, subIdx, { uri: r.ufsUrl, key: r.key });
-                }
-              }}
-              content={{
-                button({ ready, isUploading }) {
-                  if (!ready()) return "Preparando...";
-                  if (isUploading()) return "Enviando...";
-                  return "Escolher imagem"; // The default text whens ready
-                },
-              }}
-              onUploadError={(error: Error) => alert(`ERROR! ${error.message}`)}
-            />
-          </Show>
-        </DialogContent>
-      </Dialog>
-
-      {/* Refs dialog */}
-      <Dialog
+        onClose={() => setSelectedSheetId(undefined)}
+        selectedSheetId={selectedSheetId}
+        setups={setups}
+        addSetupImage={addSetupImage}
+        removeSetupImage={removeSetupImage}
+      />
+      <RefsDialog
         open={refsDialogTarget() !== undefined}
-        onOpenChange={(open) => {
-          if (!open) setRefsDialogTarget(undefined);
+        onClose={() => setRefsDialogTarget(undefined)}
+        refsDraft={refsDraft}
+        setRefsDraft={setRefsDraft}
+        saveRefs={saveRefs}
+      />
+      <LeftPanel
+        filteredItems={filteredItems}
+        search={search}
+        handleSearchInput={handleSearchInput}
+        selectedSetup={selectedSetup}
+        verdadeTarget={verdadeTarget}
+        loadComponent={actions.loadComponent}
+        setShowItem={setShowItem}
+        addTruthComp={addTruthComp}
+        addSelectedComps={addSelectedComps}
+        addDetails={addDetails}
+        addContext={addContext}
+        removeComps={(id) => {
+          const sel = selectedSetup();
+          if (sel) removeSelectedComps(sel[0], sel[1], id);
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Referência de barras</DialogTitle>
-          </DialogHeader>
-          <div class="flex flex-col gap-2 mt-2">
-            <For each={refsDraft}>
-              {(row, i) => (
-                <div class="flex gap-2 items-center">
-                  <Combobox
-                    options={TIMEFRAMES}
-                    value={row.timeframe || null}
-                    onChange={(val) =>
-                      setRefsDraft(i(), "timeframe", val ?? "")
-                    }
-                    onInputChange={(val) => setRefsDraft(i(), "timeframe", val)}
-                    noResetInputOnBlur
-                    itemComponent={(props) => (
-                      <ComboboxItem item={props.item}>
-                        <ComboboxItemLabel>
-                          {props.item.rawValue}
-                        </ComboboxItemLabel>
-                      </ComboboxItem>
-                    )}
-                  >
-                    <ComboboxControl>
-                      <ComboboxInput placeholder="Timeframe" />
-                      <ComboboxTrigger />
-                    </ComboboxControl>
-                    <ComboboxContent />
-                  </Combobox>
-                  <TextField>
-                    <TextFieldInput
-                      type="number"
-                      placeholder="Início"
-                      min="1"
-                      value={String(row.begin)}
-                      onInput={(e) =>
-                        setRefsDraft(
-                          i(),
-                          "begin",
-                          Number(e.currentTarget.value),
-                        )
-                      }
-                    />
-                  </TextField>
-                  <TextField>
-                    <TextFieldInput
-                      type="number"
-                      placeholder="Fim"
-                      value={String(row.end)}
-                      onInput={(e) =>
-                        setRefsDraft(i(), "end", Number(e.currentTarget.value))
-                      }
-                    />
-                  </TextField>
-                </div>
-              )}
-            </For>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setRefsDraft(
-                  produce((d) => {
-                    d.push({ timeframe: "", begin: 1, end: 0 });
-                  }),
-                )
-              }
-            >
-              Adicionar
-            </Button>
-          </div>
-          <DialogFooter class="mt-4">
-            <Button onClick={saveRefs}>Salvar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Left panel: component palette */}
-      <div class="w-1/3">
-        <TextField class="grid w-full max-w-lg mx-auto items-center mb-6 mt-4">
-          <TextFieldInput
-            type="text"
-            placeholder="Pesquisar..."
-            value={search()}
-            onInput={handleSearchInput}
-          />
-        </TextField>
-        <Card class="w-lg max-w-lg h-fit mx-auto">
-          <CardContent class="flex flex-col gap-2 p-4 flex-wrap mx-auto relative">
-            <div class="text-lg font-bold text-gray-700">Padrões</div>
-            <div class="flex gap-2 flex-wrap items-start">
-              <For each={filteredItems() ?? []}>
-                {(component) => (
-                  <ComponentBadge
-                    component={component}
-                    loadComponent={actions.loadComponent}
-                    setShowItem={setShowItem}
-                    addSelectedComps={(_sel, id) => {
-                      if (verdadeTarget()) {
-                        addTruthComp(id);
-                      } else {
-                        addSelectedComps(selectedSetup(), id);
-                      }
-                    }}
-                    addDetails={addDetails}
-                    addContext={addContext}
-                    selectedSetup={selectedSetup}
-                    removeComps={(id) => {
-                      const sel = selectedSetup();
-                      if (sel) removeSelectedComps(sel[0], sel[1], id);
-                    }}
-                  />
-                )}
-              </For>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Middle panel: setup cards */}
-      <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
-        <For each={setups.items}>
-          {(card, cardIndex) => {
-            const activeSubIdx = () => {
-              const sel = selectedSetup();
-              return sel && sel[0] === cardIndex() ? sel[1] : undefined;
-            };
-            const activeSetupResult = () => {
-              const subIdx = activeSubIdx();
-              return subIdx !== undefined
-                ? (card.setups[subIdx]?.result ?? "")
-                : "";
-            };
-
-            return (
-              <Card class="w-lg max-w-lg h-fit mx-auto overflow-clip">
-                <CardContent class="flex flex-col w-full gap-2 p-4 flex-wrap items-start relative">
-                  {/* Card header */}
-                  <div class="flex justify-between items-center w-full">
-                    <div class="text-xs text-gray-400">
-                      {card.id.slice(0, 6)}
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        as={Button<"button">}
-                        class="mt-[-8px] mr-[-6px]"
-                        variant="ghost"
-                        size="icon"
-                      >
-                        <EllipsisVertical />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent class="w-48">
-                        <DropdownMenuGroup>
-                          <DropdownMenuGroupLabel>
-                            Resultado
-                          </DropdownMenuGroupLabel>
-                          <DropdownMenuRadioGroup
-                            value={activeSetupResult()}
-                            onChange={(value) => {
-                              const subIdx = activeSubIdx();
-                              if (subIdx !== undefined)
-                                setResult(cardIndex(), subIdx, value);
-                            }}
-                          >
-                            <DropdownMenuRadioItem value="gain">
-                              Gain
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="loss">
-                              Loss
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="even">
-                              Even
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="flat">
-                              Flat
-                            </DropdownMenuRadioItem>
-                          </DropdownMenuRadioGroup>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            disabled={selectedSetup()?.[0] !== cardIndex()}
-                            onMouseDown={() => {
-                              setTimeout(
-                                () => setSelectedSheetId(selectedSetup()),
-                                350,
-                              );
-                            }}
-                          >
-                            <span>Gerenciar imagens</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => addSubSetup(cardIndex())}
-                          >
-                            Adicionar setup
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                        <DropdownMenuSub overlap>
-                          <DropdownMenuSubTrigger
-                            disabled={selectedSetup()?.[0] !== cardIndex()}
-                          >
-                            <span class="text-red-500">Deletar setup</span>
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuPortal>
-                            <DropdownMenuSubContent>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  const subIdx = activeSubIdx();
-                                  if (subIdx !== undefined)
-                                    deleteSetup(cardIndex(), subIdx);
-                                }}
-                              >
-                                <span class="text-red-500">Confirmar</span>
-                              </DropdownMenuItem>
-                            </DropdownMenuSubContent>
-                          </DropdownMenuPortal>
-                        </DropdownMenuSub>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-
-                  {/* Sub-setups rendered concurrently */}
-                  <For each={card.setups}>
-                    {(setup, subIndex) => (
-                      <div
-                        class="w-full border-l-2 pl-2"
-                        classList={{
-                          "border-gray-700": isActiveSetup(
-                            cardIndex(),
-                            subIndex(),
-                          ),
-                          "border-transparent": !isActiveSetup(
-                            cardIndex(),
-                            subIndex(),
-                          ),
-                        }}
-                      >
-                        {/* Sub-setup title row — click to select */}
-                        <ContextMenu>
-                          <ContextMenuTrigger
-                            as="div"
-                            class="flex gap-3 items-center cursor-pointer text-sm font-semibold text-gray-700"
-                            onMouseDown={() =>
-                              setSelectedSetup([cardIndex(), subIndex()])
-                            }
-                          >
-                            Setup {subIndex() + 1}
-                            <span class="text-xs text-gray-500 font-normal capitalize">
-                              {setup.result}
-                            </span>
-                            <span class="text-xs text-gray-400 font-normal">
-                              v{setup.version}
-                            </span>
-                            <Show when={(setup as any).refs?.length > 0}>
-                              <span class="text-xs text-gray-400 font-normal">
-                                {(setup as any).refs
-                                  .map((r: BarRef) =>
-                                    r.end === 0
-                                      ? `${r.timeframe} b${r.begin}`
-                                      : `${r.timeframe} b${r.begin}..${r.end}`,
-                                  )
-                                  .join(", ")}
-                              </span>
-                            </Show>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent class="w-36">
-                            <ContextMenuItem
-                              onSelect={() =>
-                                openRefsDialog(cardIndex(), subIndex())
-                              }
-                            >
-                              Referência
-                            </ContextMenuItem>
-                            <ContextMenuCheckboxItem
-                              checked={(setup as any).showTruth ?? false}
-                              onChange={() =>
-                                toggleVerdade(cardIndex(), subIndex())
-                              }
-                            >
-                              Verdade
-                            </ContextMenuCheckboxItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-
-                        {/* Component badges */}
-                        <div class="flex gap-2 flex-wrap items-start mt-1">
-                          <For
-                            each={createSelectedComps(
-                              setup,
-                              store.components.data,
-                            )}
-                          >
-                            {(component) => (
-                              <ComponentBadge
-                                component={component}
-                                added={true}
-                                cardIndex={cardIndex()}
-                                subIndex={subIndex()}
-                                loadComponent={actions.loadComponent}
-                                setShowItem={setShowItem}
-                                removeComps={(id) =>
-                                  removeSelectedComps(
-                                    cardIndex(),
-                                    subIndex(),
-                                    id,
-                                  )
-                                }
-                                selectedSetup={selectedSetup}
-                                tagComponent={tagComponent}
-                                untagComponent={untagComponent}
-                                taggedComp={taggedComps()}
-                                removeDetails={(compId, detailId) =>
-                                  removeDetails(
-                                    cardIndex(),
-                                    subIndex(),
-                                    compId,
-                                    detailId,
-                                  )
-                                }
-                                copyToActiveSetup={(componentId) =>
-                                  copyComponentToSetup(
-                                    cardIndex(),
-                                    subIndex(),
-                                    componentId,
-                                  )
-                                }
-                                isInActiveSetup={isActiveSetup(
-                                  cardIndex(),
-                                  subIndex(),
-                                )}
-                                moveComponent={(componentId, direction) =>
-                                  moveComponent(
-                                    cardIndex(),
-                                    subIndex(),
-                                    componentId,
-                                    direction,
-                                  )
-                                }
-                              />
-                            )}
-                          </For>
-                        </div>
-
-                        {/* Verdade section */}
-                        <Show when={(setup as any).showTruth}>
-                          <div class="mt-2">
-                            <div class="text-xs font-medium mb-1 text-amber-500">
-                              Verdade
-                            </div>
-                            <div class="flex gap-2 flex-wrap items-start">
-                              <For
-                                each={createSelectedComps(
-                                  {
-                                    selectedComps: (setup as any).truth ?? [],
-                                  },
-                                  store.components.data,
-                                )}
-                              >
-                                {(component) => (
-                                  <ComponentBadge
-                                    component={component}
-                                    added={true}
-                                    cardIndex={cardIndex()}
-                                    subIndex={subIndex()}
-                                    loadComponent={actions.loadComponent}
-                                    setShowItem={setShowItem}
-                                    removeComps={(id) =>
-                                      removeTruthComp(
-                                        cardIndex(),
-                                        subIndex(),
-                                        id,
-                                      )
-                                    }
-                                    selectedSetup={verdadeTarget}
-                                    tagComponent={tagComponent}
-                                    untagComponent={untagComponent}
-                                    taggedComp={taggedComps()}
-                                    removeDetails={(compId, detailId) =>
-                                      removeTruthDetail(
-                                        cardIndex(),
-                                        subIndex(),
-                                        compId,
-                                        detailId,
-                                      )
-                                    }
-                                  />
-                                )}
-                              </For>
-                            </div>
-                          </div>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </CardContent>
-              </Card>
-            );
-          }}
-        </For>
-        <Button class="w-1/3" onMouseDown={addCard}>
-          Adicionar card
-        </Button>
-      </div>
-
-      {/* Right panel: component detail */}
-      <div class="w-1/3">
-        <Show when={showItem() === component()?.id}>
-          <div class="pt-4 flex flex-col h-full relative justify-start items-center">
-            <div class="text-lg font-bold text-gray-700 mb-4 sticky top-0">
-              {component()?.title}
-            </div>
-            <div class="flex flex-col h-full w-full justify-start items-center overflow-y-auto">
-              <ImageCaroulsel
-                class="max-w-lg"
-                images={component()?.exemples || []}
-              />
-              <div
-                class="prose w-full h-full mx-auto wrap-break-word mt-4"
-                innerHTML={html() || "Sem descrição..."}
-              ></div>
-            </div>
-          </div>
-        </Show>
-      </div>
+      />
+      <MiddlePanel
+        setups={setups}
+        selectedSetup={selectedSetup}
+        setSelectedSetup={setSelectedSetup}
+        taggedComps={taggedComps}
+        verdadeTarget={verdadeTarget}
+        componentsData={store.components.data}
+        isActiveSetup={isActiveSetup}
+        createSelectedComps={createSelectedComps}
+        addCard={addCard}
+        addSubSetup={addSubSetup}
+        deleteSetup={deleteSetup}
+        setResult={setResult}
+        openRefsDialog={openRefsDialog}
+        toggleVerdade={toggleVerdade}
+        removeSelectedComps={removeSelectedComps}
+        removeDetails={removeDetails}
+        removeTruthComp={removeTruthComp}
+        removeTruthDetail={removeTruthDetail}
+        tagComponent={tagComponent}
+        untagComponent={untagComponent}
+        copyComponentToSetup={copyComponentToSetup}
+        moveComponent={moveComponent}
+        setSelectedSheetId={setSelectedSheetId}
+        loadComponent={actions.loadComponent}
+        setShowItem={setShowItem}
+      />
+      <RightPanel
+        component={component}
+        showItem={showItem}
+        html={html}
+      />
     </main>
   );
 }

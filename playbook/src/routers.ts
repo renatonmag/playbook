@@ -84,6 +84,7 @@ export const listComponentsByUser = authed
   .handler(async ({ context }) => {
     try {
       const components = await _listComponentsByUser(context.user.id);
+      console.log("components");
       return components;
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : "Database error");
@@ -251,6 +252,7 @@ const listTradeSessions = authed
   .handler(async ({ context, input }) => {
     try {
       const sessions = await listSetupsRowsByUser(context.user.id);
+      console.log("sessions");
       return sessions;
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : "Database error");
