@@ -17,6 +17,7 @@ declare global {
 const link = new RPCLink({
   url: `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'}/rpc`,
   headers: () => getRequestEvent()?.request.headers ?? {},
+  fetch: (input, init) => fetch(input, { ...init, credentials: 'include' }),
   plugins: [
     new BatchLinkPlugin({
       exclude: ({ path }) => path[0] === 'sse',

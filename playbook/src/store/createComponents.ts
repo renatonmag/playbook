@@ -15,13 +15,9 @@ export default function createComponents(agent, actions, state, setState) {
 
   const queryClient = useQueryClient();
 
-  const _componentsList = useQuery(() =>
-    orpc.component.listByUser.queryOptions({}),
-  );
-
-  createEffect(() => {
-    console.log("query", _componentsList.isError);
-  });
+  // const _componentsList = useQuery(() =>
+  //   orpc.component.listByUser.queryOptions({}),
+  // );
 
   const _updateComponent = useMutation(() =>
     orpc.component.update.mutationOptions({
@@ -64,5 +60,5 @@ export default function createComponents(agent, actions, state, setState) {
     },
   });
 
-  return _componentsList;
+  return null;
 }

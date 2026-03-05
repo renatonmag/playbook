@@ -2,6 +2,7 @@ import { Router } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Suspense } from "solid-js";
 import Nav from "~/components/Nav";
+import AuthGuard from "~/components/AuthGuard";
 import "./app.css";
 import { createApplicationStore, StoreContext } from "./store/storeContext";
 import { isServer } from "solid-js/web";
@@ -11,8 +12,6 @@ import {
   QueryClientProvider,
   useQuery,
 } from "@tanstack/solid-query";
-
-const queryClient = new QueryClient();
 
 import {
   ColorModeProvider,
@@ -28,6 +27,7 @@ function getServerCookies() {
 }
 
 export default function App() {
+  const queryClient = new QueryClient();
   const storageManager = cookieStorageManagerSSR(
     isServer ? getServerCookies() : document.cookie,
   );
@@ -41,7 +41,9 @@ export default function App() {
               <ColorModeProvider storageManager={storageManager}>
                 <StoreContext>
                   <Nav />
-                  <Suspense>{props.children}</Suspense>
+                  <AuthGuard>
+                    <Suspense>{props.children}</Suspense>
+                  </AuthGuard>
                 </StoreContext>
               </ColorModeProvider>
             </QueryClientProvider>

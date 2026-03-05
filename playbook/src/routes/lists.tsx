@@ -28,12 +28,18 @@ import { createAsync, A } from "@solidjs/router";
 import { TextField, TextFieldInput } from "~/components/ui/text-field";
 import { Card, CardContent } from "~/components/ui/card";
 import { ComponentBadge } from "~/components/ComponentBadge";
+import { useQuery } from "@tanstack/solid-query";
+import { orpc } from "~/lib/orpc";
 
 export default function Home() {
   const [showItem, setShowItem] = createSignal<string>("");
   const [store, actions] = useStore();
 
   let previewDiv: HTMLDivElement | undefined;
+
+  const componentsList = useQuery(() =>
+    orpc.component.listByUser.queryOptions({}),
+  );
 
   createEffect(() => {
     if (previewDiv) {
@@ -60,7 +66,7 @@ export default function Home() {
 
   const filteredItems = createMemo(() => {
     const query = search().toLowerCase();
-    if (!query) return store.components.data;
+    if (!query) return componentsList.data;
 
     return store.components.data.filter((item) =>
       item.title.toLowerCase().includes(query),

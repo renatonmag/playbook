@@ -1,91 +1,4 @@
-import { For, Show } from "solid-js";
-import { ComponentBadge } from "~/components/ComponentBadge";
-import { Button } from "~/components/ui/button";
-import { Card, CardContent } from "~/components/ui/card";
-import {
-  ContextMenu,
-  ContextMenuCheckboxItem,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "~/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuGroupLabel,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
-import { Setup2 } from "~/db/schema";
-import { EllipsisVertical } from "lucide-solid/icons/index";
-import { BarRef } from "./RefsDialog";
-
-type SetupCard = { id: string; setups: Setup2[] };
-
-type Props = {
-  setups: { version: number; items: SetupCard[] };
-  selectedSetup: () => [number, number] | undefined;
-  setSelectedSetup: (val: [number, number] | undefined) => void;
-  taggedComps: () => [number, number, number, string] | undefined;
-  verdadeTarget: () => [number, number] | undefined;
-  componentsData: any;
-  isActiveSetup: (cardIdx: number, subIdx: number) => boolean;
-  createSelectedComps: (setup: any, allComps?: any) => any[];
-  addCard: () => void;
-  addSubSetup: (cardIndex: number) => void;
-  deleteSetup: (cardIdx: number, subIdx: number) => void;
-  setResult: (cardIdx: number, subIdx: number, result: string) => void;
-  openRefsDialog: (cardIdx: number, subIdx: number) => void;
-  toggleVerdade: (cardIdx: number, subIdx: number) => void;
-  removeSelectedComps: (cardIdx: number, subIdx: number, id: number) => void;
-  removeDetails: (
-    cardIdx: number,
-    subIdx: number,
-    compId: number,
-    detailId: number,
-  ) => void;
-  removeTruthComp: (cardIdx: number, subIdx: number, id: number) => void;
-  removeTruthDetail: (
-    cardIdx: number,
-    subIdx: number,
-    compId: number,
-    detailId: number,
-  ) => void;
-  tagComponent: (
-    id: number,
-    cardIdx: number,
-    subIdx: number,
-    type: string,
-  ) => void;
-  untagComponent: () => void;
-  copyComponentToSetup: (
-    srcCard: number,
-    srcSub: number,
-    componentId: number,
-  ) => void;
-  moveComponent: (
-    cardIdx: number,
-    subIdx: number,
-    componentId: number,
-    direction: "left" | "right",
-  ) => void;
-  setSelectedSheetId: (val: [number, number] | undefined) => void;
-  loadComponent: any;
-  setShowItem: (val: string) => void;
-};
-
-export function MiddlePanel(props: Props) {
-  return (
-    <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
-      <For each={props.setups.items}>
+<For each={props.setups.items}>
         {(card, cardIndex) => {
           const activeSubIdx = () => {
             const sel = props.selectedSetup();
@@ -103,7 +16,9 @@ export function MiddlePanel(props: Props) {
               <CardContent class="flex flex-col w-full gap-2 p-4 flex-wrap items-start relative">
                 {/* Card header */}
                 <div class="flex justify-between items-center w-full">
-                  <div class="text-xs text-gray-400">{card.id.slice(0, 6)}</div>
+                  <div class="text-xs text-gray-400">
+                    {card.id.slice(0, 6)}
+                  </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       as={Button<"button">}
@@ -141,11 +56,15 @@ export function MiddlePanel(props: Props) {
                         </DropdownMenuRadioGroup>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          disabled={props.selectedSetup()?.[0] !== cardIndex()}
+                          disabled={
+                            props.selectedSetup()?.[0] !== cardIndex()
+                          }
                           onMouseDown={() => {
                             setTimeout(
                               () =>
-                                props.setSelectedSheetId(props.selectedSetup()),
+                                props.setSelectedSheetId(
+                                  props.selectedSetup(),
+                                ),
                               350,
                             );
                           }}
@@ -160,7 +79,9 @@ export function MiddlePanel(props: Props) {
                       </DropdownMenuGroup>
                       <DropdownMenuSub overlap>
                         <DropdownMenuSubTrigger
-                          disabled={props.selectedSetup()?.[0] !== cardIndex()}
+                          disabled={
+                            props.selectedSetup()?.[0] !== cardIndex()
+                          }
                         >
                           <span class="text-red-500">Deletar setup</span>
                         </DropdownMenuSubTrigger>
@@ -314,7 +235,8 @@ export function MiddlePanel(props: Props) {
                             <For
                               each={props.createSelectedComps(
                                 {
-                                  selectedComps: (setup as any).truth ?? [],
+                                  selectedComps:
+                                    (setup as any).truth ?? [],
                                 },
                                 props.componentsData,
                               )}
@@ -360,9 +282,3 @@ export function MiddlePanel(props: Props) {
           );
         }}
       </For>
-      <Button class="w-1/3" onMouseDown={props.addCard}>
-        Adicionar card
-      </Button>
-    </div>
-  );
-}

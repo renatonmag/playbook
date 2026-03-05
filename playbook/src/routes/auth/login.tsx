@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { useNavigate, revalidate } from "@solidjs/router";
+import { useNavigate, A, revalidate } from "@solidjs/router";
 import { authClient } from "~/lib/auth-client";
 import {
   TextField,
@@ -16,10 +16,9 @@ import {
   CardFooter,
 } from "~/components/ui/card";
 
-export default function SignUp() {
+export default function Login() {
   const navigate = useNavigate();
 
-  const [name, setName] = createSignal("");
   const [email, setEmail] = createSignal("");
   const [password, setPassword] = createSignal("");
   const [error, setError] = createSignal("");
@@ -30,8 +29,7 @@ export default function SignUp() {
     setError("");
     setLoading(true);
 
-    const { error: authError } = await authClient.signUp.email({
-      name: name(),
+    const { error: authError } = await authClient.signIn.email({
       email: email(),
       password: password(),
     });
@@ -39,8 +37,7 @@ export default function SignUp() {
     setLoading(false);
 
     if (authError) {
-      console.error("Sign up error:", authError);
-      setError(authError.message ?? "Sign up failed. Please try again.");
+      setError(authError.message ?? "Sign in failed. Please try again.");
       return;
     }
 
@@ -52,8 +49,8 @@ export default function SignUp() {
     <main class="flex items-center justify-center min-h-[calc(100vh-51px)] p-4">
       <Card class="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Create an account</CardTitle>
-          <CardDescription>Enter your details to get started</CardDescription>
+          <CardTitle>Sign in</CardTitle>
+          <CardDescription>Enter your credentials to continue</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent class="flex flex-col gap-4">
@@ -62,16 +59,6 @@ export default function SignUp() {
                 {error()}
               </p>
             )}
-            <TextField>
-              <TextFieldLabel>Name</TextFieldLabel>
-              <TextFieldInput
-                type="text"
-                placeholder="John Doe"
-                value={name()}
-                onInput={(e) => setName(e.currentTarget.value)}
-                required
-              />
-            </TextField>
             <TextField>
               <TextFieldLabel>Email</TextFieldLabel>
               <TextFieldInput
@@ -93,10 +80,16 @@ export default function SignUp() {
               />
             </TextField>
           </CardContent>
-          <CardFooter>
+          <CardFooter class="flex flex-col gap-3">
             <Button type="submit" class="w-full" disabled={loading()}>
-              {loading() ? "Creating account..." : "Sign Up"}
+              {loading() ? "Signing in..." : "Sign In"}
             </Button>
+            <p class="text-sm text-muted-foreground text-center">
+              Don't have an account?{" "}
+              <A href="/auth/signup" class="underline underline-offset-4 hover:text-foreground">
+                Sign up
+              </A>
+            </p>
           </CardFooter>
         </form>
       </Card>

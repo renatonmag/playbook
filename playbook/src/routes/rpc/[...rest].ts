@@ -3,6 +3,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { router } from "~/routers";
 import { onError } from "@orpc/server";
 import { BatchHandlerPlugin } from "@orpc/server/plugins";
+import { auth } from "~/lib/auth";
 
 const handler = new RPCHandler(router, {
   interceptors: [
@@ -14,12 +15,12 @@ const handler = new RPCHandler(router, {
 });
 
 async function handle({ request }: APIEvent) {
+  const session = await auth.api.getSession({ headers: request.headers });
+
   const context = {
-    user: {
-      id: "8uheCEwi7w0x4KktkKBv22XRgqsafucc",
-      userName: "John Doe",
-      email: "john@doe.com",
-    },
+    user: session
+      ? { id: session.user.id, userName: session.user.name, email: session.user.email }
+      : undefined,
   };
 
   const { response } = await handler.handle(request, {

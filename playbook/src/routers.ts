@@ -7,13 +7,11 @@ import {
   getComponentById as _getComponentById,
   deleteComponent as _deleteComponent,
 } from "~/db/queries/componentsCRUD";
-import de from "zod/v4/locales/de.cjs";
 import {
   updateSetupsRow as _updateSetups,
   createSetupsRow as _createSetups,
   listSetupsRowsByUser,
 } from "~/db/queries/setupsCRUD";
-import { version } from "uploadthing/client";
 import { ORPCError } from "@orpc/server";
 
 // Define your Schema (matches your earlier componentsTable logic)
@@ -251,10 +249,12 @@ const listTradeSessions = authed
   })
   .handler(async ({ context, input }) => {
     try {
+      console.log("sessions 1");
       const sessions = await listSetupsRowsByUser(context.user.id);
-      console.log("sessions");
+      console.log("sessions 2");
       return sessions;
     } catch (err) {
+      console.log("sessions err", err);
       throw new Error(err instanceof Error ? err.message : "Database error");
     }
   });

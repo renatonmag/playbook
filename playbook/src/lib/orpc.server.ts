@@ -1,6 +1,7 @@
 import { createRouterClient } from "@orpc/server";
 import { getRequestEvent } from "solid-js/web";
 import { router } from "~/routers";
+import { auth } from "~/lib/auth";
 
 if (typeof window !== "undefined") {
   throw new Error("This file should not be imported in the browser");
@@ -21,14 +22,15 @@ globalThis.$client = createRouterClient(router, {
    */
   context: async () => {
     const headers = getRequestEvent()?.request.headers;
+    const session = headers
+      ? await auth.api.getSession({ headers })
+      : null;
 
     return {
-      headers, // provide headers if initial context required
-      user: {
-        id: "8uheCEwi7w0x4KktkKBv22XRgqsafucc",
-        userName: "rnm",
-        email: "rnm@rnm.com",
-      },
+      headers,
+      user: session
+        ? { id: session.user.id, userName: session.user.name, email: session.user.email }
+        : undefined,
     };
   },
 });

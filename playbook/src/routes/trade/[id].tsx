@@ -66,7 +66,21 @@ export default function Trade() {
 
   const params = useParams();
 
-  const sessionsQuery = useQuery(() => orpc.trade.listByUser.queryOptions({}));
+  const sessionsQuery = { data: undefined };
+  // useQuery(() => orpc.trade.listByUser.queryOptions({}));
+
+  const componentsList = { data: undefined };
+  // useQuery(() =>
+  //   orpc.component.listByUser.queryOptions({}),
+  // );
+
+  // console.log("id component");
+
+  // createEffect(() => {
+  //   console.log("id component after render");
+  // });
+  onMount(() => console.log("✅ mounted"));
+  onCleanup(() => console.log("🧹 cleaned up"));
 
   // Load: group raw Setup2[] by cardId
   createEffect(() => {
@@ -107,7 +121,7 @@ export default function Trade() {
   });
 
   const component = createMemo(() => {
-    return store.components.data?.find(
+    return componentsList.data?.find(
       (e: any) => e.id === store.displayComponentId,
     );
   });
@@ -540,8 +554,8 @@ export default function Trade() {
 
   const filteredItems = createMemo(() => {
     const query = search().toLowerCase();
-    if (!query) return store.components.data;
-    return store.components.data.filter((item) =>
+    if (!query) return componentsList.data;
+    return componentsList?.data?.filter((item) =>
       item.title.toLowerCase().includes(query),
     );
   });
@@ -606,7 +620,7 @@ export default function Trade() {
         setSelectedSetup={setSelectedSetup}
         taggedComps={taggedComps}
         verdadeTarget={verdadeTarget}
-        componentsData={store.components.data}
+        componentsData={componentsList.data}
         isActiveSetup={isActiveSetup}
         createSelectedComps={createSelectedComps}
         addCard={addCard}
@@ -627,11 +641,7 @@ export default function Trade() {
         loadComponent={actions.loadComponent}
         setShowItem={setShowItem}
       />
-      <RightPanel
-        component={component}
-        showItem={showItem}
-        html={html}
-      />
+      <RightPanel component={component} showItem={showItem} html={html} />
     </main>
   );
 }
