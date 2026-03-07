@@ -104,6 +104,7 @@ export const updateComponent = authed
       exemples: z.array(z.any()).optional(),
       categories: z.string().optional(),
       questions: z.array(z.any()).optional(),
+      details: z.array(z.number()).optional(),
     }),
   )
   .handler(async ({ context, input }) => {

@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import SquareMinus from "lucide-solid/icons/square-minus";
+import X from "lucide-solid/icons/x";
 import {
   Combobox,
   ComboboxContent,
@@ -25,7 +26,6 @@ import {
   ComboboxItem,
   ComboboxItemIndicator,
   ComboboxItemLabel,
-  ComboboxSection,
   ComboboxTrigger,
 } from "~/components/ui/combobox";
 import { cn } from "~/lib/utils";
@@ -45,7 +45,9 @@ type PatternEditProps = {
   questions: QuestionType[];
   components: { id: number; title: string }[];
   patternId: number;
-  detailValue: Food | null;
+  details: number[];
+  availableDetails: { id: number; title: string }[];
+  detailInput: string;
   editingTitle: boolean;
   onTitleMouseDown: () => void;
   onTitleInput: (val: string) => void;
@@ -62,7 +64,8 @@ type PatternEditProps = {
   onRemoveAnswer: (i: number, ai: number) => void;
   onEditAnswer: (i: number, ai: number, val: string) => void;
   onEditConsequence: (i: number, ai: number, val: number) => void;
-  onDetailValueChange: (val: Food | null) => void;
+  onDetailSelect: (id: number) => void;
+  onDetailRemove: (id: number) => void;
   onDetailInputChange: (val: string) => void;
   onCreateDetail: () => void;
 };
@@ -290,43 +293,72 @@ export function PatternEdit(props: PatternEditProps) {
       </div>
 
       {/* Details */}
-      {/* <div class="w-full">
-        <div>
-          <div class={cn(labelVariants(), "mb-2")}>Detalhes</div>
-          <Combobox<Food, Category>
-            options={ALL_OPTIONS}
-            value={props.detailValue}
-            onChange={props.onDetailValueChange}
-            onInputChange={props.onDetailInputChange}
-            optionValue="value"
-            optionTextValue="label"
-            optionLabel="label"
-            optionDisabled="disabled"
-            optionGroupChildren="options"
-            placeholder="Search a food…"
-            itemComponent={(itemProps) => (
-              <ComboboxItem item={itemProps.item}>
-                <ComboboxItemLabel>
-                  {itemProps.item.rawValue.label}
-                </ComboboxItemLabel>
-                <ComboboxItemIndicator />
-              </ComboboxItem>
-            )}
-            sectionComponent={(itemProps) => (
-              <ComboboxSection>
-                {itemProps.section.rawValue.label}
-              </ComboboxSection>
-            )}
-          >
-            <ComboboxControl aria-label="Food">
-              <ComboboxInput />
-              <ComboboxTrigger />
-            </ComboboxControl>
-            <ComboboxContent class="w-full max-h-96 overflow-y-auto" />
-          </Combobox>
-        </div>
-        <Button onMouseDown={props.onCreateDetail}>Salvar detalhe</Button>
-      </div> */}
+      <div class="w-full">
+        <div class="text-xl font-bold text-gray-700 mb-4">Detalhes</div>
+        <div class={cn(labelVariants(), "mb-2")}>Associar detalhe</div>
+        <Combobox<{ id: number; title: string }>
+          options={props.availableDetails.filter((d) =>
+            d.title.toLowerCase().includes(props.detailInput.toLowerCase()),
+          )}
+          value={null}
+          onChange={(item) => {
+            if (item) props.onDetailSelect(item.id);
+          }}
+          onInputChange={props.onDetailInputChange}
+          optionValue="id"
+          optionTextValue="title"
+          optionLabel="title"
+          placeholder="Buscar detalhe..."
+          itemComponent={(itemProps) => (
+            <ComboboxItem item={itemProps.item}>
+              <ComboboxItemLabel>
+                {itemProps.item.rawValue.title}
+              </ComboboxItemLabel>
+              <ComboboxItemIndicator />
+            </ComboboxItem>
+          )}
+        >
+          <ComboboxControl aria-label="Detalhes">
+            <ComboboxInput />
+            <ComboboxTrigger />
+          </ComboboxControl>
+          <ComboboxContent class="w-full max-h-96 overflow-y-auto" />
+        </Combobox>
+        <Show
+          when={
+            props.detailInput.length > 0 &&
+            !props.availableDetails.some(
+              (d) => d.title.toLowerCase() === props.detailInput.toLowerCase(),
+            )
+          }
+        >
+          <Button class="mt-2" onMouseDown={props.onCreateDetail}>
+            Criar detalhe "{props.detailInput}"
+          </Button>
+        </Show>
+        <Show when={props.details.length > 0}>
+          <div class="mt-4 flex flex-wrap gap-2">
+            <For each={props.details}>
+              {(id) => {
+                const detail = () =>
+                  props.availableDetails.find((d) => d.id === id);
+                return (
+                  <div class="flex items-center gap-1 bg-secondary text-secondary-foreground rounded px-2 py-1 text-sm">
+                    <span>{detail()?.title ?? `#${id}`}</span>
+                    <button
+                      type="button"
+                      onMouseDown={() => props.onDetailRemove(id)}
+                      class="ml-1 hover:text-destructive"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
+      </div>
     </>
   );
 }

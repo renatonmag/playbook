@@ -31,6 +31,17 @@ export default function createComponents(agent, actions, state, setState) {
     }),
   );
 
+  const _deleteComponent = useMutation(() =>
+    orpc.component.delete.mutationOptions({
+      onSuccess: (res) => {
+        queryClient.setQueryData(
+          orpc.component.listByUser.queryKey(),
+          (old: any[]) => old?.filter((c) => c.id !== res.id) ?? [],
+        );
+      },
+    }),
+  );
+
   const createComponent = useMutation(() =>
     orpc.component.create.mutationOptions({
       onSuccess: (res) => {
@@ -51,12 +62,12 @@ export default function createComponents(agent, actions, state, setState) {
     loadComponent(componentId) {
       setState("displayComponentId", componentId);
     },
-    _createComponent: createComponent,
+    createComponent,
     updateComponent(id: number, data: Record<string, any>) {
       return _updateComponent.mutateAsync({ id, ...data });
     },
-    deleteComponent(id, userId) {
-      return agent.Components.delete(id, userId);
+    deleteComponent(id: number) {
+      return _deleteComponent.mutateAsync({ id });
     },
   });
 

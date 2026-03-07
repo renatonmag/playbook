@@ -307,7 +307,7 @@ export function MiddlePanel(props: Props) {
                       {/* Verdade section */}
                       <Show when={(setup as any).showTruth}>
                         <div class="mt-2">
-                          <div class="text-xs font-medium mb-1 text-amber-500">
+                          <div class="text-xs font-medium mb-1 text-gray-700">
                             Verdade
                           </div>
                           <div class="flex gap-2 flex-wrap items-start">

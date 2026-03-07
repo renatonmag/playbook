@@ -20,6 +20,7 @@ export type ComponentUpdate = {
   markdownId?: number;
   categories?: string;
   markdown?: string;
+  details?: number[];
 };
 
 export const createComponent = async (data: ComponentInsert) => {
@@ -93,6 +94,7 @@ export const updateComponent = async (
     }),
     ...(data.exemples !== undefined && { exemples: data.exemples }),
     ...(data.categories !== undefined && { categories: data.categories }),
+    ...(data.details !== undefined && { details: data.details }),
   };
 
   // Handle markdownId: prioritize explicit markdownId, otherwise use the one from markdown handling

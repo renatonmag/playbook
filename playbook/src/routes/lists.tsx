@@ -48,9 +48,7 @@ export default function Home() {
   });
 
   const component = createMemo(() => {
-    return store.components?.data?.find(
-      (c) => c.id === store.displayComponentId,
-    );
+    return componentsList?.data?.find((c) => c.id === store.displayComponentId);
   });
 
   const [search, setSearch] = createSignal("");
@@ -151,11 +149,7 @@ export default function Home() {
                       loadComponent={actions.loadComponent}
                       setShowItem={setShowItem}
                       location="lists"
-                      // addSelectedComps={addSelectedComps}
-                      // addDetails={addDetails}
-                      // addContext={addContext}
-                      // selectedSetup={selectedSetup}
-                      // removeComps={removeSelectedComps}
+                      deleteComponent={(id) => actions.deleteComponent(id)}
                     />
                   )}
                 </For>

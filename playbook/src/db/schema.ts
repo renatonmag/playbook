@@ -72,6 +72,7 @@ export const componentsTable = pgTable(
     // `kind` can be "component" or "detail". Default is "component"
     kind: varchar({ length: 255 }).notNull().default("component"),
     questions: jsonb("questions").$type<Question[]>().notNull().default([]),
+    details: jsonb("details").$type<number[]>().notNull().default([]),
   },
   (t) => [unique().on(t.userId, t.title)],
 );

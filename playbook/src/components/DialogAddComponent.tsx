@@ -23,7 +23,7 @@ export function DialogAddComponent(props: {
 }) {
   const [componentName, setComponentName] = createSignal("");
 
-  const [state, { createComponent }] = useStore();
+  const [state, actions] = useStore();
 
   return (
     <Dialog>
@@ -55,9 +55,8 @@ export function DialogAddComponent(props: {
             class={buttonVariants({ variant: "default", size: "sm" })}
             type="submit"
             onClick={() => {
-              createComponent({
+              actions.createComponent.mutate({
                 title: componentName(),
-                userId: state.user.id,
               });
               setComponentName("");
             }}

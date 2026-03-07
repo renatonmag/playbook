@@ -7,6 +7,9 @@ import {
   ContextMenuPortal,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "./ui/context-menu";
 
@@ -30,6 +33,7 @@ export const ComponentBadge = (props: {
   copyToActiveSetup?: (componentId: number) => void;
   isInActiveSetup?: boolean;
   moveComponent?: (componentId: number, direction: "left" | "right") => void;
+  deleteComponent?: (id: number) => void;
 }) => {
   // taggedComp shape: [compId, cardIdx, subIdx, type]
   const isTagged = (type: string, componentId: number) =>
@@ -45,7 +49,8 @@ export const ComponentBadge = (props: {
         <ContextMenuTrigger
           as={Badge}
           class="cursor-default"
-          onMouseDown={() => {
+          onMouseDown={(e) => {
+            if (e.button === 2) return;
             props.loadComponent(props.component.id);
             props.setShowItem(props.component.id);
           }}
@@ -62,6 +67,20 @@ export const ComponentBadge = (props: {
             >
               <span>Mostrar</span>
             </ContextMenuItem>
+            <ContextMenuSub overlap>
+              <ContextMenuSubTrigger>
+                <span class="text-red-500">Deletar</span>
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                <ContextMenuItem
+                  onMouseDown={() =>
+                    props.deleteComponent?.(props.component.id)
+                  }
+                >
+                  <span class="text-red-500">Confirmar</span>
+                </ContextMenuItem>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           </ContextMenuContent>
         </ContextMenuPortal>
       </ContextMenu>
@@ -81,7 +100,8 @@ export const ComponentBadge = (props: {
                   props.component.component.id,
                 ),
               }}
-              onMouseDown={() => {
+              onMouseDown={(e) => {
+                if (e.button === 2) return;
                 if (isTagged("main-component", props.component.component.id))
                   return props.untagComponent();
                 props.tagComponent(

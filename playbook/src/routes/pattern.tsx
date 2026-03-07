@@ -18,6 +18,8 @@ import {
   PatternEdit,
   type QuestionType,
 } from "~/components/pattern/PatternEdit";
+import { useQuery } from "@tanstack/solid-query";
+import { orpc } from "~/lib/orpc";
 
 type PatternDraft = {
   title: string;
@@ -34,10 +36,14 @@ export default function Home() {
   const [params, _] = useSearchParams();
   const [store, actions] = useStore();
 
+  const componentsList = useQuery(() =>
+    orpc.component.listByUser.queryOptions({}),
+  );
+
   const component = createMemo(() => {
     let id = Number(params.pattern);
     if (!id) id = -1;
-    return store.components?.data?.find((c) => c.id === id);
+    return componentsList?.data?.find((c) => c.id === id);
   });
 
   createEffect(() => {
@@ -159,6 +165,42 @@ export default function Home() {
     onCleanup(() => clearTimeout(timer2));
   });
 
+  const availableDetails = createMemo(
+    () =>
+      componentsList.data
+        ?.filter((c) => c.kind === "detail")
+        .map((c) => ({ id: c.id, title: c.title })) ?? [],
+  );
+
+  const selectedDetails = createMemo(() => component()?.details ?? []);
+
+  const [detailInput, setDetailInput] = createSignal("");
+
+  const addDetail = async (id: number) => {
+    const current = selectedDetails();
+    if (current.includes(id)) return;
+    await actions.updateComponent(component()?.id, {
+      details: [...current, id],
+    });
+  };
+
+  const removeDetail = async (id: number) => {
+    await actions.updateComponent(component()?.id, {
+      details: selectedDetails().filter((d) => d !== id),
+    });
+  };
+
+  const createAndAddDetail = async () => {
+    const title = detailInput().trim();
+    if (!title) return;
+    const newComp = await actions.createComponent.mutateAsync({
+      title,
+      kind: "detail",
+    });
+    if (newComp?.id) await addDetail(newComp.id);
+    setDetailInput("");
+  };
+
   const [html] = createResource(
     () =>
       patternDraft.markdown?.content || component()?.markdown?.content || "",
@@ -167,19 +209,10 @@ export default function Home() {
 
   const deleteImage = (key: string) => {
     const current = patternDraft.exemples ?? component()?.exemples ?? [];
-    setPatternDraft("exemples", current.filter((e) => e.key !== key));
-  };
-
-  const [value, setValue] = createSignal<Food | null>(null);
-  const onInputChange = (value: string) => {
-    if (value === "") setValue(null);
-  };
-
-  const createDetail = () => {
-    actions._createComponent.mutate({
-      title: value()?.label || "",
-      kind: "detail",
-    });
+    setPatternDraft(
+      "exemples",
+      current.filter((e) => e.key !== key),
+    );
   };
 
   if (!params.pattern) {
@@ -213,7 +246,9 @@ export default function Home() {
             })) || []
           }
           patternId={Number(params.pattern)}
-          detailValue={value()}
+          details={selectedDetails()}
+          availableDetails={availableDetails()}
+          detailInput={detailInput()}
           editingTitle={editTitle()}
           onTitleMouseDown={() => setEditTitle(true)}
           onTitleInput={(v) => setPatternDraft("title", v)}
@@ -241,9 +276,10 @@ export default function Home() {
           onRemoveAnswer={removeAnswer}
           onEditAnswer={editAnswer}
           onEditConsequence={editConsequence}
-          onDetailValueChange={setValue}
-          onDetailInputChange={onInputChange}
-          onCreateDetail={createDetail}
+          onDetailSelect={addDetail}
+          onDetailRemove={removeDetail}
+          onDetailInputChange={setDetailInput}
+          onCreateDetail={createAndAddDetail}
         />
       </div>
     </main>

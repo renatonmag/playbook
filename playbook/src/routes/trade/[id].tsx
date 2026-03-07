@@ -66,13 +66,11 @@ export default function Trade() {
 
   const params = useParams();
 
-  const sessionsQuery = { data: undefined };
-  // useQuery(() => orpc.trade.listByUser.queryOptions({}));
+  const sessionsQuery = useQuery(() => orpc.trade.listByUser.queryOptions({}));
 
-  const componentsList = { data: undefined };
-  // useQuery(() =>
-  //   orpc.component.listByUser.queryOptions({}),
-  // );
+  const componentsList = useQuery(() =>
+    orpc.component.listByUser.queryOptions({}),
+  );
 
   // console.log("id component");
 
@@ -609,6 +607,8 @@ export default function Trade() {
         addSelectedComps={addSelectedComps}
         addDetails={addDetails}
         addContext={addContext}
+        taggedComps={taggedComps}
+        componentsData={componentsList.data}
         removeComps={(id) => {
           const sel = selectedSetup();
           if (sel) removeSelectedComps(sel[0], sel[1], id);
