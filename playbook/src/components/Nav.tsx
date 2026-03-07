@@ -34,6 +34,9 @@ export default function Nav() {
           <li class={`border-b-2 ${active("/lists")} mx-1.5 sm:mx-6`}>
             <A href="/lists">Lists</A>
           </li>
+          <li class={`border-b-2 ${active("/stats")} mx-1.5 sm:mx-6`}>
+            <A href="/stats">Stats</A>
+          </li>
           <li class="ml-auto mx-1.5 sm:mx-6">
             <button
               onClick={handleLogout}

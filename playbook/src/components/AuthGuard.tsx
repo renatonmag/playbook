@@ -3,7 +3,7 @@ import { isServer } from "solid-js/web";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { authClient } from "~/lib/auth-client";
 
-const PROTECTED = ["/lists", "/pattern", "/trade"];
+const PROTECTED = ["/lists", "/pattern", "/trade", "/stats"];
 
 function isProtectedPath(pathname: string) {
   return PROTECTED.some((p) => pathname === p || pathname.startsWith(p + "/"));

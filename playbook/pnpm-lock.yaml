@@ -41,6 +41,9 @@ importers:
       '@tanstack/solid-query':
         specifier: ^5.90.23
         version: 5.90.23(solid-js@1.9.11)
+      '@tanstack/solid-table':
+        specifier: ^8.21.3
+        version: 8.21.3(solid-js@1.9.11)
       '@uploadthing/solid':
         specifier: ^7.3.3
         version: 7.3.3(solid-js@1.9.11)(uploadthing@7.7.4(h3@1.15.5)(tailwindcss@4.1.18))
@@ -1508,6 +1511,16 @@ packages:
     resolution: {integrity: sha512-pbZc4+Kgm7ktzIuu01R3KOWfazQKgNp4AZvW0RSvv+sNMpYoileUDAkXEcjDJe6RJmb3fVvTR4LlcSL5pxDElQ==}
     peerDependencies:
       solid-js: ^1.6.0
+
+  '@tanstack/solid-table@8.21.3':
+    resolution: {integrity: sha512-PmhfSLBxVKiFs01LtYOYrCRhCyTUjxmb4KlxRQiqcALtip8+DOJeeezQM4RSX/GUS0SMVHyH/dNboCpcO++k2A==}
+    engines: {node: '>=12'}
+    peerDependencies:
+      solid-js: '>=1.3'
+
+  '@tanstack/table-core@8.21.3':
+    resolution: {integrity: sha512-ldZXEhOBb8Is7xLs01fR3YEc3DERiz5silj8tnGkFZytt1abEvl/GhUmCE0PMLaMPTa3Jk4HbKmRlHmu+gCftg==}
+    engines: {node: '>=12'}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -5466,6 +5479,13 @@ snapshots:
     dependencies:
       '@tanstack/query-core': 5.90.20
       solid-js: 1.9.11
+
+  '@tanstack/solid-table@8.21.3(solid-js@1.9.11)':
+    dependencies:
+      '@tanstack/table-core': 8.21.3
+      solid-js: 1.9.11
+
+  '@tanstack/table-core@8.21.3': {}
 
   '@types/babel__core@7.20.5':
     dependencies:
