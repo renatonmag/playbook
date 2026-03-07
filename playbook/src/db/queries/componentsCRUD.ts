@@ -5,9 +5,10 @@ import { db } from "../index";
 import { updateOrCreateMarkdown } from "./markdownCRUD";
 
 export type ComponentInsert = {
-  userId: number;
+  userId: string;
   title: string;
   kind?: string;
+  strategyId: number;
   imageComparisons?: ImageComparison[];
   markdownId?: number | null;
 };
@@ -16,7 +17,7 @@ export type ComponentUpdate = {
   title?: string;
   imageComparisons?: ImageComparison[];
   exemples?: any[];
-  userId?: number;
+  userId?: string;
   markdownId?: number;
   categories?: string;
   markdown?: string;
@@ -31,6 +32,7 @@ export const createComponent = async (data: ComponentInsert) => {
         userId: data.userId,
         title: data.title,
         kind: data.kind,
+        strategyId: data.strategyId,
         imageComparisons: data.imageComparisons ?? [],
         markdownId: data.markdownId ?? null,
       })
@@ -45,7 +47,7 @@ export const createComponent = async (data: ComponentInsert) => {
   }
 };
 
-export const getComponentById = async (id: number, userId: number) => {
+export const getComponentById = async (id: number, userId: string) => {
   const row = await db.query.componentsTable.findFirst({
     where: (components, { and, eq }) =>
       and(eq(components.id, id), eq(components.userId, userId)),
@@ -57,7 +59,7 @@ export const getComponentById = async (id: number, userId: number) => {
   return row ?? null;
 };
 
-export const listComponentsByUser = async (userId: number) => {
+export const listComponentsByUser = async (userId: string) => {
   return await db.query.componentsTable.findMany({
     where: (components, { eq }) => eq(components.userId, userId),
     with: {
@@ -68,7 +70,7 @@ export const listComponentsByUser = async (userId: number) => {
 
 export const updateComponent = async (
   id: number,
-  userId: number,
+  userId: string,
   data: ComponentUpdate,
 ) => {
   let markdownId = data.markdownId;
@@ -112,7 +114,7 @@ export const updateComponent = async (
   return row ?? null;
 };
 
-export const deleteComponent = async (id: number, userId: number) => {
+export const deleteComponent = async (id: number, userId: string) => {
   const [row] = await db
     .delete(componentsTable)
     .where(and(eq(componentsTable.id, id), eq(componentsTable.userId, userId)))

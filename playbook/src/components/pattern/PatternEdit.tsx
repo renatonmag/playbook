@@ -29,6 +29,7 @@ import {
   ComboboxTrigger,
 } from "~/components/ui/combobox";
 import { cn } from "~/lib/utils";
+import { Badge } from "~/components/ui/badge";
 
 export type QuestionType = {
   id: string;
@@ -343,7 +344,7 @@ export function PatternEdit(props: PatternEditProps) {
                 const detail = () =>
                   props.availableDetails.find((d) => d.id === id);
                 return (
-                  <div class="flex items-center gap-1 bg-secondary text-secondary-foreground rounded px-2 py-1 text-sm">
+                  <Badge variant="secondary" class="flex items-center gap-1">
                     <span>{detail()?.title ?? `#${id}`}</span>
                     <button
                       type="button"
@@ -352,7 +353,7 @@ export function PatternEdit(props: PatternEditProps) {
                     >
                       <X size={12} />
                     </button>
-                  </div>
+                  </Badge>
                 );
               }}
             </For>

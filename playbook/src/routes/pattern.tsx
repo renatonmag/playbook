@@ -196,6 +196,7 @@ export default function Home() {
     const newComp = await actions.createComponent.mutateAsync({
       title,
       kind: "detail",
+      strategyId: component()?.strategyId,
     });
     if (newComp?.id) await addDetail(newComp.id);
     setDetailInput("");

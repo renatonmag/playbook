@@ -19,6 +19,7 @@ import { RefsDialog, BarRef } from "~/components/trade/RefsDialog";
 import { LeftPanel } from "~/components/trade/LeftPanel";
 import { MiddlePanel } from "~/components/trade/MiddlePanel";
 import { RightPanel } from "~/components/trade/RightPanel";
+import { DialogSessionStrategies } from "~/components/DialogSessionStrategies";
 
 type SetupCard = { id: string; setups: Setup2[] };
 
@@ -66,10 +67,17 @@ export default function Trade() {
 
   const params = useParams();
 
+  const [sessionStrategies, setSessionStrategies] = createSignal<number[]>([]);
+  const [showStrategiesDialog, setShowStrategiesDialog] = createSignal(false);
+
   const sessionsQuery = useQuery(() => orpc.trade.listByUser.queryOptions({}));
 
   const componentsList = useQuery(() =>
     orpc.component.listByUser.queryOptions({}),
+  );
+
+  const strategiesList = useQuery(() =>
+    orpc.strategy.listByUser.queryOptions({}),
   );
 
   // console.log("id component");
@@ -80,12 +88,16 @@ export default function Trade() {
   onMount(() => console.log("✅ mounted"));
   onCleanup(() => console.log("🧹 cleaned up"));
 
-  // Load: group raw Setup2[] by cardId
+  // Load: group raw Setup2[] by cardId, and load session strategies
   createEffect(() => {
     const _setups = sessionsQuery.data?.find(
       (e: any) => e.id === Number(params.id),
     );
     if (!_setups?.setups2) return;
+
+    const stratIds: number[] = (_setups as any).strategies ?? [];
+    setSessionStrategies(stratIds);
+    if (stratIds.length === 0) setShowStrategiesDialog(true);
 
     const raw: any[] = _setups.setups2;
     const grouped = new Map<string, Setup2[]>();
@@ -551,11 +563,17 @@ export default function Trade() {
   );
 
   const filteredItems = createMemo(() => {
+    const strategies = sessionStrategies();
+    if (strategies.length === 0) return [];
     const query = search().toLowerCase();
-    if (!query) return componentsList.data;
-    return componentsList?.data?.filter((item) =>
-      item.title.toLowerCase().includes(query),
+    let items = (componentsList.data ?? []).filter((item) =>
+      strategies.includes(item.strategyId),
     );
+    if (query)
+      items = items.filter((item) =>
+        item.title.toLowerCase().includes(query),
+      );
+    return items;
   });
 
   let timer: ReturnType<typeof setTimeout>;
@@ -580,6 +598,19 @@ export default function Trade() {
 
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-1.5 gap-1">
+      <DialogSessionStrategies
+        open={showStrategiesDialog()}
+        strategies={strategiesList.data ?? []}
+        initialSelected={sessionStrategies()}
+        onConfirm={(ids) => {
+          setSessionStrategies(ids);
+          setShowStrategiesDialog(false);
+          actions.updateSessionStrategies.mutate({
+            id: Number(params.id),
+            strategies: ids,
+          });
+        }}
+      />
       <ImageDialog
         open={sheetOpen()}
         onClose={() => setSelectedSheetId(undefined)}
@@ -613,6 +644,7 @@ export default function Trade() {
           const sel = selectedSetup();
           if (sel) removeSelectedComps(sel[0], sel[1], id);
         }}
+        onManageStrategies={() => setShowStrategiesDialog(true)}
       />
       <MiddlePanel
         setups={setups}

@@ -67,6 +67,19 @@ export const updateSetupsRow = async (
   return row ?? null;
 };
 
+export const updateSetupsRowStrategies = async (
+  id: number,
+  userId: string,
+  strategies: number[],
+) => {
+  const [row] = await db
+    .update(setupsTable)
+    .set({ strategies })
+    .where(and(eq(setupsTable.id, id), eq(setupsTable.userId, userId)))
+    .returning();
+  return row ?? null;
+};
+
 export const updateOrCreateSetupsRowByUser = async (data: {
   id: number;
   userId: number;

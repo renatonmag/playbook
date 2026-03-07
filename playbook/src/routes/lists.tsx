@@ -24,12 +24,13 @@ import Play from "lucide-solid/icons/play";
 
 import { ImageCaroulsel } from "~/components/ImageCarousel";
 import { useStore } from "~/store/storeContext";
-import { createAsync, A } from "@solidjs/router";
+import { createAsync, A, useSearchParams } from "@solidjs/router";
 import { TextField, TextFieldInput } from "~/components/ui/text-field";
 import { Card, CardContent } from "~/components/ui/card";
 import { ComponentBadge } from "~/components/ComponentBadge";
 import { useQuery } from "@tanstack/solid-query";
 import { orpc } from "~/lib/orpc";
+import { DialogAddStrategy } from "~/components/DialogAddStrategy";
 
 export default function Home() {
   const [showItem, setShowItem] = createSignal<string>("");
@@ -40,6 +41,21 @@ export default function Home() {
   const componentsList = useQuery(() =>
     orpc.component.listByUser.queryOptions({}),
   );
+
+  const strategiesList = useQuery(() =>
+    orpc.strategy.listByUser.queryOptions({}),
+  );
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedStrategyId = createMemo(() =>
+    searchParams.strategy ? Number(searchParams.strategy) : null,
+  );
+
+  const selectStrategy = (id: number) => {
+    setSearchParams({
+      strategy: selectedStrategyId() === id ? undefined : String(id),
+    });
+  };
 
   createEffect(() => {
     if (previewDiv) {
@@ -63,12 +79,16 @@ export default function Home() {
   };
 
   const filteredItems = createMemo(() => {
+    const strategyId = selectedStrategyId();
     const query = search().toLowerCase();
-    if (!query) return componentsList.data;
-
-    return store.components.data.filter((item) =>
-      item.title.toLowerCase().includes(query),
-    );
+    let items = componentsList.data ?? [];
+    if (strategyId !== null)
+      items = items.filter((c) => c.strategyId === strategyId);
+    if (query)
+      items = items.filter((item) =>
+        item.title.toLowerCase().includes(query),
+      );
+    return items;
   });
 
   const addList = () => {
@@ -139,6 +159,28 @@ export default function Home() {
             />
           </TextField>
           <Card class="w-lg max-w-lg h-fit">
+            <CardContent class="flex flex-col gap-2 p-4 relative">
+              <div class="text-lg font-bold text-gray-700">Estratégias</div>
+              <div class="flex gap-2 flex-wrap items-center">
+                <For each={strategiesList.data ?? []}>
+                  {(strategy) => (
+                    <button
+                      onClick={() => selectStrategy(strategy.id)}
+                      class={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${
+                        selectedStrategyId() === strategy.id
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-input hover:bg-accent hover:text-accent-foreground"
+                      }`}
+                    >
+                      {strategy.name}
+                    </button>
+                  )}
+                </For>
+                <DialogAddStrategy />
+              </div>
+            </CardContent>
+          </Card>
+          <Card class="w-lg max-w-lg h-fit">
             <CardContent class="flex flex-col gap-2 p-4 flex-wrap relative">
               <div class="text-lg font-bold text-gray-700">Padrões</div>
               <div class="flex gap-2 flex-wrap items-start">
@@ -156,7 +198,7 @@ export default function Home() {
               </div>
             </CardContent>
           </Card>
-          <DialogAddComponent />
+          <DialogAddComponent strategyId={selectedStrategyId()} />
         </div>
       </div>
     </main>

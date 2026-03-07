@@ -15,6 +15,27 @@
       "when": 1772817713914,
       "tag": "0001_next_piledriver",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772898725892,
+      "tag": "0002_glossy_ken_ellis",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772906316361,
+      "tag": "0003_fuzzy_union_jack",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772911124207,
+      "tag": "0004_parallel_maggott",
+      "breakpoints": true
     }
   ]
 }
