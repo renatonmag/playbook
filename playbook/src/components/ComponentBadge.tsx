@@ -102,6 +102,8 @@ export const ComponentBadge = (props: {
               }}
               onMouseDown={(e) => {
                 if (e.button === 2) return;
+                props.loadComponent(props.component.component.id);
+                props.setShowItem(props.component.component.id);
                 if (isTagged("main-component", props.component.component.id))
                   return props.untagComponent();
                 props.tagComponent(
@@ -177,6 +179,10 @@ export const ComponentBadge = (props: {
                   as={Badge}
                   variant={"secondary"}
                   class="cursor-default"
+                  onMouseDown={() => {
+                    props.loadComponent(detail.id);
+                    props.setShowItem(detail.id);
+                  }}
                 >
                   {detail?.title}
                 </ContextMenuTrigger>
@@ -212,6 +218,11 @@ export const ComponentBadge = (props: {
           <ContextMenuTrigger
             as={Badge}
             class="cursor-default"
+            onMouseDown={(e) => {
+              if (e.button === 2) return;
+              props.loadComponent(props.component.id);
+              props.setShowItem(props.component.id);
+            }}
             onDblClick={() => {
               props.addSelectedComps(props.selectedSetup(), props.component.id);
             }}
