@@ -16,35 +16,47 @@ import {
   TextFieldInput,
   TextFieldLabel,
 } from "~/components/ui/text-field";
-import { useStore } from "~/store/storeContext";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { orpc } from "~/lib/orpc";
 
-export function DialogAddComponent(props: { strategyId: number | null }) {
-  const [componentName, setComponentName] = createSignal("");
+export function DialogAddStrategy() {
+  const [strategyName, setStrategyName] = createSignal("");
+  const queryClient = useQueryClient();
 
-  const [state, actions] = useStore();
+  const createStrategy = useMutation(() =>
+    orpc.strategy.create.mutationOptions({
+      onSuccess: (res) => {
+        queryClient.setQueryData(
+          orpc.strategy.listByUser.queryKey(),
+          (old: any[]) => [...(old ?? []), res],
+        );
+      },
+    }),
+  );
 
   return (
     <Dialog>
-      <DialogTrigger as={Button<"button">} class="w-1/3">
+      <DialogTrigger as={Button<"button">} variant="outline" size="sm">
         <div class="flex items-center gap-2">
-          <div>Adicionar padrão</div> <PlusIcon class="w-3 h-3 text-white" />
+          <div>Adicionar estratégia</div>
+          <PlusIcon class="w-3 h-3" />
         </div>
       </DialogTrigger>
       <DialogContent class="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Adicionar componente</DialogTitle>
+          <DialogTitle>Adicionar estratégia</DialogTitle>
           <DialogDescription>
-            Insira o nome do componente. Clique salvar quando terminar.
+            Insira o nome da estratégia. Clique salvar quando terminar.
           </DialogDescription>
         </DialogHeader>
         <div class="grid gap-4 py-4">
           <TextField class="grid grid-cols-4 items-center gap-4">
-            <TextFieldLabel class="text-right">Componente</TextFieldLabel>
+            <TextFieldLabel class="text-right">Estratégia</TextFieldLabel>
             <TextFieldInput
-              value={componentName()}
+              value={strategyName()}
               class="col-span-3"
               type="text"
-              onChange={(e) => setComponentName(e.target.value)}
+              onChange={(e) => setStrategyName(e.target.value)}
             />
           </TextField>
         </div>
@@ -53,13 +65,10 @@ export function DialogAddComponent(props: { strategyId: number | null }) {
             class={buttonVariants({ variant: "default", size: "sm" })}
             type="submit"
             onClick={() => {
-              actions.createComponent.mutate({
-                title: componentName(),
-                strategyId: props.strategyId!,
-              });
-              setComponentName("");
+              createStrategy.mutate({ name: strategyName() });
+              setStrategyName("");
             }}
-            disabled={componentName() === "" || props.strategyId === null}
+            disabled={strategyName() === ""}
           >
             Salvar
           </CloseButton>

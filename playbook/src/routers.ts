@@ -11,7 +11,15 @@ import {
   updateSetupsRow as _updateSetups,
   createSetupsRow as _createSetups,
   listSetupsRowsByUser,
+  updateSetupsRowStrategies as _updateStrategies,
 } from "~/db/queries/setupsCRUD";
+import {
+  createStrategy as _createStrategy,
+  listStrategiesByUser as _listStrategiesByUser,
+  getStrategyById as _getStrategyById,
+  updateStrategy as _updateStrategy,
+  deleteStrategy as _deleteStrategy,
+} from "~/db/queries/strategyCRUD";
 import { ORPCError } from "@orpc/server";
 
 // Define your Schema (matches your earlier componentsTable logic)
@@ -53,6 +61,7 @@ export const createComponent = authed
     z.object({
       title: z.string().trim().min(1),
       kind: z.string().trim().min(1).optional(),
+      strategyId: z.number().int(),
     }),
   )
   // .output(ComponentSchema) // Matches your Drizzle return type
@@ -62,6 +71,7 @@ export const createComponent = authed
         userId: context.user.id,
         title: input.title,
         kind: input.kind,
+        strategyId: input.strategyId,
       });
 
       return row;
@@ -260,6 +270,87 @@ const listTradeSessions = authed
     }
   });
 
+const createStrategy = authed
+  .route({ method: "POST", path: "/strategies" })
+  .input(z.object({ name: z.string().trim().min(1), description: z.string().optional() }))
+  .handler(async ({ context, input }) => {
+    try {
+      const row = await _createStrategy({ userId: context.user.id, ...input });
+      return row;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Internal server error";
+      console.error("POST /api/strategies", message);
+      throw new ORPCError("CONFLICT", { message });
+    }
+  });
+
+const listStrategiesByUser = authed
+  .route({ method: "GET", path: "/strategies" })
+  .handler(async ({ context }) => {
+    try {
+      return await _listStrategiesByUser(context.user.id);
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : "Database error");
+    }
+  });
+
+const getStrategyById = authed
+  .route({ method: "GET", path: "/strategies/:id" })
+  .input(z.object({ id: z.number() }))
+  .handler(async ({ context, input }) => {
+    try {
+      const row = await _getStrategyById(input.id, context.user.id);
+      if (row === null) throw new Error("Strategy not found");
+      return row;
+    } catch (err) {
+      console.error(`GET /api/strategies/${input.id}`, err);
+      throw new Error(err instanceof Error ? err.message : "Internal server error");
+    }
+  });
+
+const updateStrategy = authed
+  .route({ method: "PUT", path: "/strategies/:id" })
+  .input(z.object({ id: z.number(), name: z.string().trim().min(1).optional(), description: z.string().optional() }))
+  .handler(async ({ context, input }) => {
+    const { id, ...data } = input;
+    try {
+      const row = await _updateStrategy(id, context.user.id, data);
+      if (row === null) throw new Error("Strategy not found");
+      return row;
+    } catch (err) {
+      console.error(`PUT /api/strategies/${input.id}`, err);
+      throw new Error(err instanceof Error ? err.message : "Internal server error");
+    }
+  });
+
+const removeStrategy = authed
+  .route({ method: "DELETE", path: "/strategies/:id" })
+  .input(z.object({ id: z.number() }))
+  .handler(async ({ context, input }) => {
+    try {
+      const row = await _deleteStrategy(input.id, context.user.id);
+      if (row === null) throw new Error("Strategy not found");
+      return row;
+    } catch (err) {
+      console.error(`DELETE /api/strategies/${input.id}`, err);
+      throw new Error(err instanceof Error ? err.message : "Internal server error");
+    }
+  });
+
+const updateTradeStrategies = authed
+  .route({ method: "PUT", path: "/trades/:id/strategies" })
+  .input(z.object({ id: z.number(), strategies: z.array(z.number()) }))
+  .handler(async ({ context, input }) => {
+    try {
+      const row = await _updateStrategies(input.id, context.user.id, input.strategies);
+      if (!row) throw new Error("Session not found");
+      return row;
+    } catch (err) {
+      console.error(`PUT /api/trades/${input.id}/strategies`, err);
+      throw new Error(err instanceof Error ? err.message : "Internal server error");
+    }
+  });
+
 export const router = {
   component: {
     listByUser: listComponentsByUser,
@@ -271,6 +362,14 @@ export const router = {
   trade: {
     create: createTrades,
     update: updateTrades,
+    updateStrategies: updateTradeStrategies,
     listByUser: listTradeSessions,
+  },
+  strategy: {
+    create: createStrategy,
+    listByUser: listStrategiesByUser,
+    getById: getStrategyById,
+    update: updateStrategy,
+    delete: removeStrategy,
   },
 };

@@ -38,9 +38,26 @@ export default function createTradeSessions(agent, actions, state, setState) {
     }),
   );
 
+  const updateSessionStrategies = useMutation(() =>
+    orpc.trade.updateStrategies.mutationOptions({
+      onSuccess: (res) => {
+        queryClient.setQueryData(
+          orpc.trade.listByUser.queryKey(),
+          produce((draft) => {
+            if (!draft) return [];
+            const entry = draft.find((e) => e.id === res.id);
+            if (entry) entry.strategies = res.strategies;
+            return draft;
+          }),
+        );
+      },
+    }),
+  );
+
   Object.assign(actions, {
     createSession,
     updateSession,
+    updateSessionStrategies,
   });
 
   return null;

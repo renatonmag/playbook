@@ -1,8 +1,16 @@
 import { For, Show, createMemo } from "solid-js";
 import { ComponentBadge } from "~/components/ComponentBadge";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import { TextField, TextFieldInput } from "~/components/ui/text-field";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
+import EllipsisVertical from "lucide-solid/icons/ellipsis-vertical";
 
 type Props = {
   filteredItems: () => any[];
@@ -19,6 +27,7 @@ type Props = {
   removeComps: (id: number) => void;
   taggedComps: () => [number, number, number, string] | undefined;
   componentsData: any;
+  onManageStrategies: () => void;
 };
 
 export function LeftPanel(props: Props) {
@@ -38,14 +47,30 @@ export function LeftPanel(props: Props) {
 
   return (
     <div class="w-1/3">
-      <TextField class="grid w-full max-w-lg mx-auto items-center mb-6 mt-4">
-        <TextFieldInput
-          type="text"
-          placeholder="Pesquisar..."
-          value={props.search()}
-          onInput={props.handleSearchInput}
-        />
-      </TextField>
+      <div class="flex gap-2 items-center max-w-lg mx-auto mb-6 mt-4 w-full">
+        <TextField class="grid items-center flex-1">
+          <TextFieldInput
+            type="text"
+            placeholder="Pesquisar..."
+            value={props.search()}
+            onInput={props.handleSearchInput}
+          />
+        </TextField>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            as={Button<"button">}
+            variant="outline"
+            size="icon"
+          >
+            <EllipsisVertical class="w-4 h-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={props.onManageStrategies}>
+              Estratégias
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <Card class="w-lg max-w-lg h-fit mx-auto">
         <CardContent class="flex flex-col gap-2 p-4 flex-wrap mx-auto relative">
           <div class="text-lg font-bold text-gray-700">Padrões</div>

@@ -50,6 +50,20 @@ export type Setup2 = {
   images?: { uri: string; key: string }[];
 };
 
+export const strategyTable = pgTable(
+  "strategies",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    userId: text("user_id")
+      .references(() => user.id)
+      .notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    description: text(),
+    createdAt: timestamp().defaultNow(),
+  },
+  (t) => [unique().on(t.userId, t.name)],
+);
+
 export const componentsTable = pgTable(
   "components",
   {
@@ -58,6 +72,7 @@ export const componentsTable = pgTable(
       .references(() => user.id)
       .notNull(),
     title: varchar({ length: 255 }).notNull(),
+    strategyId: integer("strategy_id").references(() => strategyTable.id),
     imageComparisons: jsonb("image_comparisons")
       .$type<ImageComparison[]>()
       .notNull()
@@ -74,7 +89,7 @@ export const componentsTable = pgTable(
     questions: jsonb("questions").$type<Question[]>().notNull().default([]),
     details: jsonb("details").$type<number[]>().notNull().default([]),
   },
-  (t) => [unique().on(t.userId, t.title)],
+  (t) => [unique().on(t.userId, t.title, t.strategyId)],
 );
 
 export const setupsTable = pgTable("setups", {
@@ -85,6 +100,7 @@ export const setupsTable = pgTable("setups", {
   createdAt: timestamp().defaultNow(),
   setups: jsonb("setups").$type<Setup[]>().notNull().default([]),
   setups2: jsonb("setups2").$type<Setup2[]>().notNull().default([]),
+  strategies: jsonb("strategies").$type<number[]>().notNull().default([]),
 });
 
 export const imagesTable = pgTable("images", {
@@ -105,12 +121,24 @@ export const markdownTable = pgTable("markdown", {
   content: text().notNull(), // Changed from varchar to text for long markdown
 });
 
+export const strategyRelations = relations(strategyTable, ({ one, many }) => ({
+  user: one(user, {
+    fields: [strategyTable.userId],
+    references: [user.id],
+  }),
+  components: many(componentsTable),
+}));
+
 export const componentsRelations = relations(
   componentsTable,
   ({ one, many }) => ({
     user: one(user, {
       fields: [componentsTable.userId],
       references: [user.id],
+    }),
+    strategy: one(strategyTable, {
+      fields: [componentsTable.strategyId],
+      references: [strategyTable.id],
     }),
     markdown: one(markdownTable, {
       fields: [componentsTable.markdownId],

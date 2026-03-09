@@ -1,0 +1,2 @@
+ALTER TABLE "components" DROP CONSTRAINT "components_user_id_title_unique";--> statement-breakpoint
+ALTER TABLE "components" ADD CONSTRAINT "components_user_id_title_strategy_id_unique" UNIQUE("user_id","title","strategy_id");
