@@ -50,6 +50,7 @@ export type Setup2 = {
   images?: { uri: string; key: string }[];
   setupNumber?: number;
   evolution?: number;
+  asset?: string;
 };
 
 export const strategyTable = pgTable(

@@ -74,6 +74,8 @@ export default function Trade() {
 
   const [sessionStrategies, setSessionStrategies] = createSignal<number[]>([]);
   const [showStrategiesDialog, setShowStrategiesDialog] = createSignal(false);
+  const [assets, setAssets] = createSignal<string[]>([]);
+  const [selectedAsset, setSelectedAsset] = createSignal<string | undefined>();
 
   const sessionsQuery = useQuery(() => orpc.trade.listByUser.queryOptions({}));
 
@@ -84,14 +86,6 @@ export default function Trade() {
   const strategiesList = useQuery(() =>
     orpc.strategy.listByUser.queryOptions({}),
   );
-
-  // console.log("id component");
-
-  // createEffect(() => {
-  //   console.log("id component after render");
-  // });
-  onMount(() => console.log("✅ mounted"));
-  onCleanup(() => console.log("🧹 cleaned up"));
 
   // Load: group raw Setup2[] by cardId, and load session strategies
   createEffect(() => {
@@ -116,6 +110,13 @@ export default function Trade() {
       setups,
     }));
     setSetups("items", reconcile(structuredClone(unwrap(cards))));
+
+    const loadedAssets = [
+      ...new Set(raw.map((s: any) => s.asset as string).filter(Boolean)),
+    ];
+    setAssets(loadedAssets);
+    if (loadedAssets.length > 0 && !selectedAsset())
+      setSelectedAsset(loadedAssets[0]);
   });
 
   // Save: flatten cards into Setup2[] with cardId field (debounced 300ms)
@@ -185,12 +186,13 @@ export default function Trade() {
 
   const nextSetupNumber = () => {
     const all = setups.items.flatMap((c) => c.setups);
-    const max = Math.max(0, ...all.map((s, i) => s.setupNumber ?? (i + 1)));
+    const max = Math.max(0, ...all.map((s, i) => s.setupNumber ?? i + 1));
     return max + 1;
   };
 
   // Add a new card with one empty sub-setup
-  const addCard = () => {
+  const addCard = (asset?: string) => {
+    const cardAsset = asset ?? selectedAsset();
     const newCardId = crypto.randomUUID();
     const setupNumber = nextSetupNumber();
     setSetups(
@@ -207,6 +209,7 @@ export default function Trade() {
                 selectedComps: [],
                 result: "",
                 setupNumber,
+                asset: cardAsset,
               },
             ],
           },
@@ -220,6 +223,7 @@ export default function Trade() {
   // Add a sub-setup within an existing card
   const addSubSetup = (cardIndex: number) => {
     const setupNumber = nextSetupNumber();
+    const cardAsset = setups.items[cardIndex]?.setups[0]?.asset;
     setSetups(
       produce((draft) => {
         draft.items[cardIndex].setups.push({
@@ -228,6 +232,7 @@ export default function Trade() {
           selectedComps: [],
           result: "",
           setupNumber,
+          asset: cardAsset,
         });
         draft.version++;
         return draft;
@@ -604,9 +609,7 @@ export default function Trade() {
       strategies.includes(item.strategyId),
     );
     if (query)
-      items = items.filter((item) =>
-        item.title.toLowerCase().includes(query),
-      );
+      items = items.filter((item) => item.title.toLowerCase().includes(query));
     return items;
   });
 
@@ -636,13 +639,24 @@ export default function Trade() {
         open={showStrategiesDialog()}
         strategies={strategiesList.data ?? []}
         initialSelected={sessionStrategies()}
-        onConfirm={(ids) => {
+        onConfirm={(ids, asset) => {
           setSessionStrategies(ids);
           setShowStrategiesDialog(false);
           actions.updateSessionStrategies.mutate({
             id: Number(params.id),
             strategies: ids,
           });
+          // Stamp initial asset on the first card's setup
+          setSetups(
+            produce((draft) => {
+              if (draft.items[0]?.setups[0]) {
+                draft.items[0].setups[0].asset = asset;
+              }
+              draft.version++;
+            }),
+          );
+          setAssets([asset]);
+          setSelectedAsset(asset);
         }}
       />
       <ImageDialog
@@ -670,7 +684,7 @@ export default function Trade() {
           const currentSetup = setups.items[target[0]]?.setups[target[1]];
           const currentId = (currentSetup as any)?.id;
           return allSetups
-            .map((s, i) => (s as any).setupNumber ?? (i + 1))
+            .map((s, i) => (s as any).setupNumber ?? i + 1)
             .filter((_, i) => (allSetups[i] as any).id !== currentId);
         })()}
         currentEvolution={(() => {
@@ -715,6 +729,17 @@ export default function Trade() {
         createSelectedComps={createSelectedComps}
         addCard={addCard}
         addSubSetup={addSubSetup}
+        assets={assets}
+        selectedAsset={selectedAsset}
+        setSelectedAsset={setSelectedAsset}
+        addAsset={(name: string) => {
+          const upper = name.toUpperCase().trim();
+          if (!upper) return;
+          if (!assets().includes(upper)) {
+            setAssets((prev) => [...prev, upper]);
+          }
+          setSelectedAsset(upper);
+        }}
         deleteSetup={deleteSetup}
         setResult={setResult}
         openRefsDialog={openRefsDialog}

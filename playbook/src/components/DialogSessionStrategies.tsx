@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For } from "solid-js";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { Label } from "~/components/ui/label";
 import {
@@ -10,22 +10,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { TextField, TextFieldInput } from "~/components/ui/text-field";
 
 type Props = {
   open: boolean;
   strategies: { id: number; name: string }[];
   initialSelected: number[];
-  onConfirm: (ids: number[]) => void;
+  onConfirm: (ids: number[], asset: string) => void;
 };
 
 export function DialogSessionStrategies(props: Props) {
   const [selectedIds, setSelectedIds] = createSignal<number[]>(
     props.initialSelected,
   );
+  const [assetInput, setAssetInput] = createSignal("");
 
   createEffect(() => {
     if (props.open) {
       setSelectedIds([...props.initialSelected]);
+      setAssetInput("");
     }
   });
 
@@ -35,35 +38,35 @@ export function DialogSessionStrategies(props: Props) {
     );
   };
 
+  const canConfirm = () =>
+    selectedIds().length > 0 && assetInput().trim().length > 0;
+
   const handleConfirm = () => {
-    if (selectedIds().length === 0) return;
-    props.onConfirm(selectedIds());
+    if (!canConfirm()) return;
+    props.onConfirm(selectedIds(), assetInput().trim().toUpperCase());
   };
 
   return (
     <Dialog
       open={props.open}
       onOpenChange={(isOpen) => {
-        // Block closing if no strategy is selected
-        if (!isOpen && selectedIds().length === 0) return;
-        if (!isOpen) props.onConfirm(selectedIds());
+        if (!isOpen && !canConfirm()) return;
+        if (!isOpen) props.onConfirm(selectedIds(), assetInput().trim().toUpperCase());
       }}
     >
       <DialogContent
         class="sm:max-w-[500px]"
-        // Prevent closing via Escape when nothing selected
         onEscapeKeyDown={(e) => {
-          if (selectedIds().length === 0) e.preventDefault();
+          if (!canConfirm()) e.preventDefault();
         }}
         onPointerDownOutside={(e) => {
-          if (selectedIds().length === 0) e.preventDefault();
+          if (!canConfirm()) e.preventDefault();
         }}
       >
         <DialogHeader>
-          <DialogTitle>Selecionar estratégias</DialogTitle>
+          <DialogTitle>Configurar sessão</DialogTitle>
           <DialogDescription>
-            Escolha as estratégias que serão usadas nesta sessão. Selecione ao
-            menos uma para continuar.
+            Escolha as estratégias e informe o ativo inicial para esta sessão.
           </DialogDescription>
         </DialogHeader>
         <div class="grid gap-4 py-4">
@@ -83,9 +86,17 @@ export function DialogSessionStrategies(props: Props) {
               </div>
             )}
           </For>
+          <TextField>
+            <Label>Ativo inicial</Label>
+            <TextFieldInput
+              placeholder="Ex: WINZ25"
+              value={assetInput()}
+              onInput={(e) => setAssetInput(e.currentTarget.value)}
+            />
+          </TextField>
         </div>
         <DialogFooter>
-          <Button disabled={selectedIds().length === 0} onClick={handleConfirm}>
+          <Button disabled={!canConfirm()} onClick={handleConfirm}>
             Confirmar
           </Button>
         </DialogFooter>
