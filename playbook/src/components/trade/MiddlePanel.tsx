@@ -80,6 +80,7 @@ type Props = {
   setSelectedSheetId: (val: [number, number] | undefined) => void;
   loadComponent: any;
   setShowItem: (val: string) => void;
+  openEvolutionDialog: (cardIdx: number, subIdx: number) => void;
 };
 
 export function MiddlePanel(props: Props) {
@@ -207,7 +208,9 @@ export function MiddlePanel(props: Props) {
                             props.setSelectedSetup([cardIndex(), subIndex()])
                           }
                         >
-                          Setup {subIndex() + 1}
+                          {(setup as any).evolution
+                            ? `Evolução - Setup ${(setup as any).evolution}`
+                            : `Setup ${(setup as any).setupNumber ?? subIndex() + 1}`}
                           <span class="text-xs text-gray-500 font-normal capitalize">
                             {setup.result}
                           </span>
@@ -242,6 +245,13 @@ export function MiddlePanel(props: Props) {
                           >
                             Verdade
                           </ContextMenuCheckboxItem>
+                          <ContextMenuItem
+                            onSelect={() =>
+                              props.openEvolutionDialog(cardIndex(), subIndex())
+                            }
+                          >
+                            Evolução
+                          </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
 

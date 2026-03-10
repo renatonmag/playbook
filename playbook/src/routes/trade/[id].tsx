@@ -16,6 +16,7 @@ import { orpc } from "~/lib/orpc";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 import { ImageDialog } from "~/components/trade/ImageDialog";
 import { RefsDialog, BarRef } from "~/components/trade/RefsDialog";
+import { EvolutionDialog } from "~/components/trade/EvolutionDialog";
 import { LeftPanel } from "~/components/trade/LeftPanel";
 import { MiddlePanel } from "~/components/trade/MiddlePanel";
 import { RightPanel } from "~/components/trade/RightPanel";
@@ -41,6 +42,9 @@ export default function Trade() {
     >(),
     [verdadeTarget, setVerdadeTarget] = createSignal<
       [number, number] | undefined
+    >(),
+    [evolutionDialogTarget, setEvolutionDialogTarget] = createSignal<
+      [number, number] | undefined
     >();
 
   const [refsDraft, setRefsDraft] = createStore<BarRef[]>([]);
@@ -59,6 +63,7 @@ export default function Trade() {
             id: crypto.randomUUID(),
             selectedComps: [],
             result: "",
+            setupNumber: 1,
           },
         ],
       },
@@ -178,9 +183,16 @@ export default function Trade() {
     );
   };
 
+  const nextSetupNumber = () => {
+    const all = setups.items.flatMap((c) => c.setups);
+    const max = Math.max(0, ...all.map((s, i) => s.setupNumber ?? (i + 1)));
+    return max + 1;
+  };
+
   // Add a new card with one empty sub-setup
   const addCard = () => {
     const newCardId = crypto.randomUUID();
+    const setupNumber = nextSetupNumber();
     setSetups(
       produce((draft) => {
         draft.version++;
@@ -194,6 +206,7 @@ export default function Trade() {
                 id: crypto.randomUUID(),
                 selectedComps: [],
                 result: "",
+                setupNumber,
               },
             ],
           },
@@ -206,6 +219,7 @@ export default function Trade() {
 
   // Add a sub-setup within an existing card
   const addSubSetup = (cardIndex: number) => {
+    const setupNumber = nextSetupNumber();
     setSetups(
       produce((draft) => {
         draft.items[cardIndex].setups.push({
@@ -213,6 +227,7 @@ export default function Trade() {
           id: crypto.randomUUID(),
           selectedComps: [],
           result: "",
+          setupNumber,
         });
         draft.version++;
         return draft;
@@ -409,6 +424,25 @@ export default function Trade() {
       const v = verdadeTarget();
       if (v && v[0] === cardIdx && v[1] === subIdx) setVerdadeTarget(undefined);
     }
+  };
+
+  const openEvolutionDialog = (cardIdx: number, subIdx: number) => {
+    setEvolutionDialogTarget([cardIdx, subIdx]);
+  };
+
+  const setEvolution = (
+    cardIdx: number,
+    subIdx: number,
+    evolution: number | undefined,
+  ) => {
+    setSetups(
+      produce((draft) => {
+        (draft.items[cardIdx].setups[subIdx] as any).evolution = evolution;
+        draft.items[cardIdx].setups[subIdx].version++;
+        draft.version++;
+        return draft;
+      }),
+    );
   };
 
   const addTruthComp = (id: number) => {
@@ -626,6 +660,30 @@ export default function Trade() {
         setRefsDraft={setRefsDraft}
         saveRefs={saveRefs}
       />
+      <EvolutionDialog
+        open={evolutionDialogTarget() !== undefined}
+        onClose={() => setEvolutionDialogTarget(undefined)}
+        setupNumbers={(() => {
+          const target = evolutionDialogTarget();
+          if (!target) return [];
+          const allSetups = setups.items.flatMap((c) => c.setups);
+          const currentSetup = setups.items[target[0]]?.setups[target[1]];
+          const currentId = (currentSetup as any)?.id;
+          return allSetups
+            .map((s, i) => (s as any).setupNumber ?? (i + 1))
+            .filter((_, i) => (allSetups[i] as any).id !== currentId);
+        })()}
+        currentEvolution={(() => {
+          const target = evolutionDialogTarget();
+          if (!target) return undefined;
+          return (setups.items[target[0]]?.setups[target[1]] as any)?.evolution;
+        })()}
+        onConfirm={(num) => {
+          const target = evolutionDialogTarget();
+          if (!target) return;
+          setEvolution(target[0], target[1], num);
+        }}
+      />
       <LeftPanel
         filteredItems={filteredItems}
         search={search}
@@ -672,6 +730,7 @@ export default function Trade() {
         setSelectedSheetId={setSelectedSheetId}
         loadComponent={actions.loadComponent}
         setShowItem={setShowItem}
+        openEvolutionDialog={openEvolutionDialog}
       />
       <RightPanel component={component} showItem={showItem} html={html} />
     </main>

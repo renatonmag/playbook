@@ -48,6 +48,8 @@ export type Setup2 = {
   selectedComps: SelectedComp[];
   result: string;
   images?: { uri: string; key: string }[];
+  setupNumber?: number;
+  evolution?: number;
 };
 
 export const strategyTable = pgTable(
