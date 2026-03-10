@@ -85,9 +85,7 @@ export default function Home() {
     if (strategyId !== null)
       items = items.filter((c) => c.strategyId === strategyId);
     if (query)
-      items = items.filter((item) =>
-        item.title.toLowerCase().includes(query),
-      );
+      items = items.filter((item) => item.title.toLowerCase().includes(query));
     return items;
   });
 
@@ -166,7 +164,7 @@ export default function Home() {
                   {(strategy) => (
                     <button
                       onClick={() => selectStrategy(strategy.id)}
-                      class={`px-3 py-1 rounded-full text-sm font-medium border transition-colors ${
+                      class={`px-3 py-1 rounded-md text-sm font-medium border transition-colors ${
                         selectedStrategyId() === strategy.id
                           ? "bg-primary text-primary-foreground border-primary"
                           : "border-input hover:bg-accent hover:text-accent-foreground"

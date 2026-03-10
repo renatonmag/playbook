@@ -36,9 +36,8 @@ export function DialogAddStrategy() {
 
   return (
     <Dialog>
-      <DialogTrigger as={Button<"button">} variant="outline" size="sm">
+      <DialogTrigger as={Button<"button">} variant="outline" size="icon">
         <div class="flex items-center gap-2">
-          <div>Adicionar estratégia</div>
           <PlusIcon class="w-3 h-3" />
         </div>
       </DialogTrigger>
