@@ -100,7 +100,7 @@ export function MiddlePanel(props: Props) {
 
   return (
     <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
-      <div class="flex gap-2 items-center overflow-x-auto px-2 ">
+      <div class="flex gap-2 items-center overflow-x-auto px-2 shrink-0">
         <For each={props.assets()}>
           {(asset) => (
             <Button
