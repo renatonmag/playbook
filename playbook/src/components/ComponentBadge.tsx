@@ -24,24 +24,24 @@ export const ComponentBadge = (props: {
   addSelectedComps?: any;
   addDetails?: any;
   addContext?: any;
-  removeComps?: (componentId: number) => void;
+  removeComps?: (instanceId: string) => void;
   selectedSetup?: any;
   tagComponent?: any;
   untagComponent?: any;
   taggedComp?: any;
-  removeDetails?: (componentId: number, detailId: number) => void;
-  copyToActiveSetup?: (componentId: number) => void;
+  removeDetails?: (instanceId: string, detailId: number) => void;
+  copyToActiveSetup?: (instanceId: string) => void;
   isInActiveSetup?: boolean;
-  moveComponent?: (componentId: number, direction: "left" | "right") => void;
+  moveComponent?: (instanceId: string, direction: "left" | "right") => void;
   deleteComponent?: (id: number) => void;
 }) => {
-  // taggedComp shape: [compId, cardIdx, subIdx, type]
-  const isTagged = (type: string, componentId: number) =>
+  // taggedComp shape: [instanceId, compId, cardIdx, subIdx, type]
+  const isTagged = (type: string, instanceId: string) =>
     Array.isArray(props.taggedComp) &&
-    props.taggedComp[0] === componentId &&
-    props.taggedComp[1] === props.cardIndex &&
-    props.taggedComp[2] === props.subIndex &&
-    props.taggedComp[3] === type;
+    props.taggedComp[0] === instanceId &&
+    props.taggedComp[2] === props.cardIndex &&
+    props.taggedComp[3] === props.subIndex &&
+    props.taggedComp[4] === type;
 
   if (props.location === "lists")
     return (
@@ -97,16 +97,17 @@ export const ComponentBadge = (props: {
                 "cursor-pointer": true,
                 "outline outline-2 outline-offset-2 outline-gray-700": isTagged(
                   "main-component",
-                  props.component.component.id,
+                  props.component.instanceId,
                 ),
               }}
               onMouseDown={(e) => {
                 if (e.button === 2) return;
                 props.loadComponent(props.component.component.id);
                 props.setShowItem(props.component.component.id);
-                if (isTagged("main-component", props.component.component.id))
+                if (isTagged("main-component", props.component.instanceId))
                   return props.untagComponent();
                 props.tagComponent(
+                  props.component.instanceId,
                   props.component.component.id,
                   props.cardIndex,
                   props.subIndex,
@@ -128,7 +129,7 @@ export const ComponentBadge = (props: {
                 </ContextMenuItem>
                 <ContextMenuItem
                   onMouseDown={() => {
-                    props.removeComps?.(props.component.component.id);
+                    props.removeComps?.(props.component.instanceId);
                   }}
                 >
                   <span>Remover</span>
@@ -136,7 +137,7 @@ export const ComponentBadge = (props: {
                 {props.copyToActiveSetup && !props.isInActiveSetup && (
                   <ContextMenuItem
                     onMouseDown={() =>
-                      props.copyToActiveSetup!(props.component.component.id)
+                      props.copyToActiveSetup!(props.component.instanceId)
                     }
                   >
                     <span>Copiar para setup ativo</span>
@@ -148,7 +149,7 @@ export const ComponentBadge = (props: {
                     <ContextMenuItem
                       onMouseDown={() =>
                         props.moveComponent!(
-                          props.component.component.id,
+                          props.component.instanceId,
                           "left",
                         )
                       }
@@ -159,7 +160,7 @@ export const ComponentBadge = (props: {
                     <ContextMenuItem
                       onMouseDown={() =>
                         props.moveComponent!(
-                          props.component.component.id,
+                          props.component.instanceId,
                           "right",
                         )
                       }
@@ -199,7 +200,7 @@ export const ComponentBadge = (props: {
                     <ContextMenuItem
                       onMouseDown={() => {
                         props.removeDetails?.(
-                          props.component.component.id,
+                          props.component.instanceId,
                           detail.id,
                         );
                       }}

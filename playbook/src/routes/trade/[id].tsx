@@ -33,7 +33,7 @@ export default function Trade() {
       [number, number] | undefined
     >(),
     [taggedComps, setTaggedComps] = createSignal<
-      [number, number, number, string] | undefined
+      [string, number, number, number, string] | undefined
     >(),
     [showItem, setShowItem] = createSignal<string>(""),
     [search, setSearch] = createSignal(""),
@@ -99,6 +99,12 @@ export default function Trade() {
     if (stratIds.length === 0) setShowStrategiesDialog(true);
 
     const raw: any[] = _setups.setups2;
+    for (const s of raw) {
+      for (const sc of s.selectedComps ?? [])
+        if (!sc.instanceId) sc.instanceId = crypto.randomUUID();
+      for (const tc of (s as any).truth ?? [])
+        if (!tc.instanceId) tc.instanceId = crypto.randomUUID();
+    }
     const grouped = new Map<string, Setup2[]>();
     for (const s of raw) {
       const key = s.cardId ?? s.id; // backward compat: old data each Setup2 is its own card
@@ -265,33 +271,28 @@ export default function Trade() {
       alert("Selecione um setup");
       return;
     }
-    if (
-      setups.items[cardIdx].setups[subIdx].selectedComps.findIndex(
-        (c) => c.component === id,
-      ) !== -1
-    )
-      return;
+    const newInstanceId = crypto.randomUUID();
     setSetups(
       produce((draft) => {
         const setup = draft.items[cardIdx].setups[subIdx];
         setup.selectedComps = [
           ...setup.selectedComps,
-          { component: id, details: [] },
+          { component: id, details: [], instanceId: newInstanceId },
         ];
         setup.version++;
         draft.version++;
         return draft;
       }),
     );
-    setTaggedComps([id, cardIdx, subIdx, "main-component"]);
+    setTaggedComps([newInstanceId, id, cardIdx, subIdx, "main-component"]);
   };
 
-  const removeSelectedComps = (cardIdx: number, subIdx: number, id: number) => {
+  const removeSelectedComps = (cardIdx: number, subIdx: number, instanceId: string) => {
     setSetups(
       produce((draft) => {
         const setup = draft.items[cardIdx].setups[subIdx];
         setup.selectedComps = setup.selectedComps.filter(
-          (e) => e.component !== id,
+          (e) => e.instanceId !== instanceId,
         );
         setup.version++;
         draft.version++;
@@ -305,22 +306,22 @@ export default function Trade() {
   const addDetails = (insertId: number) => {
     const tagged = taggedComps();
     if (!tagged) return;
-    const [componentId, cardIdx, subIdx] = tagged;
+    const [instanceId, , cardIdx, subIdx] = tagged;
     const truth: any[] =
       (setups.items[cardIdx].setups[subIdx] as any).truth ?? [];
-    const isInTruth = truth.some((c: any) => c.component === componentId);
+    const isInTruth = truth.some((c: any) => c.instanceId === instanceId);
     setSetups(
       produce((draft) => {
         const s = draft.items[cardIdx].setups[subIdx] as any;
         if (isInTruth) {
           const comp = (s.truth ?? []).find(
-            (c: any) => c.component === componentId,
+            (c: any) => c.instanceId === instanceId,
           );
           if (!comp) return;
           comp.details = [...(comp.details ?? []), insertId];
         } else {
           const comp = s.selectedComps.find(
-            (e: any) => e.component === componentId,
+            (e: any) => e.instanceId === instanceId,
           );
           if (!comp) return;
           comp.details = [...comp.details, insertId];
@@ -335,14 +336,14 @@ export default function Trade() {
   const removeDetails = (
     cardIdx: number,
     subIdx: number,
-    componentId: number,
+    instanceId: string,
     detailId: number,
   ) => {
     setSetups(
       produce((draft) => {
         const setup = draft.items[cardIdx].setups[subIdx];
         const component = setup.selectedComps.find(
-          (e) => e.component === componentId,
+          (e) => e.instanceId === instanceId,
         );
         if (!component) return;
         component.details = component.details.filter((e) => e !== detailId);
@@ -456,22 +457,21 @@ export default function Trade() {
     const [cardIdx, subIdx] = target;
     const truth: any[] =
       (setups.items[cardIdx].setups[subIdx] as any).truth ?? [];
-    if (truth.some((c: any) => c.component === id)) return;
     setSetups(
       produce((draft) => {
         const s = draft.items[cardIdx].setups[subIdx] as any;
-        s.truth = [...(s.truth ?? []), { component: id, details: [] }];
+        s.truth = [...(s.truth ?? []), { component: id, details: [], instanceId: crypto.randomUUID() }];
         draft.version++;
         return draft;
       }),
     );
   };
 
-  const removeTruthComp = (cardIdx: number, subIdx: number, id: number) => {
+  const removeTruthComp = (cardIdx: number, subIdx: number, instanceId: string) => {
     setSetups(
       produce((draft) => {
         const s = draft.items[cardIdx].setups[subIdx] as any;
-        s.truth = (s.truth ?? []).filter((c: any) => c.component !== id);
+        s.truth = (s.truth ?? []).filter((c: any) => c.instanceId !== instanceId);
         draft.version++;
         return draft;
       }),
@@ -481,14 +481,14 @@ export default function Trade() {
   const removeTruthDetail = (
     cardIdx: number,
     subIdx: number,
-    componentId: number,
+    instanceId: string,
     detailId: number,
   ) => {
     setSetups(
       produce((draft) => {
         const s = draft.items[cardIdx].setups[subIdx] as any;
         const comp = (s.truth ?? []).find(
-          (c: any) => c.component === componentId,
+          (c: any) => c.instanceId === instanceId,
         );
         if (!comp) return;
         comp.details = (comp.details ?? []).filter(
@@ -503,14 +503,14 @@ export default function Trade() {
   const moveComponent = (
     cardIdx: number,
     subIdx: number,
-    componentId: number,
+    instanceId: string,
     direction: "left" | "right",
   ) => {
     setSetups(
       produce((draft) => {
         const setup = draft.items[cardIdx].setups[subIdx];
         const idx = setup.selectedComps.findIndex(
-          (c) => c.component === componentId,
+          (c) => c.instanceId === instanceId,
         );
         if (idx === -1) return draft;
         const newIdx = direction === "left" ? idx - 1 : idx + 1;
@@ -529,7 +529,7 @@ export default function Trade() {
   const copyComponentToSetup = (
     srcCard: number,
     srcSub: number,
-    componentId: number,
+    instanceId: string,
   ) => {
     const target = selectedSetup();
     if (!target) return;
@@ -537,16 +537,9 @@ export default function Trade() {
     if (targetCard === srcCard && targetSub === srcSub) return;
 
     const sourceComp = setups.items[srcCard].setups[srcSub].selectedComps.find(
-      (c) => c.component === componentId,
+      (c) => c.instanceId === instanceId,
     );
     if (!sourceComp) return;
-
-    if (
-      setups.items[targetCard].setups[targetSub].selectedComps.some(
-        (c) => c.component === componentId,
-      )
-    )
-      return;
 
     setSetups(
       produce((draft) => {
@@ -556,6 +549,7 @@ export default function Trade() {
           {
             component: sourceComp.component,
             details: [...sourceComp.details],
+            instanceId: crypto.randomUUID(),
           },
         ];
         tgt.version++;
@@ -566,12 +560,13 @@ export default function Trade() {
   };
 
   const tagComponent = (
+    instanceId: string,
     id: number,
     cardIdx: number,
     subIdx: number,
     type: string,
   ) => {
-    setTaggedComps([id, cardIdx, subIdx, type]);
+    setTaggedComps([instanceId, id, cardIdx, subIdx, type]);
   };
 
   const untagComponent = () => {
@@ -583,11 +578,11 @@ export default function Trade() {
     const tagged = taggedComps();
     if (!tagged) return;
     e.preventDefault();
-    const [componentId, cardIdx, subIdx] = tagged;
+    const [instanceId, , cardIdx, subIdx] = tagged;
     moveComponent(
       cardIdx,
       subIdx,
-      componentId,
+      instanceId,
       e.key === "ArrowLeft" ? "left" : "right",
     );
   };

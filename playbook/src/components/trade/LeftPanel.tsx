@@ -25,7 +25,7 @@ type Props = {
   addDetails: (insertId: number) => void;
   addContext: (cardIdx: number, subIdx: number, id: number) => void;
   removeComps: (id: number) => void;
-  taggedComps: () => [number, number, number, string] | undefined;
+  taggedComps: () => [string, number, number, number, string] | undefined;
   componentsData: any;
   onManageStrategies: () => void;
 };
@@ -34,7 +34,7 @@ export function LeftPanel(props: Props) {
   const taggedComponent = createMemo(() => {
     const tagged = props.taggedComps();
     if (!tagged) return undefined;
-    return props.componentsData?.find((c: any) => c.id === tagged[0]);
+    return props.componentsData?.find((c: any) => c.id === tagged[1]);
   });
 
   const associatedDetails = createMemo(() => {

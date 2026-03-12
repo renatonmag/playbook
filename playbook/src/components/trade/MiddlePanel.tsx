@@ -35,7 +35,7 @@ type Props = {
   setups: { version: number; items: SetupCard[] };
   selectedSetup: () => [number, number] | undefined;
   setSelectedSetup: (val: [number, number] | undefined) => void;
-  taggedComps: () => [number, number, number, string] | undefined;
+  taggedComps: () => [string, number, number, number, string] | undefined;
   verdadeTarget: () => [number, number] | undefined;
   componentsData: any;
   isActiveSetup: (cardIdx: number, subIdx: number) => boolean;
@@ -46,21 +46,22 @@ type Props = {
   setResult: (cardIdx: number, subIdx: number, result: string) => void;
   openRefsDialog: (cardIdx: number, subIdx: number) => void;
   toggleVerdade: (cardIdx: number, subIdx: number) => void;
-  removeSelectedComps: (cardIdx: number, subIdx: number, id: number) => void;
+  removeSelectedComps: (cardIdx: number, subIdx: number, instanceId: string) => void;
   removeDetails: (
     cardIdx: number,
     subIdx: number,
-    compId: number,
+    instanceId: string,
     detailId: number,
   ) => void;
-  removeTruthComp: (cardIdx: number, subIdx: number, id: number) => void;
+  removeTruthComp: (cardIdx: number, subIdx: number, instanceId: string) => void;
   removeTruthDetail: (
     cardIdx: number,
     subIdx: number,
-    compId: number,
+    instanceId: string,
     detailId: number,
   ) => void;
   tagComponent: (
+    instanceId: string,
     id: number,
     cardIdx: number,
     subIdx: number,
@@ -70,12 +71,12 @@ type Props = {
   copyComponentToSetup: (
     srcCard: number,
     srcSub: number,
-    componentId: number,
+    instanceId: string,
   ) => void;
   moveComponent: (
     cardIdx: number,
     subIdx: number,
-    componentId: number,
+    instanceId: string,
     direction: "left" | "right",
   ) => void;
   setSelectedSheetId: (val: [number, number] | undefined) => void;
@@ -348,41 +349,41 @@ export function MiddlePanel(props: Props) {
                                 subIndex={subIndex()}
                                 loadComponent={props.loadComponent}
                                 setShowItem={props.setShowItem}
-                                removeComps={(id) =>
+                                removeComps={(instanceId) =>
                                   props.removeSelectedComps(
                                     cardIndex(),
                                     subIndex(),
-                                    id,
+                                    instanceId,
                                   )
                                 }
                                 selectedSetup={props.selectedSetup}
                                 tagComponent={props.tagComponent}
                                 untagComponent={props.untagComponent}
                                 taggedComp={props.taggedComps()}
-                                removeDetails={(compId, detailId) =>
+                                removeDetails={(instanceId, detailId) =>
                                   props.removeDetails(
                                     cardIndex(),
                                     subIndex(),
-                                    compId,
+                                    instanceId,
                                     detailId,
                                   )
                                 }
-                                copyToActiveSetup={(componentId) =>
+                                copyToActiveSetup={(instanceId) =>
                                   props.copyComponentToSetup(
                                     cardIndex(),
                                     subIndex(),
-                                    componentId,
+                                    instanceId,
                                   )
                                 }
                                 isInActiveSetup={props.isActiveSetup(
                                   cardIndex(),
                                   subIndex(),
                                 )}
-                                moveComponent={(componentId, direction) =>
+                                moveComponent={(instanceId, direction) =>
                                   props.moveComponent(
                                     cardIndex(),
                                     subIndex(),
-                                    componentId,
+                                    instanceId,
                                     direction,
                                   )
                                 }
@@ -414,22 +415,22 @@ export function MiddlePanel(props: Props) {
                                     subIndex={subIndex()}
                                     loadComponent={props.loadComponent}
                                     setShowItem={props.setShowItem}
-                                    removeComps={(id) =>
+                                    removeComps={(instanceId) =>
                                       props.removeTruthComp(
                                         cardIndex(),
                                         subIndex(),
-                                        id,
+                                        instanceId,
                                       )
                                     }
                                     selectedSetup={props.verdadeTarget}
                                     tagComponent={props.tagComponent}
                                     untagComponent={props.untagComponent}
                                     taggedComp={props.taggedComps()}
-                                    removeDetails={(compId, detailId) =>
+                                    removeDetails={(instanceId, detailId) =>
                                       props.removeTruthDetail(
                                         cardIndex(),
                                         subIndex(),
-                                        compId,
+                                        instanceId,
                                         detailId,
                                       )
                                     }

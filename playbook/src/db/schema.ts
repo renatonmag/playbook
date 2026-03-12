@@ -41,6 +41,7 @@ export type Setup = {
 export type SelectedComp = {
   component: number;
   details: number[];
+  instanceId: string;
 };
 export type Setup2 = {
   version: number;
