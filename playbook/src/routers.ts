@@ -93,7 +93,6 @@ export const listComponentsByUser = authed
   .handler(async ({ context }) => {
     try {
       const components = await _listComponentsByUser(context.user.id);
-      console.log("components");
       return components;
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : "Database error");
@@ -261,9 +260,7 @@ const listTradeSessions = authed
   })
   .handler(async ({ context, input }) => {
     try {
-      console.log("sessions 1");
       const sessions = await listSetupsRowsByUser(context.user.id);
-      console.log("sessions 2");
       return sessions;
     } catch (err) {
       console.log("sessions err", err);
@@ -281,13 +278,19 @@ const getTradeSessionById = authed
 
 const createStrategy = authed
   .route({ method: "POST", path: "/strategies" })
-  .input(z.object({ name: z.string().trim().min(1), description: z.string().optional() }))
+  .input(
+    z.object({
+      name: z.string().trim().min(1),
+      description: z.string().optional(),
+    }),
+  )
   .handler(async ({ context, input }) => {
     try {
       const row = await _createStrategy({ userId: context.user.id, ...input });
       return row;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Internal server error";
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
       console.error("POST /api/strategies", message);
       throw new ORPCError("CONFLICT", { message });
     }
@@ -313,13 +316,21 @@ const getStrategyById = authed
       return row;
     } catch (err) {
       console.error(`GET /api/strategies/${input.id}`, err);
-      throw new Error(err instanceof Error ? err.message : "Internal server error");
+      throw new Error(
+        err instanceof Error ? err.message : "Internal server error",
+      );
     }
   });
 
 const updateStrategy = authed
   .route({ method: "PUT", path: "/strategies/:id" })
-  .input(z.object({ id: z.number(), name: z.string().trim().min(1).optional(), description: z.string().optional() }))
+  .input(
+    z.object({
+      id: z.number(),
+      name: z.string().trim().min(1).optional(),
+      description: z.string().optional(),
+    }),
+  )
   .handler(async ({ context, input }) => {
     const { id, ...data } = input;
     try {
@@ -328,7 +339,9 @@ const updateStrategy = authed
       return row;
     } catch (err) {
       console.error(`PUT /api/strategies/${input.id}`, err);
-      throw new Error(err instanceof Error ? err.message : "Internal server error");
+      throw new Error(
+        err instanceof Error ? err.message : "Internal server error",
+      );
     }
   });
 
@@ -342,7 +355,9 @@ const removeStrategy = authed
       return row;
     } catch (err) {
       console.error(`DELETE /api/strategies/${input.id}`, err);
-      throw new Error(err instanceof Error ? err.message : "Internal server error");
+      throw new Error(
+        err instanceof Error ? err.message : "Internal server error",
+      );
     }
   });
 
@@ -351,12 +366,18 @@ const updateTradeStrategies = authed
   .input(z.object({ id: z.number(), strategies: z.array(z.number()) }))
   .handler(async ({ context, input }) => {
     try {
-      const row = await _updateStrategies(input.id, context.user.id, input.strategies);
+      const row = await _updateStrategies(
+        input.id,
+        context.user.id,
+        input.strategies,
+      );
       if (!row) throw new Error("Session not found");
       return row;
     } catch (err) {
       console.error(`PUT /api/trades/${input.id}/strategies`, err);
-      throw new Error(err instanceof Error ? err.message : "Internal server error");
+      throw new Error(
+        err instanceof Error ? err.message : "Internal server error",
+      );
     }
   });
 

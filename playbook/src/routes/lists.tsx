@@ -81,9 +81,9 @@ export default function Home() {
   const filteredItems = createMemo(() => {
     const strategyId = selectedStrategyId();
     const query = search().toLowerCase();
+    if (strategyId === null) return [];
     let items = componentsList.data ?? [];
-    if (strategyId !== null)
-      items = items.filter((c) => c.strategyId === strategyId);
+    items = items.filter((c) => c.strategyId === strategyId);
     if (query)
       items = items.filter((item) => item.title.toLowerCase().includes(query));
     return items;

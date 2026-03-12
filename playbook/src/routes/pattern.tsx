@@ -168,7 +168,7 @@ export default function Home() {
   const availableDetails = createMemo(
     () =>
       componentsList.data
-        ?.filter((c) => c.kind === "detail")
+        ?.filter((c) => c.strategyId === component()?.strategyId)
         .map((c) => ({ id: c.id, title: c.title })) ?? [],
   );
 
@@ -195,7 +195,6 @@ export default function Home() {
     if (!title) return;
     const newComp = await actions.createComponent.mutateAsync({
       title,
-      kind: "detail",
       strategyId: component()?.strategyId,
     });
     if (newComp?.id) await addDetail(newComp.id);

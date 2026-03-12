@@ -9,9 +9,9 @@ import {
 } from "solid-js";
 import { parseMarkdown } from "~/lib/parseMarkdown";
 import { useStore } from "~/store/storeContext";
-import { useParams } from "@solidjs/router";
+import { useParams, type RouteDefinition } from "@solidjs/router";
 import { Setup2 } from "~/db/schema";
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { client, orpc } from "~/lib/orpc";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 import { ImageDialog } from "~/components/trade/ImageDialog";
@@ -23,6 +23,19 @@ import { RightPanel } from "~/components/trade/RightPanel";
 import { DialogSessionStrategies } from "~/components/DialogSessionStrategies";
 
 type SetupCard = { id: string; setups: Setup2[] };
+
+export const route = {
+  preload({ params }) {
+    const queryClient = useQueryClient();
+    const id = Number(params.id);
+    if (!isNaN(id)) {
+      queryClient.prefetchQuery({
+        queryKey: ["trade", "session", params.id],
+        queryFn: () => client.trade.getById({ id }),
+      });
+    }
+  },
+} satisfies RouteDefinition;
 
 export default function Trade() {
   const [store, actions] = useStore(),
@@ -289,7 +302,11 @@ export default function Trade() {
     setTaggedComps([newInstanceId, id, cardIdx, subIdx, "main-component"]);
   };
 
-  const removeSelectedComps = (cardIdx: number, subIdx: number, instanceId: string) => {
+  const removeSelectedComps = (
+    cardIdx: number,
+    subIdx: number,
+    instanceId: string,
+  ) => {
     setSetups(
       produce((draft) => {
         const setup = draft.items[cardIdx].setups[subIdx];
@@ -462,18 +479,27 @@ export default function Trade() {
     setSetups(
       produce((draft) => {
         const s = draft.items[cardIdx].setups[subIdx] as any;
-        s.truth = [...(s.truth ?? []), { component: id, details: [], instanceId: crypto.randomUUID() }];
+        s.truth = [
+          ...(s.truth ?? []),
+          { component: id, details: [], instanceId: crypto.randomUUID() },
+        ];
         draft.version++;
         return draft;
       }),
     );
   };
 
-  const removeTruthComp = (cardIdx: number, subIdx: number, instanceId: string) => {
+  const removeTruthComp = (
+    cardIdx: number,
+    subIdx: number,
+    instanceId: string,
+  ) => {
     setSetups(
       produce((draft) => {
         const s = draft.items[cardIdx].setups[subIdx] as any;
-        s.truth = (s.truth ?? []).filter((c: any) => c.instanceId !== instanceId);
+        s.truth = (s.truth ?? []).filter(
+          (c: any) => c.instanceId !== instanceId,
+        );
         draft.version++;
         return draft;
       }),
