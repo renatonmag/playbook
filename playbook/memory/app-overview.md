@@ -76,8 +76,14 @@ Uses **better-auth** with email/password strategy.
 - **Setup Card** — A container holding one or more sub-setups for the same trade event.
 - **Sub-Setup** — One scenario within a card. Multiple sub-setups allow exploring "what if" alternatives concurrently.
 - **Verdade (Truth)** — After the fact annotation: which patterns actually played out, independent of what was anticipated in the setup.
-- **Bar Reference** — Anchors a sub-setup to a specific timeframe and bar range (e.g. `h1 b3..7`) for chart replay review.
+- **Bar Reference** — Anchors a sub-setup to a specific timeframe and bar range (e.g. `h1 b3..7`) for chart replay review. Each setup has its own bar reference.
 - **Detail** — A child pattern attached to a component inside a setup, adding specificity (e.g. "Bull Flag" → "High Volume Breakout").
+- **Image sequences on setups** — A sequence of images can be attached directly to a setup (not just to patterns).
+- **Copy component to setup** — A component/pattern from the library can be copied directly into the currently selected setup.
+- **Ctrl+arrow navigation** — Keyboard shortcut (`Ctrl+Left` / `Ctrl+Right`) navigates to the previous/next setup within a card.
+- **Multiple setups per card** — A card can contain multiple independent setups (not just sub-setups as "what if" scenarios).
+- **Evolution tracking** — A setup can reference a previous setup to track how a trade scenario evolves over time.
+- **Multi-asset tabs** — The UI supports tabs for managing and viewing multiple assets simultaneously.
 
 ## Key Components
 
