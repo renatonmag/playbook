@@ -11,6 +11,7 @@ import {
   updateSetupsRow as _updateSetups,
   createSetupsRow as _createSetups,
   listSetupsRowsByUser,
+  getSetupsRowById,
   updateSetupsRowStrategies as _updateStrategies,
 } from "~/db/queries/setupsCRUD";
 import {
@@ -270,6 +271,14 @@ const listTradeSessions = authed
     }
   });
 
+const getTradeSessionById = authed
+  .input(z.object({ id: z.number() }))
+  .handler(async ({ context, input }) => {
+    const row = await getSetupsRowById(input.id, context.user.id);
+    if (!row) throw new ORPCError("NOT_FOUND");
+    return row;
+  });
+
 const createStrategy = authed
   .route({ method: "POST", path: "/strategies" })
   .input(z.object({ name: z.string().trim().min(1), description: z.string().optional() }))
@@ -364,6 +373,7 @@ export const router = {
     update: updateTrades,
     updateStrategies: updateTradeStrategies,
     listByUser: listTradeSessions,
+    getById: getTradeSessionById,
   },
   strategy: {
     create: createStrategy,

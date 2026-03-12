@@ -12,7 +12,7 @@ import { useStore } from "~/store/storeContext";
 import { useParams } from "@solidjs/router";
 import { Setup2 } from "~/db/schema";
 import { useQuery } from "@tanstack/solid-query";
-import { orpc } from "~/lib/orpc";
+import { client, orpc } from "~/lib/orpc";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 import { ImageDialog } from "~/components/trade/ImageDialog";
 import { RefsDialog, BarRef } from "~/components/trade/RefsDialog";
@@ -77,7 +77,11 @@ export default function Trade() {
   const [assets, setAssets] = createSignal<string[]>([]);
   const [selectedAsset, setSelectedAsset] = createSignal<string | undefined>();
 
-  const sessionsQuery = useQuery(() => orpc.trade.listByUser.queryOptions({}));
+  const sessionQuery = useQuery(() => ({
+    queryKey: ["trade", "session", params.id],
+    queryFn: () => client.trade.getById({ id: Number(params.id) }),
+    enabled: !!params.id,
+  }));
 
   const componentsList = useQuery(() =>
     orpc.component.listByUser.queryOptions({}),
@@ -89,9 +93,7 @@ export default function Trade() {
 
   // Load: group raw Setup2[] by cardId, and load session strategies
   createEffect(() => {
-    const _setups = sessionsQuery.data?.find(
-      (e: any) => e.id === Number(params.id),
-    );
+    const _setups = sessionQuery.data;
     if (!_setups?.setups2) return;
 
     const stratIds: number[] = (_setups as any).strategies ?? [];
@@ -628,6 +630,22 @@ export default function Trade() {
     });
   };
 
+  const evolutionSetupNumbers = createMemo(() => {
+    const target = evolutionDialogTarget();
+    if (!target) return [];
+    const allSetups = setups.items.flatMap((c) => c.setups);
+    const currentId = (setups.items[target[0]]?.setups[target[1]] as any)?.id;
+    return allSetups
+      .map((s, i) => (s as any).setupNumber ?? i + 1)
+      .filter((_, i) => (allSetups[i] as any).id !== currentId);
+  });
+
+  const evolutionCurrent = createMemo(() => {
+    const target = evolutionDialogTarget();
+    if (!target) return undefined;
+    return (setups.items[target[0]]?.setups[target[1]] as any)?.evolution;
+  });
+
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-1.5 gap-1">
       <DialogSessionStrategies
@@ -672,21 +690,8 @@ export default function Trade() {
       <EvolutionDialog
         open={evolutionDialogTarget() !== undefined}
         onClose={() => setEvolutionDialogTarget(undefined)}
-        setupNumbers={(() => {
-          const target = evolutionDialogTarget();
-          if (!target) return [];
-          const allSetups = setups.items.flatMap((c) => c.setups);
-          const currentSetup = setups.items[target[0]]?.setups[target[1]];
-          const currentId = (currentSetup as any)?.id;
-          return allSetups
-            .map((s, i) => (s as any).setupNumber ?? i + 1)
-            .filter((_, i) => (allSetups[i] as any).id !== currentId);
-        })()}
-        currentEvolution={(() => {
-          const target = evolutionDialogTarget();
-          if (!target) return undefined;
-          return (setups.items[target[0]]?.setups[target[1]] as any)?.evolution;
-        })()}
+        setupNumbers={evolutionSetupNumbers()}
+        currentEvolution={evolutionCurrent()}
         onConfirm={(num) => {
           const target = evolutionDialogTarget();
           if (!target) return;
