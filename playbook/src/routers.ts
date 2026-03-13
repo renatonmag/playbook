@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { authed } from "./orpc";
+import { authed, pub } from "./orpc";
 import {
   createComponent as _createComponent,
   listComponentsByUser as _listComponentsByUser,
@@ -13,6 +13,10 @@ import {
   listSetupsRowsByUser,
   getSetupsRowById,
   updateSetupsRowStrategies as _updateStrategies,
+  getSetupsRowByShareToken,
+  enableSessionSharing,
+  disableSessionSharing,
+  getComponentsByIds,
 } from "~/db/queries/setupsCRUD";
 import {
   createStrategy as _createStrategy,
@@ -381,6 +385,46 @@ const updateTradeStrategies = authed
     }
   });
 
+const getSessionByShareToken = pub
+  .input(z.object({ token: z.string().uuid() }))
+  .handler(async ({ input }) => {
+    const row = await getSetupsRowByShareToken(input.token);
+    if (!row) throw new ORPCError("NOT_FOUND");
+
+    // Collect all component IDs referenced in setups2
+    const compIds = new Set<number>();
+    for (const setup of row.setups2 ?? []) {
+      for (const sc of setup.selectedComps ?? []) {
+        compIds.add(sc.component);
+        for (const d of (sc as any).details ?? []) compIds.add(d);
+      }
+      for (const tc of (setup as any).truth ?? []) {
+        compIds.add(tc.component);
+        for (const d of (tc as any).details ?? []) compIds.add(d);
+      }
+    }
+
+    const components = await getComponentsByIds([...compIds]);
+
+    return {
+      id: row.id,
+      setups2: row.setups2,
+      strategies: row.strategies,
+      createdAt: row.createdAt,
+      components,
+    };
+  });
+
+const toggleSessionShare = authed
+  .input(z.object({ id: z.number(), enable: z.boolean() }))
+  .handler(async ({ context, input }) => {
+    const row = input.enable
+      ? await enableSessionSharing(input.id, String(context.user.id))
+      : await disableSessionSharing(input.id, String(context.user.id));
+    if (!row) throw new ORPCError("NOT_FOUND");
+    return { shareToken: row.shareToken, isShared: row.isShared };
+  });
+
 export const router = {
   component: {
     listByUser: listComponentsByUser,
@@ -395,6 +439,8 @@ export const router = {
     updateStrategies: updateTradeStrategies,
     listByUser: listTradeSessions,
     getById: getTradeSessionById,
+    getByShareToken: getSessionByShareToken,
+    toggleShare: toggleSessionShare,
   },
   strategy: {
     create: createStrategy,

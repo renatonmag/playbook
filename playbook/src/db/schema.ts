@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  boolean,
   integer,
   jsonb,
   pgTable,
@@ -105,6 +106,8 @@ export const setupsTable = pgTable("setups", {
   setups: jsonb("setups").$type<Setup[]>().notNull().default([]),
   setups2: jsonb("setups2").$type<Setup2[]>().notNull().default([]),
   strategies: jsonb("strategies").$type<number[]>().notNull().default([]),
+  shareToken: text("share_token").unique(),
+  isShared: boolean("is_shared").notNull().default(false),
 });
 
 export const imagesTable = pgTable("images", {

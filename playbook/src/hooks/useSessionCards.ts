@@ -10,7 +10,7 @@ import type { Setup2 } from "~/db/schema";
 
 export type SetupCard = { id: string; setups: (Setup2 & { [key: string]: any })[] };
 
-function groupByCardId(raw: any[]): SetupCard[] {
+export function groupByCardId(raw: any[]): SetupCard[] {
   const grouped = new Map<string, any[]>();
   for (const s of raw) {
     const copy = {

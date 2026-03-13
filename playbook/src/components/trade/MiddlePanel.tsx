@@ -85,6 +85,7 @@ type Props = {
   selectedAsset: () => string | undefined;
   setSelectedAsset: (asset: string | undefined) => void;
   addAsset: (name: string) => void;
+  readOnly?: boolean;
 };
 
 export function MiddlePanel(props: Props) {
@@ -116,32 +117,34 @@ export function MiddlePanel(props: Props) {
             </Button>
           )}
         </For>
-        <Show
-          when={addingAsset()}
-          fallback={
-            <Button
-              variant="ghost"
-              size="icon"
-              class="shrink-0"
-              onClick={() => {
-                setAddingAsset(true);
-                requestAnimationFrame(() => assetInputRef?.focus());
+        <Show when={!props.readOnly}>
+          <Show
+            when={addingAsset()}
+            fallback={
+              <Button
+                variant="ghost"
+                size="icon"
+                class="shrink-0"
+                onClick={() => {
+                  setAddingAsset(true);
+                  requestAnimationFrame(() => assetInputRef?.focus());
+                }}
+              >
+                <Plus size={16} />
+              </Button>
+            }
+          >
+            <input
+              ref={assetInputRef}
+              class="border rounded px-2 py-1 text-sm w-24 shrink-0"
+              placeholder="ATIVO"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitAsset();
+                if (e.key === "Escape") setAddingAsset(false);
               }}
-            >
-              <Plus size={16} />
-            </Button>
-          }
-        >
-          <input
-            ref={assetInputRef}
-            class="border rounded px-2 py-1 text-sm w-24 shrink-0"
-            placeholder="ATIVO"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitAsset();
-              if (e.key === "Escape") setAddingAsset(false);
-            }}
-            onBlur={commitAsset}
-          />
+              onBlur={commitAsset}
+            />
+          </Show>
         </Show>
       </div>
       <For each={props.cards()}>
@@ -172,6 +175,7 @@ export function MiddlePanel(props: Props) {
                     <div class="text-xs text-gray-400">
                       {card.setups[0]?.asset ?? "—"} · {card.id.slice(0, 6)}
                     </div>
+                    <Show when={!props.readOnly}>
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         as={Button<"button">}
@@ -254,6 +258,7 @@ export function MiddlePanel(props: Props) {
                         </DropdownMenuSub>
                       </DropdownMenuContent>
                     </DropdownMenu>
+                    </Show>
                   </div>
 
                   {/* Sub-setups rendered concurrently */}
@@ -302,6 +307,7 @@ export function MiddlePanel(props: Props) {
                               </span>
                             </Show>
                           </ContextMenuTrigger>
+                          <Show when={!props.readOnly}>
                           <ContextMenuContent class="w-36">
                             <ContextMenuItem
                               onSelect={() =>
@@ -329,6 +335,7 @@ export function MiddlePanel(props: Props) {
                               Evolução
                             </ContextMenuItem>
                           </ContextMenuContent>
+                          </Show>
                         </ContextMenu>
 
                         {/* Component badges */}
@@ -447,9 +454,11 @@ export function MiddlePanel(props: Props) {
           );
         }}
       </For>
-      <Button class="w-1/3" onMouseDown={() => props.addCard()}>
-        Adicionar card
-      </Button>
+      <Show when={!props.readOnly}>
+        <Button class="w-1/3" onMouseDown={() => props.addCard()}>
+          Adicionar card
+        </Button>
+      </Show>
     </div>
   );
 }
