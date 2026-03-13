@@ -20,7 +20,6 @@ import { DialogAddComponent } from "~/components/DialogAddComponent";
 import { Button, buttonVariants } from "~/components/ui/button";
 import SquarePen from "lucide-solid/icons/square-pen";
 import PlusIcon from "lucide-solid/icons/plus";
-import Play from "lucide-solid/icons/play";
 
 import { ImageCaroulsel } from "~/components/ImageCarousel";
 import { useStore } from "~/store/storeContext";
@@ -138,15 +137,6 @@ export default function Home() {
           "w-full": !itemSelected(),
         }}
       >
-        <Button
-          as="a"
-          class="absolute top-4 right-4"
-          href={"trade"}
-          variant="outline"
-          size="icon"
-        >
-          <Play />
-        </Button>
         <div class="flex flex-col gap-6 items-center">
           <TextField class="grid w-full max-w-lg items-center mt-4">
             <TextFieldInput

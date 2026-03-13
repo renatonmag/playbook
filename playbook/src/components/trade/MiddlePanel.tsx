@@ -24,15 +24,13 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import { Setup2 } from "~/db/schema";
 import { EllipsisVertical } from "lucide-solid/icons/index";
 import Plus from "lucide-solid/icons/plus";
 import { BarRef } from "./RefsDialog";
-
-type SetupCard = { id: string; setups: Setup2[] };
+import type { SetupCard } from "~/hooks/useSessionCards";
 
 type Props = {
-  setups: { version: number; items: SetupCard[] };
+  cards: () => SetupCard[];
   selectedSetup: () => [number, number] | undefined;
   setSelectedSetup: (val: [number, number] | undefined) => void;
   taggedComps: () => [string, number, number, number, string] | undefined;
@@ -146,7 +144,7 @@ export function MiddlePanel(props: Props) {
           />
         </Show>
       </div>
-      <For each={props.setups.items}>
+      <For each={props.cards()}>
         {(card, cardIndex) => {
           const matchesAsset = () => {
             const active = props.selectedAsset();

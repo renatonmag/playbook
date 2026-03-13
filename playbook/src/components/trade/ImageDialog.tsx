@@ -12,7 +12,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   selectedSheetId: () => [number, number] | undefined;
-  setups: { items: any[] };
+  cards: () => any[];
   addSetupImage: (
     cardIdx: number,
     subIdx: number,
@@ -37,7 +37,7 @@ export function ImageDialog(props: Props) {
           <Show
             when={
               ((
-                props.setups.items[props.selectedSheetId()![0]]?.setups[
+                props.cards()[props.selectedSheetId()![0]]?.setups[
                   props.selectedSheetId()![1]
                 ] as any
               )?.images?.length ?? 0) > 0
@@ -46,7 +46,7 @@ export function ImageDialog(props: Props) {
             <ImageCaroulsel
               images={
                 (
-                  props.setups.items[props.selectedSheetId()![0]]?.setups[
+                  props.cards()[props.selectedSheetId()![0]]?.setups[
                     props.selectedSheetId()![1]
                   ] as any
                 )?.images ?? []
