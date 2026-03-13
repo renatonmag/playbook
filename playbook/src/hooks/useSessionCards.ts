@@ -4,7 +4,7 @@ import {
   createSignal,
   onCleanup,
 } from "solid-js";
-import { createStore, reconcile, unwrap } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { client } from "~/lib/orpc";
 import type { Setup2 } from "~/db/schema";
 
@@ -92,10 +92,9 @@ export function useSessionCards(sessionId: () => string) {
   };
   onCleanup(() => clearTimeout(saveTimer));
 
-  const updateCards = (updater: (cards: SetupCard[]) => SetupCard[]) => {
-    const next = updater(structuredClone(unwrap(cardsStore.list)));
-    setCardsStore("list", reconcile(next, { key: "id" }));
-    scheduleSave(flattenCards(next));
+  const updateCards = (updater: (cards: SetupCard[]) => void) => {
+    setCardsStore("list", produce(updater));
+    scheduleSave(flattenCards(cardsStore.list));
   };
 
   const nextSetupNumber = () => {
@@ -113,7 +112,6 @@ export function useSessionCards(sessionId: () => string) {
       const setup = cards[cardIdx].setups[subIdx] as any;
       if (!setup.images) setup.images = [];
       setup.images.push(img);
-      return cards;
     });
   };
 
@@ -122,7 +120,6 @@ export function useSessionCards(sessionId: () => string) {
       const setup = cards[cardIdx].setups[subIdx] as any;
       if (setup.images)
         setup.images = setup.images.filter((i: any) => i.key !== key);
-      return cards;
     });
   };
 
@@ -146,7 +143,6 @@ export function useSessionCards(sessionId: () => string) {
           },
         ],
       });
-      return cards;
     });
     return { cardIndex: newCardIndex };
   };
@@ -167,7 +163,6 @@ export function useSessionCards(sessionId: () => string) {
         setupNumber,
         asset: cardAsset,
       });
-      return cards;
     });
     return { cardIndex, subIndex: newSubIndex };
   };
@@ -178,7 +173,6 @@ export function useSessionCards(sessionId: () => string) {
       if (cards[cardIdx].setups.length === 0) {
         cards.splice(cardIdx, 1);
       }
-      return cards;
     });
   };
 
@@ -195,7 +189,6 @@ export function useSessionCards(sessionId: () => string) {
         { component: id, details: [], instanceId: newInstanceId },
       ];
       (setup as any).version = ((setup as any).version ?? 0) + 1;
-      return cards;
     });
     return newInstanceId;
   };
@@ -211,7 +204,6 @@ export function useSessionCards(sessionId: () => string) {
         (e) => e.instanceId !== instanceId,
       );
       (setup as any).version = ((setup as any).version ?? 0) + 1;
-      return cards;
     });
   };
 
@@ -238,7 +230,6 @@ export function useSessionCards(sessionId: () => string) {
         if (comp) comp.details = [...comp.details, insertId];
       }
       s.version = (s.version ?? 0) + 1;
-      return cards;
     });
   };
 
@@ -257,7 +248,6 @@ export function useSessionCards(sessionId: () => string) {
         component.details = component.details.filter((e) => e !== detailId);
         (setup as any).version = ((setup as any).version ?? 0) + 1;
       }
-      return cards;
     });
   };
 
@@ -266,7 +256,6 @@ export function useSessionCards(sessionId: () => string) {
       const setup = cards[cardIdx].setups[subIdx] as any;
       setup.contextComps = [...(setup.contextComps || []), id];
       setup.version = (setup.version ?? 0) + 1;
-      return cards;
     });
   };
 
@@ -277,14 +266,12 @@ export function useSessionCards(sessionId: () => string) {
         (e: number) => e !== id,
       );
       setup.version = (setup.version ?? 0) + 1;
-      return cards;
     });
   };
 
   const setResult = (cardIdx: number, subIdx: number, result: string) => {
     updateCards((cards) => {
       cards[cardIdx].setups[subIdx].result = result;
-      return cards;
     });
   };
 
@@ -293,7 +280,6 @@ export function useSessionCards(sessionId: () => string) {
       const s = cards[cardIdx].setups[subIdx] as any;
       s.refs = refs;
       s.version = (s.version ?? 0) + 1;
-      return cards;
     });
   };
 
@@ -302,7 +288,6 @@ export function useSessionCards(sessionId: () => string) {
     const newValue = !current;
     updateCards((cards) => {
       (cards[cardIdx].setups[subIdx] as any).showTruth = newValue;
-      return cards;
     });
     return newValue;
   };
@@ -316,7 +301,6 @@ export function useSessionCards(sessionId: () => string) {
       const s = cards[cardIdx].setups[subIdx] as any;
       s.evolution = evolution;
       s.version = (s.version ?? 0) + 1;
-      return cards;
     });
   };
 
@@ -327,7 +311,6 @@ export function useSessionCards(sessionId: () => string) {
         ...(s.truth ?? []),
         { component: id, details: [], instanceId: crypto.randomUUID() },
       ];
-      return cards;
     });
   };
 
@@ -341,7 +324,6 @@ export function useSessionCards(sessionId: () => string) {
       s.truth = (s.truth ?? []).filter(
         (c: any) => c.instanceId !== instanceId,
       );
-      return cards;
     });
   };
 
@@ -361,7 +343,6 @@ export function useSessionCards(sessionId: () => string) {
           (e: number) => e !== detailId,
         );
       }
-      return cards;
     });
   };
 
@@ -376,15 +357,14 @@ export function useSessionCards(sessionId: () => string) {
       const idx = setup.selectedComps.findIndex(
         (c) => c.instanceId === instanceId,
       );
-      if (idx === -1) return cards;
+      if (idx === -1) return;
       const newIdx = direction === "left" ? idx - 1 : idx + 1;
-      if (newIdx < 0 || newIdx >= setup.selectedComps.length) return cards;
+      if (newIdx < 0 || newIdx >= setup.selectedComps.length) return;
       [setup.selectedComps[idx], setup.selectedComps[newIdx]] = [
         setup.selectedComps[newIdx],
         setup.selectedComps[idx],
       ];
       (setup as any).version = ((setup as any).version ?? 0) + 1;
-      return cards;
     });
   };
 
@@ -410,14 +390,12 @@ export function useSessionCards(sessionId: () => string) {
         },
       ];
       (tgt as any).version = ((tgt as any).version ?? 0) + 1;
-      return cards;
     });
   };
 
   const setSetupAsset = (cardIdx: number, subIdx: number, asset: string) => {
     updateCards((cards) => {
       (cards[cardIdx].setups[subIdx] as any).asset = asset;
-      return cards;
     });
   };
 
