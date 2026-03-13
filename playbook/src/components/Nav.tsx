@@ -1,7 +1,14 @@
-import { useLocation, useNavigate, createAsync, revalidate, A } from "@solidjs/router";
+import {
+  useLocation,
+  useNavigate,
+  createAsync,
+  revalidate,
+  A,
+} from "@solidjs/router";
 import { Show } from "solid-js";
 import { authClient } from "~/lib/auth-client";
 import { getUser } from "~/lib/session";
+import Play from "lucide-solid/icons/play";
 
 export default function Nav() {
   const location = useLocation();
@@ -33,6 +40,14 @@ export default function Nav() {
         <Show when={user()}>
           <li class={`border-b-2 ${active("/lists")} mx-1.5 sm:mx-6`}>
             <A href="/lists">Lists</A>
+          </li>
+          <li class="mx-1.5 sm:mx-6">
+            <A
+              href="/trade"
+              class="flex items-center text-gray-700 hover:text-gray-900"
+            >
+              Trade
+            </A>
           </li>
           <li class={`border-b-2 ${active("/stats")} mx-1.5 sm:mx-6`}>
             <A href="/stats">Stats</A>
