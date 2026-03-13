@@ -1,19 +1,16 @@
 import {
-  createEffect,
   createMemo,
   createResource,
   createSignal,
   onCleanup,
   onMount,
-  untrack,
 } from "solid-js";
 import { parseMarkdown } from "~/lib/parseMarkdown";
 import { useStore } from "~/store/storeContext";
-import { useParams, type RouteDefinition } from "@solidjs/router";
-import { Setup2 } from "~/db/schema";
-import { useQuery, useQueryClient } from "@tanstack/solid-query";
-import { client, orpc } from "~/lib/orpc";
-import { createStore, produce, reconcile, unwrap } from "solid-js/store";
+import { useParams } from "@solidjs/router";
+import { useQuery } from "@tanstack/solid-query";
+import { orpc } from "~/lib/orpc";
+import { createStore, reconcile, unwrap } from "solid-js/store";
 import { ImageDialog } from "~/components/trade/ImageDialog";
 import { RefsDialog, BarRef } from "~/components/trade/RefsDialog";
 import { EvolutionDialog } from "~/components/trade/EvolutionDialog";
@@ -21,24 +18,10 @@ import { LeftPanel } from "~/components/trade/LeftPanel";
 import { MiddlePanel } from "~/components/trade/MiddlePanel";
 import { RightPanel } from "~/components/trade/RightPanel";
 import { DialogSessionStrategies } from "~/components/DialogSessionStrategies";
-
-type SetupCard = { id: string; setups: Setup2[] };
-
-export const route = {
-  preload({ params }) {
-    const queryClient = useQueryClient();
-    const id = Number(params.id);
-    if (!isNaN(id)) {
-      queryClient.prefetchQuery({
-        queryKey: ["trade", "session", params.id],
-        queryFn: () => client.trade.getById({ id }),
-      });
-    }
-  },
-} satisfies RouteDefinition;
+import { useSessionCards } from "~/hooks/useSessionCards";
 
 export default function Trade() {
-  const [store, actions] = useStore(),
+  const [store, storeActions] = useStore(),
     [selectedSheetId, setSelectedSheetId] = createSignal<
       [number, number] | undefined
     >(),
@@ -62,39 +45,20 @@ export default function Trade() {
 
   const [refsDraft, setRefsDraft] = createStore<BarRef[]>([]);
 
-  const [setups, setSetups] = createStore<{
-    version: number;
-    items: SetupCard[];
-  }>({
-    version: 0,
-    items: [
-      {
-        id: crypto.randomUUID(),
-        setups: [
-          {
-            version: 0,
-            id: crypto.randomUUID(),
-            selectedComps: [],
-            result: "",
-            setupNumber: 1,
-          },
-        ],
-      },
-    ],
-  });
-
   const params = useParams();
 
-  const [sessionStrategies, setSessionStrategies] = createSignal<number[]>([]);
-  const [showStrategiesDialog, setShowStrategiesDialog] = createSignal(false);
-  const [assets, setAssets] = createSignal<string[]>([]);
-  const [selectedAsset, setSelectedAsset] = createSignal<string | undefined>();
-
-  const sessionQuery = useQuery(() => ({
-    queryKey: ["trade", "session", params.id],
-    queryFn: () => client.trade.getById({ id: Number(params.id) }),
-    enabled: !!params.id,
-  }));
+  const {
+    cards,
+    actions,
+    sessionStrategies,
+    setSessionStrategies,
+    showStrategiesDialog,
+    setShowStrategiesDialog,
+    assets,
+    setAssets,
+    selectedAsset,
+    setSelectedAsset,
+  } = useSessionCards(() => params.id);
 
   const componentsList = useQuery(() =>
     orpc.component.listByUser.queryOptions({}),
@@ -103,60 +67,6 @@ export default function Trade() {
   const strategiesList = useQuery(() =>
     orpc.strategy.listByUser.queryOptions({}),
   );
-
-  // Load: group raw Setup2[] by cardId, and load session strategies
-  createEffect(() => {
-    const _setups = sessionQuery.data;
-    if (!_setups?.setups2) return;
-    if (setups.version > 0) return;
-
-    const stratIds: number[] = (_setups as any).strategies ?? [];
-    setSessionStrategies(stratIds);
-    if (stratIds.length === 0) setShowStrategiesDialog(true);
-
-    const raw: any[] = _setups.setups2;
-    for (const s of raw) {
-      for (const sc of s.selectedComps ?? [])
-        if (!sc.instanceId) sc.instanceId = crypto.randomUUID();
-      for (const tc of (s as any).truth ?? [])
-        if (!tc.instanceId) tc.instanceId = crypto.randomUUID();
-    }
-    const grouped = new Map<string, Setup2[]>();
-    for (const s of raw) {
-      const key = s.cardId ?? s.id; // backward compat: old data each Setup2 is its own card
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key)!.push(s);
-    }
-    const cards: SetupCard[] = [...grouped.entries()].map(([id, setups]) => ({
-      id,
-      setups,
-    }));
-    setSetups("items", reconcile(structuredClone(unwrap(cards))));
-
-    const loadedAssets = [
-      ...new Set(raw.map((s: any) => s.asset as string).filter(Boolean)),
-    ];
-    setAssets(loadedAssets);
-    if (loadedAssets.length > 0 && !selectedAsset())
-      setSelectedAsset(loadedAssets[0]);
-  });
-
-  // Save: flatten cards into Setup2[] with cardId field (debounced 300ms)
-  createEffect(() => {
-    if (setups.version === 0) return;
-
-    const id = Number(params.id);
-    const payload = untrack(() =>
-      setups.items.flatMap((card) =>
-        card.setups.map((s) => ({ ...s, cardId: card.id })),
-      ),
-    );
-
-    const timer = setTimeout(() => {
-      actions.updateSession.mutate({ id, setups: payload });
-    }, 500);
-    onCleanup(() => clearTimeout(timer));
-  });
 
   const component = createMemo(() => {
     return componentsList.data?.find(
@@ -180,382 +90,43 @@ export default function Trade() {
     );
   };
 
-  const addSetupImage = (
-    cardIdx: number,
-    subIdx: number,
-    img: { uri: string; key: string },
+  // Thin wrappers bridging UI signals with hook actions
+
+  const handleAddSelectedComps = (
+    sel: [number, number] | undefined,
+    id: number,
   ) => {
-    setSetups(
-      produce((s) => {
-        const setup = s.items[cardIdx].setups[subIdx] as any;
-        if (!setup.images) setup.images = [];
-        setup.images.push(img);
-        s.version++;
-      }),
-    );
-  };
-
-  const removeSetupImage = (cardIdx: number, subIdx: number, key: string) => {
-    setSetups(
-      produce((s) => {
-        const setup = s.items[cardIdx].setups[subIdx] as any;
-        if (setup.images)
-          setup.images = setup.images.filter((i: any) => i.key !== key);
-        s.version++;
-      }),
-    );
-  };
-
-  const nextSetupNumber = () => {
-    const all = setups.items.flatMap((c) => c.setups);
-    const max = Math.max(0, ...all.map((s, i) => s.setupNumber ?? i + 1));
-    return max + 1;
-  };
-
-  // Add a new card with one empty sub-setup
-  const addCard = (asset?: string) => {
-    const cardAsset = asset ?? selectedAsset();
-    const newCardId = crypto.randomUUID();
-    const setupNumber = nextSetupNumber();
-    setSetups(
-      produce((draft) => {
-        draft.version++;
-        draft.items = [
-          ...draft.items,
-          {
-            id: newCardId,
-            setups: [
-              {
-                version: 0,
-                id: crypto.randomUUID(),
-                selectedComps: [],
-                result: "",
-                setupNumber,
-                asset: cardAsset,
-              },
-            ],
-          },
-        ];
-        return draft;
-      }),
-    );
-    setSelectedSetup([setups.items.length - 1, 0]);
-  };
-
-  // Add a sub-setup within an existing card
-  const addSubSetup = (cardIndex: number) => {
-    const setupNumber = nextSetupNumber();
-    const cardAsset = setups.items[cardIndex]?.setups[0]?.asset;
-    setSetups(
-      produce((draft) => {
-        draft.items[cardIndex].setups.push({
-          version: 0,
-          id: crypto.randomUUID(),
-          selectedComps: [],
-          result: "",
-          setupNumber,
-          asset: cardAsset,
-        });
-        draft.version++;
-        return draft;
-      }),
-    );
-    setSelectedSetup([cardIndex, setups.items[cardIndex].setups.length - 1]);
-  };
-
-  // Delete sub-setup; remove card if it was the last one
-  const deleteSetup = (cardIdx: number, subIdx: number) => {
-    setSetups(
-      produce((draft) => {
-        draft.items[cardIdx].setups.splice(subIdx, 1);
-        if (draft.items[cardIdx].setups.length === 0) {
-          draft.items.splice(cardIdx, 1);
-        }
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const addSelectedComps = (sel: [number, number] | undefined, id: number) => {
     if (!sel) {
       alert("Selecione um setup");
       return;
     }
     const [cardIdx, subIdx] = sel;
-    if (!setups.items?.[cardIdx]?.setups?.[subIdx]?.selectedComps) {
+    if (!cards()?.[cardIdx]?.setups?.[subIdx]) {
       alert("Selecione um setup");
       return;
     }
-    const newInstanceId = crypto.randomUUID();
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx];
-        setup.selectedComps = [
-          ...setup.selectedComps,
-          { component: id, details: [], instanceId: newInstanceId },
-        ];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+    const newInstanceId = actions.addSelectedComps(cardIdx, subIdx, id);
     setTaggedComps([newInstanceId, id, cardIdx, subIdx, "main-component"]);
   };
 
-  const removeSelectedComps = (
-    cardIdx: number,
-    subIdx: number,
-    instanceId: string,
-  ) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx];
-        setup.selectedComps = setup.selectedComps.filter(
-          (e) => e.instanceId !== instanceId,
-        );
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  // Reads taggedComps to know which setup to add the detail to.
-  // Routes to truth[] if the tagged component lives there.
-  const addDetails = (insertId: number) => {
+  const handleAddDetails = (insertId: number) => {
     const tagged = taggedComps();
     if (!tagged) return;
     const [instanceId, , cardIdx, subIdx] = tagged;
-    const truth: any[] =
-      (setups.items[cardIdx].setups[subIdx] as any).truth ?? [];
-    const isInTruth = truth.some((c: any) => c.instanceId === instanceId);
-    setSetups(
-      produce((draft) => {
-        const s = draft.items[cardIdx].setups[subIdx] as any;
-        if (isInTruth) {
-          const comp = (s.truth ?? []).find(
-            (c: any) => c.instanceId === instanceId,
-          );
-          if (!comp) return;
-          comp.details = [...(comp.details ?? []), insertId];
-        } else {
-          const comp = s.selectedComps.find(
-            (e: any) => e.instanceId === instanceId,
-          );
-          if (!comp) return;
-          comp.details = [...comp.details, insertId];
-        }
-        s.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+    actions.addDetails(instanceId, cardIdx, subIdx, insertId);
   };
 
-  const removeDetails = (
-    cardIdx: number,
-    subIdx: number,
-    instanceId: string,
-    detailId: number,
-  ) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx];
-        const component = setup.selectedComps.find(
-          (e) => e.instanceId === instanceId,
-        );
-        if (!component) return;
-        component.details = component.details.filter((e) => e !== detailId);
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const handleAddCard = (asset?: string) => {
+    const { cardIndex } = actions.addCard(asset);
+    setSelectedSetup([cardIndex, 0]);
   };
 
-  const addContext = (cardIdx: number, subIdx: number, id: number) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx] as any;
-        setup.contextComps = [...(setup.contextComps || []), id];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const handleAddSubSetup = (cardIndex: number) => {
+    const { cardIndex: ci, subIndex } = actions.addSubSetup(cardIndex);
+    setSelectedSetup([ci, subIndex]);
   };
 
-  const removeContext = (cardIdx: number, subIdx: number, id: number) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx] as any;
-        setup.contextComps = (setup.contextComps || []).filter(
-          (e: number) => e !== id,
-        );
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const setResult = (cardIdx: number, subIdx: number, result: string) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx];
-        setup.result = result;
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const openRefsDialog = (cardIdx: number, subIdx: number) => {
-    const existing = unwrap(
-      (setups.items[cardIdx].setups[subIdx] as any).refs ?? [],
-    );
-    setRefsDraft(reconcile(structuredClone(existing)));
-    setRefsDialogTarget([cardIdx, subIdx]);
-  };
-
-  const saveRefs = () => {
-    const target = refsDialogTarget();
-    if (!target) return;
-    const [cardIdx, subIdx] = target;
-    setSetups(
-      produce((draft) => {
-        (draft.items[cardIdx].setups[subIdx] as any).refs = unwrap(refsDraft);
-        draft.items[cardIdx].setups[subIdx].version++;
-        draft.version++;
-        return draft;
-      }),
-    );
-    setRefsDialogTarget(undefined);
-  };
-
-  const toggleVerdade = (cardIdx: number, subIdx: number) => {
-    const current =
-      (setups.items[cardIdx].setups[subIdx] as any).showTruth ?? false;
-    setSetups(
-      produce((draft) => {
-        (draft.items[cardIdx].setups[subIdx] as any).showTruth = !current;
-        draft.version++;
-        return draft;
-      }),
-    );
-    if (!current) {
-      setVerdadeTarget([cardIdx, subIdx]);
-    } else {
-      const v = verdadeTarget();
-      if (v && v[0] === cardIdx && v[1] === subIdx) setVerdadeTarget(undefined);
-    }
-  };
-
-  const openEvolutionDialog = (cardIdx: number, subIdx: number) => {
-    setEvolutionDialogTarget([cardIdx, subIdx]);
-  };
-
-  const setEvolution = (
-    cardIdx: number,
-    subIdx: number,
-    evolution: number | undefined,
-  ) => {
-    setSetups(
-      produce((draft) => {
-        (draft.items[cardIdx].setups[subIdx] as any).evolution = evolution;
-        draft.items[cardIdx].setups[subIdx].version++;
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const addTruthComp = (id: number) => {
-    const target = verdadeTarget();
-    if (!target) return;
-    const [cardIdx, subIdx] = target;
-    const truth: any[] =
-      (setups.items[cardIdx].setups[subIdx] as any).truth ?? [];
-    setSetups(
-      produce((draft) => {
-        const s = draft.items[cardIdx].setups[subIdx] as any;
-        s.truth = [
-          ...(s.truth ?? []),
-          { component: id, details: [], instanceId: crypto.randomUUID() },
-        ];
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const removeTruthComp = (
-    cardIdx: number,
-    subIdx: number,
-    instanceId: string,
-  ) => {
-    setSetups(
-      produce((draft) => {
-        const s = draft.items[cardIdx].setups[subIdx] as any;
-        s.truth = (s.truth ?? []).filter(
-          (c: any) => c.instanceId !== instanceId,
-        );
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const removeTruthDetail = (
-    cardIdx: number,
-    subIdx: number,
-    instanceId: string,
-    detailId: number,
-  ) => {
-    setSetups(
-      produce((draft) => {
-        const s = draft.items[cardIdx].setups[subIdx] as any;
-        const comp = (s.truth ?? []).find(
-          (c: any) => c.instanceId === instanceId,
-        );
-        if (!comp) return;
-        comp.details = (comp.details ?? []).filter(
-          (e: number) => e !== detailId,
-        );
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const moveComponent = (
-    cardIdx: number,
-    subIdx: number,
-    instanceId: string,
-    direction: "left" | "right",
-  ) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[cardIdx].setups[subIdx];
-        const idx = setup.selectedComps.findIndex(
-          (c) => c.instanceId === instanceId,
-        );
-        if (idx === -1) return draft;
-        const newIdx = direction === "left" ? idx - 1 : idx + 1;
-        if (newIdx < 0 || newIdx >= setup.selectedComps.length) return draft;
-        [setup.selectedComps[idx], setup.selectedComps[newIdx]] = [
-          setup.selectedComps[newIdx],
-          setup.selectedComps[idx],
-        ];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-
-  const copyComponentToSetup = (
+  const handleCopyComponentToSetup = (
     srcCard: number,
     srcSub: number,
     instanceId: string,
@@ -564,28 +135,42 @@ export default function Trade() {
     if (!target) return;
     const [targetCard, targetSub] = target;
     if (targetCard === srcCard && targetSub === srcSub) return;
+    actions.copyComponentToSetup(srcCard, srcSub, instanceId, targetCard, targetSub);
+  };
 
-    const sourceComp = setups.items[srcCard].setups[srcSub].selectedComps.find(
-      (c) => c.instanceId === instanceId,
-    );
-    if (!sourceComp) return;
+  const handleToggleVerdade = (cardIdx: number, subIdx: number) => {
+    const newShowTruth = actions.toggleVerdade(cardIdx, subIdx);
+    if (newShowTruth) {
+      setVerdadeTarget([cardIdx, subIdx]);
+    } else {
+      const v = verdadeTarget();
+      if (v && v[0] === cardIdx && v[1] === subIdx) setVerdadeTarget(undefined);
+    }
+  };
 
-    setSetups(
-      produce((draft) => {
-        const tgt = draft.items[targetCard].setups[targetSub];
-        tgt.selectedComps = [
-          ...tgt.selectedComps,
-          {
-            component: sourceComp.component,
-            details: [...sourceComp.details],
-            instanceId: crypto.randomUUID(),
-          },
-        ];
-        tgt.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const handleAddTruthComp = (id: number) => {
+    const target = verdadeTarget();
+    if (!target) return;
+    const [cardIdx, subIdx] = target;
+    actions.addTruthComp(cardIdx, subIdx, id);
+  };
+
+  const openRefsDialog = (cardIdx: number, subIdx: number) => {
+    const existing = (cards()[cardIdx]?.setups[subIdx] as any)?.refs ?? [];
+    setRefsDraft(reconcile(structuredClone(existing)));
+    setRefsDialogTarget([cardIdx, subIdx]);
+  };
+
+  const saveRefs = () => {
+    const target = refsDialogTarget();
+    if (!target) return;
+    const [cardIdx, subIdx] = target;
+    actions.saveRefs(cardIdx, subIdx, unwrap(refsDraft));
+    setRefsDialogTarget(undefined);
+  };
+
+  const openEvolutionDialog = (cardIdx: number, subIdx: number) => {
+    setEvolutionDialogTarget([cardIdx, subIdx]);
   };
 
   const tagComponent = (
@@ -608,7 +193,7 @@ export default function Trade() {
     if (!tagged) return;
     e.preventDefault();
     const [instanceId, , cardIdx, subIdx] = tagged;
-    moveComponent(
+    actions.moveComponent(
       cardIdx,
       subIdx,
       instanceId,
@@ -660,8 +245,8 @@ export default function Trade() {
   const evolutionSetupNumbers = createMemo(() => {
     const target = evolutionDialogTarget();
     if (!target) return [];
-    const allSetups = setups.items.flatMap((c) => c.setups);
-    const currentId = (setups.items[target[0]]?.setups[target[1]] as any)?.id;
+    const allSetups = cards().flatMap((c) => c.setups);
+    const currentId = (cards()[target[0]]?.setups[target[1]] as any)?.id;
     return allSetups
       .map((s, i) => (s as any).setupNumber ?? i + 1)
       .filter((_, i) => (allSetups[i] as any).id !== currentId);
@@ -670,7 +255,7 @@ export default function Trade() {
   const evolutionCurrent = createMemo(() => {
     const target = evolutionDialogTarget();
     if (!target) return undefined;
-    return (setups.items[target[0]]?.setups[target[1]] as any)?.evolution;
+    return (cards()[target[0]]?.setups[target[1]] as any)?.evolution;
   });
 
   return (
@@ -682,19 +267,11 @@ export default function Trade() {
         onConfirm={(ids, asset) => {
           setSessionStrategies(ids);
           setShowStrategiesDialog(false);
-          actions.updateSessionStrategies.mutate({
+          storeActions.updateSessionStrategies.mutate({
             id: Number(params.id),
             strategies: ids,
           });
-          // Stamp initial asset on the first card's setup
-          setSetups(
-            produce((draft) => {
-              if (draft.items[0]?.setups[0]) {
-                draft.items[0].setups[0].asset = asset;
-              }
-              draft.version++;
-            }),
-          );
+          actions.setSetupAsset(0, 0, asset);
           setAssets([asset]);
           setSelectedAsset(asset);
         }}
@@ -703,9 +280,9 @@ export default function Trade() {
         open={sheetOpen()}
         onClose={() => setSelectedSheetId(undefined)}
         selectedSheetId={selectedSheetId}
-        setups={setups}
-        addSetupImage={addSetupImage}
-        removeSetupImage={removeSetupImage}
+        cards={cards}
+        addSetupImage={actions.addSetupImage}
+        removeSetupImage={actions.removeSetupImage}
       />
       <RefsDialog
         open={refsDialogTarget() !== undefined}
@@ -722,7 +299,7 @@ export default function Trade() {
         onConfirm={(num) => {
           const target = evolutionDialogTarget();
           if (!target) return;
-          setEvolution(target[0], target[1], num);
+          actions.setEvolution(target[0], target[1], num);
         }}
       />
       <LeftPanel
@@ -731,22 +308,22 @@ export default function Trade() {
         handleSearchInput={handleSearchInput}
         selectedSetup={selectedSetup}
         verdadeTarget={verdadeTarget}
-        loadComponent={actions.loadComponent}
+        loadComponent={storeActions.loadComponent}
         setShowItem={setShowItem}
-        addTruthComp={addTruthComp}
-        addSelectedComps={addSelectedComps}
-        addDetails={addDetails}
-        addContext={addContext}
+        addTruthComp={handleAddTruthComp}
+        addSelectedComps={handleAddSelectedComps}
+        addDetails={handleAddDetails}
+        addContext={actions.addContext}
         taggedComps={taggedComps}
         componentsData={componentsList.data}
         removeComps={(id) => {
           const sel = selectedSetup();
-          if (sel) removeSelectedComps(sel[0], sel[1], id);
+          if (sel) actions.removeSelectedComps(sel[0], sel[1], id);
         }}
         onManageStrategies={() => setShowStrategiesDialog(true)}
       />
       <MiddlePanel
-        setups={setups}
+        cards={cards}
         selectedSetup={selectedSetup}
         setSelectedSetup={setSelectedSetup}
         taggedComps={taggedComps}
@@ -754,8 +331,8 @@ export default function Trade() {
         componentsData={componentsList.data}
         isActiveSetup={isActiveSetup}
         createSelectedComps={createSelectedComps}
-        addCard={addCard}
-        addSubSetup={addSubSetup}
+        addCard={handleAddCard}
+        addSubSetup={handleAddSubSetup}
         assets={assets}
         selectedAsset={selectedAsset}
         setSelectedAsset={setSelectedAsset}
@@ -767,20 +344,20 @@ export default function Trade() {
           }
           setSelectedAsset(upper);
         }}
-        deleteSetup={deleteSetup}
-        setResult={setResult}
+        deleteSetup={actions.deleteSetup}
+        setResult={actions.setResult}
         openRefsDialog={openRefsDialog}
-        toggleVerdade={toggleVerdade}
-        removeSelectedComps={removeSelectedComps}
-        removeDetails={removeDetails}
-        removeTruthComp={removeTruthComp}
-        removeTruthDetail={removeTruthDetail}
+        toggleVerdade={handleToggleVerdade}
+        removeSelectedComps={actions.removeSelectedComps}
+        removeDetails={actions.removeDetails}
+        removeTruthComp={actions.removeTruthComp}
+        removeTruthDetail={actions.removeTruthDetail}
         tagComponent={tagComponent}
         untagComponent={untagComponent}
-        copyComponentToSetup={copyComponentToSetup}
-        moveComponent={moveComponent}
+        copyComponentToSetup={handleCopyComponentToSetup}
+        moveComponent={actions.moveComponent}
         setSelectedSheetId={setSelectedSheetId}
-        loadComponent={actions.loadComponent}
+        loadComponent={storeActions.loadComponent}
         setShowItem={setShowItem}
         openEvolutionDialog={openEvolutionDialog}
       />
