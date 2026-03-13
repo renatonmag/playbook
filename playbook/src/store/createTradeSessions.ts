@@ -23,8 +23,19 @@ export default function createTradeSessions(agent, actions, state, setState) {
   );
   const updateSession = useMutation(() =>
     orpc.trade.update.mutationOptions({
+      onMutate: async (variables) => {
+        await queryClient.cancelQueries({
+          queryKey: ["trade", "session", String(variables.id)],
+        });
+      },
       onSuccess: (res) => {
-        console.log("res", res);
+        queryClient.setQueryData(
+          ["trade", "session", String(res.id)],
+          (old: any) => {
+            if (!old) return old;
+            return { ...old, setups2: res.setups2 };
+          },
+        );
         queryClient.setQueryData(
           orpc.trade.listByUser.queryKey(),
           produce((draft) => {

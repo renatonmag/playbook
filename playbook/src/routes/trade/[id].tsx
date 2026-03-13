@@ -108,6 +108,7 @@ export default function Trade() {
   createEffect(() => {
     const _setups = sessionQuery.data;
     if (!_setups?.setups2) return;
+    if (setups.version > 0) return;
 
     const stratIds: number[] = (_setups as any).strategies ?? [];
     setSessionStrategies(stratIds);
