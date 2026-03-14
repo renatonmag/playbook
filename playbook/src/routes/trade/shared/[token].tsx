@@ -5,6 +5,7 @@ import {
   createSignal,
   Show,
 } from "solid-js";
+import X from "lucide-solid/icons/x";
 import { useParams } from "@solidjs/router";
 import { client } from "~/lib/orpc";
 import { createStore, reconcile } from "solid-js/store";
@@ -46,6 +47,8 @@ export default function SharedSession() {
     },
   });
 
+  const [bannerVisible, setBannerVisible] = createSignal(true);
+
   const [selectedSetup, setSelectedSetup] = createSignal<
     [number, number] | undefined
   >();
@@ -79,10 +82,18 @@ export default function SharedSession() {
 
   return (
     <main class="flex flex-col w-full h-[calc(100vh-52px)] text-gray-800">
-      <div class="bg-amber-50 border-b border-amber-200 text-amber-800 text-xs text-center py-1.5 shrink-0">
-        Sessão compartilhada — somente leitura
-      </div>
-      <div class="flex w-full h-[calc(100vh-28px)] p-1.5 gap-1 justify-center">
+      <Show when={bannerVisible()}>
+        <div class="relative bg-amber-50 border-b border-amber-200 text-amber-800 text-xs text-center py-1.5 shrink-0">
+          Sessão compartilhada — somente leitura
+          <button
+            class="absolute right-2 top-1/2 -translate-y-1/2 hover:opacity-70"
+            onClick={() => setBannerVisible(false)}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </Show>
+      <div class="flex flex-1 min-h-0 w-full p-1.5 gap-1 justify-center">
         <Show
           when={!session.loading}
           fallback={

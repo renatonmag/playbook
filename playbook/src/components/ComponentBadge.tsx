@@ -115,7 +115,7 @@ export const ComponentBadge = (props: {
                 );
               }}
             >
-              {props.component.component.title}
+              {props.component?.component?.title}
             </ContextMenuTrigger>
             <ContextMenuPortal>
               <ContextMenuContent class="w-40">
@@ -148,10 +148,7 @@ export const ComponentBadge = (props: {
                     <ContextMenuSeparator />
                     <ContextMenuItem
                       onMouseDown={() =>
-                        props.moveComponent!(
-                          props.component.instanceId,
-                          "left",
-                        )
+                        props.moveComponent!(props.component.instanceId, "left")
                       }
                     >
                       <span>Esquerda</span>
