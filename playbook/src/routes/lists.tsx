@@ -20,6 +20,7 @@ import { DialogAddComponent } from "~/components/DialogAddComponent";
 import { Button, buttonVariants } from "~/components/ui/button";
 import SquarePen from "lucide-solid/icons/square-pen";
 import PlusIcon from "lucide-solid/icons/plus";
+import ExternalLink from "lucide-solid/icons/external-link";
 
 import { ImageCaroulsel } from "~/components/ImageCarousel";
 import { useStore } from "~/store/storeContext";
@@ -33,6 +34,7 @@ import { DialogAddStrategy } from "~/components/DialogAddStrategy";
 
 export default function Home() {
   const [showItem, setShowItem] = createSignal<string>("");
+  const [showStrategyId, setShowStrategyId] = createSignal<number | null>(null);
   const [store, actions] = useStore();
 
   let previewDiv: HTMLDivElement | undefined;
@@ -51,9 +53,10 @@ export default function Home() {
   );
 
   const selectStrategy = (id: number) => {
-    setSearchParams({
-      strategy: selectedStrategyId() === id ? undefined : String(id),
-    });
+    const isSelected = selectedStrategyId() === id;
+    setSearchParams({ strategy: isSelected ? undefined : String(id) });
+    setShowStrategyId(isSelected ? null : id);
+    if (!isSelected) setShowItem("");
   };
 
   createEffect(() => {
@@ -101,6 +104,10 @@ export default function Home() {
   );
 
   const itemSelected = () => showItem() !== "";
+  const selectedStrategy = createMemo(() =>
+    strategiesList.data?.find((s) => s.id === showStrategyId()),
+  );
+  const panelOpen = () => itemSelected() || showStrategyId() !== null;
 
   return (
     <main class="flex w-full h-[calc(100vh-51px)] text-gray-800 p-1.5 gap-1 relative">
@@ -130,11 +137,30 @@ export default function Home() {
           ></div>
         </div>
       </Show>
+      <Show when={selectedStrategy()}>
+        {(strategy) => (
+          <div class="w-2/3 py-8 px-8 flex flex-col h-full justify-start overflow-y-auto gap-4">
+            <div class="text-xl font-bold text-gray-700">{strategy().name}</div>
+            <Show when={strategy().description}>
+              <p class="text-gray-600 text-sm">{strategy().description}</p>
+            </Show>
+            <Button
+              as="A"
+              href={`/strategy/${strategy().id}`}
+              variant="outline"
+              class="w-fit gap-2"
+            >
+              <ExternalLink size={16} />
+              Abrir estratégia
+            </Button>
+          </div>
+        )}
+      </Show>
       <div
         classList={{
           "flex flex-col gap-2 py-8 h-full mx-auto items-center relative": true,
-          "w-1/3 items-start": itemSelected(),
-          "w-full": !itemSelected(),
+          "w-1/3 items-start": panelOpen(),
+          "w-full": !panelOpen(),
         }}
       >
         <div class="flex flex-col gap-6 items-center">
@@ -177,7 +203,10 @@ export default function Home() {
                     <ComponentBadge
                       component={component}
                       loadComponent={actions.loadComponent}
-                      setShowItem={setShowItem}
+                      setShowItem={(id) => {
+                        setShowStrategyId(null);
+                        setShowItem(id);
+                      }}
                       location="lists"
                       deleteComponent={(id) => actions.deleteComponent(id)}
                     />

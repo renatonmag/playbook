@@ -311,7 +311,7 @@ const listStrategiesByUser = authed
   });
 
 const getStrategyById = authed
-  .route({ method: "GET", path: "/strategies/:id" })
+  .route({ method: "POST", path: "/strategies/:id" })
   .input(z.object({ id: z.number() }))
   .handler(async ({ context, input }) => {
     try {
@@ -333,6 +333,7 @@ const updateStrategy = authed
       id: z.number(),
       name: z.string().trim().min(1).optional(),
       description: z.string().optional(),
+      questions: z.array(z.any()).optional(),
     }),
   )
   .handler(async ({ context, input }) => {

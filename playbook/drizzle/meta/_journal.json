@@ -43,6 +43,13 @@
       "when": 1773439030089,
       "tag": "0005_romantic_stark_industries",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1773511220964,
+      "tag": "0006_omniscient_magneto",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "strategies" ADD COLUMN "questions" jsonb DEFAULT '[]'::jsonb NOT NULL;

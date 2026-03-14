@@ -30,6 +30,14 @@ export type Answer = {
   consequence: { id: number; title: string; parentId: number };
 };
 
+export type StrategyAnswer = { answer: string };
+export type StrategyQuestion = {
+  id: string;
+  question: string;
+  answers: StrategyAnswer[];
+  subQuestions?: StrategyQuestion[];
+};
+
 export type Setup = {
   version: number;
   id: string;
@@ -64,6 +72,10 @@ export const strategyTable = pgTable(
       .notNull(),
     name: varchar({ length: 255 }).notNull(),
     description: text(),
+    questions: jsonb("questions")
+      .$type<StrategyQuestion[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp().defaultNow(),
   },
   (t) => [unique().on(t.userId, t.name)],
