@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, createEffect } from "solid-js";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
@@ -15,8 +15,22 @@ type Props = {
 };
 
 export function SessionCards(props: Props) {
+  let containerRef: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    props.cards().length;
+    containerRef?.scrollTo({ top: containerRef.scrollHeight, behavior: "smooth" });
+  });
+
+  createEffect(() => {
+    const list = props.assets();
+    if (list.length > 0 && !props.selectedAsset()) {
+      props.setSelectedAsset(list[0]);
+    }
+  });
+
   return (
-    <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
+    <div ref={containerRef} class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 pb-16 overflow-y-auto">
       <div class="flex gap-2 items-center overflow-x-auto px-2 shrink-0">
         <For each={props.assets()}>
           {(asset) => (
@@ -39,7 +53,7 @@ export function SessionCards(props: Props) {
         {(card, cardIndex) => {
           const matchesAsset = () => {
             const active = props.selectedAsset();
-            if (!active) return true;
+            if (!active) return false;
             return card.setups.some((s) => s.asset === active);
           };
 

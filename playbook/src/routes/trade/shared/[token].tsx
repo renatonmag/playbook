@@ -49,15 +49,13 @@ export default function SharedSession() {
 
   const [selectedAsset, setSelectedAsset] = createSignal<string | undefined>();
 
-  const assets = createMemo(() => {
-    const data = session();
-    if (!data?.setups2) return [];
-    return [
-      ...new Set(
-        data.setups2.map((s: any) => s.asset as string).filter(Boolean),
-      ),
-    ];
-  });
+  const assets = createMemo(() => [
+    ...new Set(
+      cards()
+        .flatMap((c) => c.setups.map((s: any) => s.asset as string))
+        .filter(Boolean),
+    ),
+  ]);
 
   const createSelectedComps = (setup: any, allComps?: any) => {
     if (!allComps) return [];

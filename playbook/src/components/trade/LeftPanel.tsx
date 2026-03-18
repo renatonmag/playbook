@@ -46,7 +46,7 @@ export function LeftPanel(props: Props) {
   });
 
   return (
-    <div class="w-1/3">
+    <div class="w-1/3 overflow-y-auto">
       <div class="flex gap-2 items-center max-w-lg mx-auto mb-6 mt-4 w-full">
         <TextField class="grid items-center flex-1">
           <TextFieldInput

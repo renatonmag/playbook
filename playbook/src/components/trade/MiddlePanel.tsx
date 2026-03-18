@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { AddedBadge } from "~/components/badges/AddedBadge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
@@ -91,6 +91,12 @@ type Props = {
 export function MiddlePanel(props: Props) {
   const [addingAsset, setAddingAsset] = createSignal(false);
   let assetInputRef: HTMLInputElement | undefined;
+  let containerRef: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    props.cards().length;
+    containerRef?.scrollTo({ top: containerRef.scrollHeight, behavior: "smooth" });
+  });
 
   const commitAsset = () => {
     const val = assetInputRef?.value.trim().toUpperCase();
@@ -99,7 +105,7 @@ export function MiddlePanel(props: Props) {
   };
 
   return (
-    <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
+    <div ref={containerRef} class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 pb-16 overflow-y-auto">
       <div class="flex gap-2 items-center overflow-x-auto px-2 shrink-0">
         <For each={props.assets()}>
           {(asset) => (
