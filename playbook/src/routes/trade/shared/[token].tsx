@@ -11,9 +11,7 @@ import { client } from "~/lib/orpc";
 import { createStore, reconcile } from "solid-js/store";
 import { groupByCardId, type SetupCard } from "~/hooks/useSessionCards";
 import { useSessionRealtime } from "~/hooks/useSessionRealtime";
-import { MiddlePanel } from "~/components/trade/MiddlePanel";
-
-const noop = () => {};
+import { SessionCards } from "~/components/trade/SessionCards";
 
 export default function SharedSession() {
   const params = useParams();
@@ -49,9 +47,6 @@ export default function SharedSession() {
 
   const [bannerVisible, setBannerVisible] = createSignal(true);
 
-  const [selectedSetup, setSelectedSetup] = createSignal<
-    [number, number] | undefined
-  >();
   const [selectedAsset, setSelectedAsset] = createSignal<string | undefined>();
 
   const assets = createMemo(() => {
@@ -63,11 +58,6 @@ export default function SharedSession() {
       ),
     ];
   });
-
-  const isActiveSetup = (cardIndex: number, subIndex: number) => {
-    const sel = selectedSetup();
-    return sel !== undefined && sel[0] === cardIndex && sel[1] === subIndex;
-  };
 
   const createSelectedComps = (setup: any, allComps?: any) => {
     if (!allComps) return [];
@@ -110,38 +100,13 @@ export default function SharedSession() {
               </div>
             }
           >
-            <MiddlePanel
+            <SessionCards
               cards={cards}
-              selectedSetup={selectedSetup}
-              setSelectedSetup={setSelectedSetup}
-              taggedComps={() => undefined}
-              verdadeTarget={() => undefined}
               componentsData={session()?.components ?? []}
-              isActiveSetup={isActiveSetup}
               createSelectedComps={createSelectedComps}
-              addCard={noop}
-              addSubSetup={noop}
               assets={assets}
               selectedAsset={selectedAsset}
               setSelectedAsset={setSelectedAsset}
-              addAsset={noop}
-              deleteSetup={noop}
-              setResult={noop}
-              openRefsDialog={noop}
-              toggleVerdade={noop}
-              removeSelectedComps={noop}
-              removeDetails={noop}
-              removeTruthComp={noop}
-              removeTruthDetail={noop}
-              tagComponent={noop}
-              untagComponent={noop}
-              copyComponentToSetup={noop}
-              moveComponent={noop}
-              setSelectedSheetId={noop}
-              loadComponent={noop}
-              setShowItem={noop}
-              openEvolutionDialog={noop}
-              readOnly={true}
             />
           </Show>
         </Show>
