@@ -1,6 +1,6 @@
-import { Router } from "@solidjs/router";
+import { Router, useLocation } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
-import { Suspense } from "solid-js";
+import { Show, Suspense } from "solid-js";
 import Nav from "~/components/Nav";
 import AuthGuard from "~/components/AuthGuard";
 import "./app.css";
@@ -40,10 +40,19 @@ export default function App() {
               <ColorModeScript storageType={storageManager.type} />
               <ColorModeProvider storageManager={storageManager}>
                 <StoreContext>
-                  <Nav />
-                  <AuthGuard>
+                  <Show
+                    when={useLocation().pathname.startsWith("/trade/shared/")}
+                    fallback={
+                      <>
+                        <Nav />
+                        <AuthGuard>
+                          <Suspense>{props.children}</Suspense>
+                        </AuthGuard>
+                      </>
+                    }
+                  >
                     <Suspense>{props.children}</Suspense>
-                  </AuthGuard>
+                  </Show>
                 </StoreContext>
               </ColorModeProvider>
             </QueryClientProvider>

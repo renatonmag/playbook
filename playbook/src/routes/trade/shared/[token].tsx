@@ -81,7 +81,7 @@ export default function SharedSession() {
   };
 
   return (
-    <main class="flex flex-col w-full h-[calc(100vh-52px)] text-gray-800">
+    <main class="flex flex-col w-full h-screen text-gray-800">
       <Show when={bannerVisible()}>
         <div class="relative bg-amber-50 border-b border-amber-200 text-amber-800 text-xs text-center py-1.5 shrink-0">
           Sessão compartilhada — somente leitura
