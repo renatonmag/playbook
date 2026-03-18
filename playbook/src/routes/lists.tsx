@@ -27,7 +27,7 @@ import { useStore } from "~/store/storeContext";
 import { createAsync, A, useSearchParams } from "@solidjs/router";
 import { TextField, TextFieldInput } from "~/components/ui/text-field";
 import { Card, CardContent } from "~/components/ui/card";
-import { ComponentBadge } from "~/components/ComponentBadge";
+import { ListsBadge } from "~/components/badges/ListsBadge";
 import { useQuery } from "@tanstack/solid-query";
 import { orpc } from "~/lib/orpc";
 import { DialogAddStrategy } from "~/components/DialogAddStrategy";
@@ -200,14 +200,13 @@ export default function Home() {
               <div class="flex gap-2 flex-wrap items-start">
                 <For each={filteredItems() ?? []}>
                   {(component) => (
-                    <ComponentBadge
+                    <ListsBadge
                       component={component}
                       loadComponent={actions.loadComponent}
                       setShowItem={(id) => {
                         setShowStrategyId(null);
                         setShowItem(id);
                       }}
-                      location="lists"
                       deleteComponent={(id) => actions.deleteComponent(id)}
                     />
                   )}

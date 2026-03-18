@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { ComponentBadge } from "~/components/ComponentBadge";
+import { AddedBadge } from "~/components/badges/AddedBadge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import {
@@ -347,9 +347,8 @@ export function MiddlePanel(props: Props) {
                             )}
                           >
                             {(component) => (
-                              <ComponentBadge
+                              <AddedBadge
                                 component={component}
-                                added={true}
                                 cardIndex={cardIndex()}
                                 subIndex={subIndex()}
                                 loadComponent={props.loadComponent}
@@ -413,9 +412,8 @@ export function MiddlePanel(props: Props) {
                                 )}
                               >
                                 {(component) => (
-                                  <ComponentBadge
+                                  <AddedBadge
                                     component={component}
-                                    added={true}
                                     cardIndex={cardIndex()}
                                     subIndex={subIndex()}
                                     loadComponent={props.loadComponent}

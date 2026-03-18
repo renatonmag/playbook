@@ -1,5 +1,5 @@
 import { For, Show, createMemo } from "solid-js";
-import { ComponentBadge } from "~/components/ComponentBadge";
+import { LibraryBadge } from "~/components/badges/LibraryBadge";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
@@ -77,7 +77,7 @@ export function LeftPanel(props: Props) {
           <div class="flex gap-2 flex-wrap items-start">
             <For each={props.filteredItems() ?? []}>
               {(component) => (
-                <ComponentBadge
+                <LibraryBadge
                   component={component}
                   loadComponent={props.loadComponent}
                   setShowItem={props.setShowItem}
