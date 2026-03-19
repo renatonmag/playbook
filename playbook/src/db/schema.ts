@@ -1,4 +1,5 @@
 import { relations } from "drizzle-orm";
+import { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   boolean,
   integer,
@@ -77,6 +78,9 @@ export const strategyTable = pgTable(
       .notNull()
       .default([]),
     createdAt: timestamp().defaultNow(),
+    isPublic: boolean("is_public").notNull().default(false),
+    shareToken: text("share_token").unique(),
+    forkedFromId: integer("forked_from_id").references((): AnyPgColumn => strategyTable.id),
   },
   (t) => [unique().on(t.userId, t.name)],
 );
@@ -85,6 +89,7 @@ export const componentsTable = pgTable(
   "components",
   {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    uuid: text("uuid").notNull().$default(() => crypto.randomUUID()).unique(),
     userId: text("user_id")
       .references(() => user.id)
       .notNull(),
