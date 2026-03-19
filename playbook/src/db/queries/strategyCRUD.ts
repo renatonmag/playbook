@@ -1,5 +1,5 @@
 import { and, DrizzleQueryError, eq } from "drizzle-orm";
-import { strategyTable } from "../schema";
+import { strategyTable, type StrategyQuestion } from "../schema";
 import { db } from "../index";
 
 export type StrategyInsert = {
@@ -11,6 +11,7 @@ export type StrategyInsert = {
 export type StrategyUpdate = {
   name?: string;
   description?: string;
+  questions?: StrategyQuestion[];
 };
 
 export const createStrategy = async (data: StrategyInsert) => {
@@ -55,6 +56,7 @@ export const updateStrategy = async (
   const updateData: Partial<typeof strategyTable.$inferInsert> = {
     ...(data.name !== undefined && { name: data.name }),
     ...(data.description !== undefined && { description: data.description }),
+    ...(data.questions !== undefined && { questions: data.questions }),
   };
 
   const [row] = await db

@@ -34,8 +34,8 @@ export default function Nav() {
   return (
     <nav class="flex border-b border-gray-200">
       <ul class="container flex items-center p-3 text-gray-700">
-        <li class={`border-b-2 ${active("/")} mx-1.5 sm:mx-6`}>
-          <A href="/">Home</A>
+        <li class={`border-b-2 ${active("/auth/signup")} mx-1.5 sm:mx-6`}>
+          <A href="/auth/signup">Sign Up</A>
         </li>
         <Show when={user()}>
           <li class={`border-b-2 ${active("/lists")} mx-1.5 sm:mx-6`}>
@@ -64,9 +64,6 @@ export default function Nav() {
         <Show when={!user()}>
           <li class={`border-b-2 ${active("/auth/login")} mx-1.5 sm:mx-6`}>
             <A href="/auth/login">Login</A>
-          </li>
-          <li class={`border-b-2 ${active("/auth/signup")} mx-1.5 sm:mx-6`}>
-            <A href="/auth/signup">Sign Up</A>
           </li>
         </Show>
       </ul>

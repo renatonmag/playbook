@@ -1,5 +1,7 @@
 import { relations } from "drizzle-orm";
+import { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
+  boolean,
   integer,
   jsonb,
   pgTable,
@@ -27,6 +29,14 @@ export type Question = {
 export type Answer = {
   answer: string;
   consequence: { id: number; title: string; parentId: number };
+};
+
+export type StrategyAnswer = { answer: string };
+export type StrategyQuestion = {
+  id: string;
+  question: string;
+  answers: StrategyAnswer[];
+  subQuestions?: StrategyQuestion[];
 };
 
 export type Setup = {
@@ -63,7 +73,14 @@ export const strategyTable = pgTable(
       .notNull(),
     name: varchar({ length: 255 }).notNull(),
     description: text(),
+    questions: jsonb("questions")
+      .$type<StrategyQuestion[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp().defaultNow(),
+    isPublic: boolean("is_public").notNull().default(false),
+    shareToken: text("share_token").unique(),
+    forkedFromId: integer("forked_from_id").references((): AnyPgColumn => strategyTable.id),
   },
   (t) => [unique().on(t.userId, t.name)],
 );
@@ -72,6 +89,7 @@ export const componentsTable = pgTable(
   "components",
   {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    uuid: text("uuid").notNull().$default(() => crypto.randomUUID()).unique(),
     userId: text("user_id")
       .references(() => user.id)
       .notNull(),
@@ -105,6 +123,8 @@ export const setupsTable = pgTable("setups", {
   setups: jsonb("setups").$type<Setup[]>().notNull().default([]),
   setups2: jsonb("setups2").$type<Setup2[]>().notNull().default([]),
   strategies: jsonb("strategies").$type<number[]>().notNull().default([]),
+  shareToken: text("share_token").unique(),
+  isShared: boolean("is_shared").notNull().default(false),
 });
 
 export const imagesTable = pgTable("images", {

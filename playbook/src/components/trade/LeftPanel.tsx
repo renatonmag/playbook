@@ -1,5 +1,5 @@
 import { For, Show, createMemo } from "solid-js";
-import { ComponentBadge } from "~/components/ComponentBadge";
+import { LibraryBadge } from "~/components/badges/LibraryBadge";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
@@ -46,7 +46,7 @@ export function LeftPanel(props: Props) {
   });
 
   return (
-    <div class="w-1/3">
+    <div class="w-1/3 overflow-y-auto">
       <div class="flex gap-2 items-center max-w-lg mx-auto mb-6 mt-4 w-full">
         <TextField class="grid items-center flex-1">
           <TextFieldInput
@@ -77,7 +77,7 @@ export function LeftPanel(props: Props) {
           <div class="flex gap-2 flex-wrap items-start">
             <For each={props.filteredItems() ?? []}>
               {(component) => (
-                <ComponentBadge
+                <LibraryBadge
                   component={component}
                   loadComponent={props.loadComponent}
                   setShowItem={props.setShowItem}

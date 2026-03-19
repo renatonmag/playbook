@@ -1,15 +1,17 @@
 import {
+  createEffect,
   createMemo,
   createResource,
   createSignal,
   onCleanup,
   onMount,
+  Show,
 } from "solid-js";
 import { parseMarkdown } from "~/lib/parseMarkdown";
 import { useStore } from "~/store/storeContext";
 import { useParams } from "@solidjs/router";
-import { useQuery } from "@tanstack/solid-query";
-import { orpc } from "~/lib/orpc";
+import { createMutation, useQuery } from "@tanstack/solid-query";
+import { client, orpc } from "~/lib/orpc";
 import { createStore, reconcile, unwrap } from "solid-js/store";
 import { ImageDialog } from "~/components/trade/ImageDialog";
 import { RefsDialog, BarRef } from "~/components/trade/RefsDialog";
@@ -19,6 +21,7 @@ import { MiddlePanel } from "~/components/trade/MiddlePanel";
 import { RightPanel } from "~/components/trade/RightPanel";
 import { DialogSessionStrategies } from "~/components/DialogSessionStrategies";
 import { useSessionCards } from "~/hooks/useSessionCards";
+import Share2 from "lucide-solid/icons/share-2";
 
 export default function Trade() {
   const [store, storeActions] = useStore(),
@@ -50,6 +53,7 @@ export default function Trade() {
   const {
     cards,
     actions,
+    session,
     sessionStrategies,
     setSessionStrategies,
     showStrategiesDialog,
@@ -59,6 +63,30 @@ export default function Trade() {
     selectedAsset,
     setSelectedAsset,
   } = useSessionCards(() => params.id);
+
+  const [showShareDialog, setShowShareDialog] = createSignal(false);
+  const [shareState, setShareState] = createSignal<{
+    isShared: boolean;
+    shareToken: string | null;
+  }>({ isShared: false, shareToken: null });
+  const [copySuccess, setCopySuccess] = createSignal(false);
+
+  createEffect(() => {
+    const data = session() as any;
+    if (!data) return;
+    setShareState({
+      isShared: data.isShared ?? false,
+      shareToken: data.shareToken ?? null,
+    });
+  });
+
+  const toggleShareMutation = createMutation(() =>
+    orpc.trade.toggleShare.mutationOptions({
+      onSuccess: (data: any) => {
+        setShareState({ isShared: data.isShared, shareToken: data.shareToken });
+      },
+    }),
+  );
 
   const componentsList = useQuery(() =>
     orpc.component.listByUser.queryOptions({}),
@@ -188,17 +216,37 @@ export default function Trade() {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (!e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-    const tagged = taggedComps();
-    if (!tagged) return;
-    e.preventDefault();
-    const [instanceId, , cardIdx, subIdx] = tagged;
-    actions.moveComponent(
-      cardIdx,
-      subIdx,
-      instanceId,
-      e.key === "ArrowLeft" ? "left" : "right",
-    );
+    if (!e.ctrlKey) return;
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const tagged = taggedComps();
+      if (!tagged) return;
+      e.preventDefault();
+      const [instanceId, , cardIdx, subIdx] = tagged;
+      actions.moveComponent(
+        cardIdx,
+        subIdx,
+        instanceId,
+        e.key === "ArrowLeft" ? "left" : "right",
+      );
+      return;
+    }
+
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const sel = selectedSetup();
+      if (!sel) return;
+      e.preventDefault();
+      const [cardIdx, subIdx] = sel;
+      const newPos = actions.moveSetup(
+        cardIdx,
+        subIdx,
+        e.key === "ArrowUp" ? "up" : "down",
+      );
+      if (newPos) {
+        setSelectedSetup(newPos);
+        setTaggedComps(undefined);
+      }
+    }
   };
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -362,6 +410,73 @@ export default function Trade() {
         openEvolutionDialog={openEvolutionDialog}
       />
       <RightPanel component={component} showItem={showItem} html={html} />
+
+      {/* Share button */}
+      <button
+        class="fixed bottom-4 right-4 z-10 p-2 bg-white border rounded-full shadow hover:bg-gray-50"
+        onClick={() => setShowShareDialog(true)}
+        title="Compartilhar sessão"
+      >
+        <Share2 size={16} />
+      </button>
+
+      {/* Share dialog */}
+      <Show when={showShareDialog()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div class="bg-white rounded-lg p-6 shadow-xl w-96">
+            <h2 class="text-lg font-semibold mb-4">Compartilhar sessão</h2>
+
+            <div class="flex items-center gap-2 mb-4">
+              <span class="text-sm text-gray-600">
+                {shareState().isShared
+                  ? "Compartilhamento ativo"
+                  : "Compartilhamento inativo"}
+              </span>
+              <button
+                class="ml-auto px-3 py-1 rounded text-sm bg-blue-600 text-white disabled:opacity-50"
+                onClick={() =>
+                  toggleShareMutation.mutate({
+                    id: Number(params.id),
+                    enable: !shareState().isShared,
+                  })
+                }
+                disabled={toggleShareMutation.isPending}
+              >
+                {shareState().isShared ? "Desativar" : "Ativar"}
+              </button>
+            </div>
+
+            <Show when={shareState().isShared && shareState().shareToken}>
+              <div class="flex gap-2 items-center">
+                <input
+                  readOnly
+                  class="flex-1 text-xs border rounded p-2 bg-gray-50 min-w-0"
+                  value={`${window.location.origin}/trade/shared/${shareState().shareToken}`}
+                />
+                <button
+                  class="px-2 py-1 text-xs border rounded hover:bg-gray-100 shrink-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `${window.location.origin}/trade/shared/${shareState().shareToken}`,
+                    );
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2000);
+                  }}
+                >
+                  {copySuccess() ? "Copiado!" : "Copiar"}
+                </button>
+              </div>
+            </Show>
+
+            <button
+              class="mt-4 text-sm text-gray-500 underline"
+              onClick={() => setShowShareDialog(false)}
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </Show>
     </main>
   );
 }
