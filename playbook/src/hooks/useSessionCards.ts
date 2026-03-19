@@ -368,6 +368,50 @@ export function useSessionCards(sessionId: () => string) {
     });
   };
 
+  const moveSetup = (
+    cardIdx: number,
+    subIdx: number,
+    direction: "up" | "down",
+  ): [number, number] | undefined => {
+    let newCardIdx = cardIdx;
+    let newSubIdx = subIdx;
+
+    updateCards((cards) => {
+      if (direction === "up") {
+        if (subIdx > 0) {
+          [cards[cardIdx].setups[subIdx - 1], cards[cardIdx].setups[subIdx]] = [
+            cards[cardIdx].setups[subIdx],
+            cards[cardIdx].setups[subIdx - 1],
+          ];
+          newSubIdx = subIdx - 1;
+        } else if (cardIdx > 0) {
+          const [setup] = cards[cardIdx].setups.splice(subIdx, 1);
+          cards[cardIdx - 1].setups.push(setup);
+          newCardIdx = cardIdx - 1;
+          newSubIdx = cards[cardIdx - 1].setups.length - 1;
+          if (cards[cardIdx].setups.length === 0) cards.splice(cardIdx, 1);
+        }
+      } else {
+        if (subIdx < cards[cardIdx].setups.length - 1) {
+          [cards[cardIdx].setups[subIdx], cards[cardIdx].setups[subIdx + 1]] = [
+            cards[cardIdx].setups[subIdx + 1],
+            cards[cardIdx].setups[subIdx],
+          ];
+          newSubIdx = subIdx + 1;
+        } else if (cardIdx < cards.length - 1) {
+          const [setup] = cards[cardIdx].setups.splice(subIdx, 1);
+          cards[cardIdx + 1].setups.unshift(setup);
+          newCardIdx = cardIdx + 1;
+          newSubIdx = 0;
+          if (cards[cardIdx].setups.length === 0) cards.splice(cardIdx, 1);
+        }
+      }
+    });
+
+    if (newCardIdx === cardIdx && newSubIdx === subIdx) return undefined;
+    return [newCardIdx, newSubIdx];
+  };
+
   const copyComponentToSetup = (
     srcCard: number,
     srcSub: number,
@@ -430,6 +474,7 @@ export function useSessionCards(sessionId: () => string) {
       removeTruthComp,
       removeTruthDetail,
       moveComponent,
+      moveSetup,
       copyComponentToSetup,
       setSetupAsset,
     },

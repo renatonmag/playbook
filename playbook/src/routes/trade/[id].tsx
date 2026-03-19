@@ -216,17 +216,37 @@ export default function Trade() {
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (!e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-    const tagged = taggedComps();
-    if (!tagged) return;
-    e.preventDefault();
-    const [instanceId, , cardIdx, subIdx] = tagged;
-    actions.moveComponent(
-      cardIdx,
-      subIdx,
-      instanceId,
-      e.key === "ArrowLeft" ? "left" : "right",
-    );
+    if (!e.ctrlKey) return;
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const tagged = taggedComps();
+      if (!tagged) return;
+      e.preventDefault();
+      const [instanceId, , cardIdx, subIdx] = tagged;
+      actions.moveComponent(
+        cardIdx,
+        subIdx,
+        instanceId,
+        e.key === "ArrowLeft" ? "left" : "right",
+      );
+      return;
+    }
+
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const sel = selectedSetup();
+      if (!sel) return;
+      e.preventDefault();
+      const [cardIdx, subIdx] = sel;
+      const newPos = actions.moveSetup(
+        cardIdx,
+        subIdx,
+        e.key === "ArrowUp" ? "up" : "down",
+      );
+      if (newPos) {
+        setSelectedSetup(newPos);
+        setTaggedComps(undefined);
+      }
+    }
   };
   onMount(() => {
     window.addEventListener("keydown", handleKeyDown);
