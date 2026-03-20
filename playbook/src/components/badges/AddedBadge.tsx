@@ -1,4 +1,4 @@
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import { Badge } from "../ui/badge";
 import {
   ContextMenu,
@@ -9,6 +9,10 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from "../ui/context-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+
+const formatTime = (iso?: string) =>
+  iso ? new Date(iso).toLocaleTimeString(undefined, { hour12: false }) : null;
 
 export const AddedBadge = (props: {
   component: any;
@@ -36,120 +40,134 @@ export const AddedBadge = (props: {
 
   return (
     <div class="flex flex-col gap-2 items-start">
-      <ContextMenu>
-        <ContextMenuTrigger
-          as={Badge}
-          classList={{
-            "cursor-pointer": true,
-            "outline outline-2 outline-offset-2 outline-gray-700": isTagged(
-              "main-component",
-              props.component.instanceId,
-            ),
-          }}
-          onMouseDown={(e) => {
-            if (e.button === 2) return;
-            props.loadComponent(props.component.component.id);
-            props.setShowItem(props.component.component.id);
-            if (isTagged("main-component", props.component.instanceId))
-              return props.untagComponent();
-            props.tagComponent(
-              props.component.instanceId,
-              props.component.component.id,
-              props.cardIndex,
-              props.subIndex,
-              "main-component",
-            );
-          }}
-        >
-          {props.component?.component?.title}
-        </ContextMenuTrigger>
-        <ContextMenuPortal>
-          <ContextMenuContent class="w-40">
-            <ContextMenuItem
-              onMouseDown={() => {
-                props.loadComponent(props.component.component.id);
-                props.setShowItem(props.component.component.id);
-              }}
-            >
-              <span>Mostrar</span>
-            </ContextMenuItem>
-            <ContextMenuItem
-              onMouseDown={() => {
-                props.removeComps(props.component.instanceId);
-              }}
-            >
-              <span>Remover</span>
-            </ContextMenuItem>
-            {props.copyToActiveSetup && !props.isInActiveSetup && (
-              <ContextMenuItem
-                onMouseDown={() =>
-                  props.copyToActiveSetup!(props.component.instanceId)
-                }
-              >
-                <span>Copiar para setup ativo</span>
-              </ContextMenuItem>
-            )}
-            {props.moveComponent && (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuItem
-                  onMouseDown={() =>
-                    props.moveComponent!(props.component.instanceId, "left")
-                  }
-                >
-                  <span>Esquerda</span>
-                  <ContextMenuShortcut>⌃←</ContextMenuShortcut>
-                </ContextMenuItem>
-                <ContextMenuItem
-                  onMouseDown={() =>
-                    props.moveComponent!(props.component.instanceId, "right")
-                  }
-                >
-                  <span>Direita</span>
-                  <ContextMenuShortcut>⌃→</ContextMenuShortcut>
-                </ContextMenuItem>
-              </>
-            )}
-          </ContextMenuContent>
-        </ContextMenuPortal>
-      </ContextMenu>
-      <For each={props.component.details}>
-        {(detail) => (
+      <Tooltip>
+        <TooltipTrigger as="span">
           <ContextMenu>
             <ContextMenuTrigger
               as={Badge}
-              variant={"secondary"}
-              class="cursor-default"
-              onMouseDown={() => {
-                props.loadComponent(detail.id);
-                props.setShowItem(detail.id);
+              classList={{
+                "cursor-pointer": true,
+                "outline outline-2 outline-offset-2 outline-gray-700": isTagged(
+                  "main-component",
+                  props.component.instanceId,
+                ),
+              }}
+              onMouseDown={(e) => {
+                if (e.button === 2) return;
+                props.loadComponent(props.component.component.id);
+                props.setShowItem(props.component.component.id);
+                if (isTagged("main-component", props.component.instanceId))
+                  return props.untagComponent();
+                props.tagComponent(
+                  props.component.instanceId,
+                  props.component.component.id,
+                  props.cardIndex,
+                  props.subIndex,
+                  "main-component",
+                );
               }}
             >
-              {detail?.title}
+              {props.component?.component?.title}
             </ContextMenuTrigger>
             <ContextMenuPortal>
               <ContextMenuContent class="w-40">
                 <ContextMenuItem
                   onMouseDown={() => {
-                    props.loadComponent(detail.id);
-                    props.setShowItem(detail.id);
+                    props.loadComponent(props.component.component.id);
+                    props.setShowItem(props.component.component.id);
                   }}
                 >
                   <span>Mostrar</span>
                 </ContextMenuItem>
                 <ContextMenuItem
                   onMouseDown={() => {
-                    props.removeDetails?.(
-                      props.component.instanceId,
-                      detail.uuid,
-                    );
+                    props.removeComps(props.component.instanceId);
                   }}
                 >
-                  <span>Remover detalhe</span>
+                  <span>Remover</span>
                 </ContextMenuItem>
+                {props.copyToActiveSetup && !props.isInActiveSetup && (
+                  <ContextMenuItem
+                    onMouseDown={() =>
+                      props.copyToActiveSetup!(props.component.instanceId)
+                    }
+                  >
+                    <span>Copiar para setup ativo</span>
+                  </ContextMenuItem>
+                )}
+                {props.moveComponent && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      onMouseDown={() =>
+                        props.moveComponent!(props.component.instanceId, "left")
+                      }
+                    >
+                      <span>Esquerda</span>
+                      <ContextMenuShortcut>⌃←</ContextMenuShortcut>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onMouseDown={() =>
+                        props.moveComponent!(props.component.instanceId, "right")
+                      }
+                    >
+                      <span>Direita</span>
+                      <ContextMenuShortcut>⌃→</ContextMenuShortcut>
+                    </ContextMenuItem>
+                  </>
+                )}
               </ContextMenuContent>
             </ContextMenuPortal>
           </ContextMenu>
+        </TooltipTrigger>
+        <Show when={formatTime(props.component.addedAt)}>
+          <TooltipContent>{formatTime(props.component.addedAt)}</TooltipContent>
+        </Show>
+      </Tooltip>
+      <For each={props.component.details}>
+        {(detail) => (
+          <Tooltip>
+            <TooltipTrigger as="span">
+              <ContextMenu>
+                <ContextMenuTrigger
+                  as={Badge}
+                  variant={"secondary"}
+                  class="cursor-default"
+                  onMouseDown={() => {
+                    props.loadComponent(detail.id);
+                    props.setShowItem(detail.id);
+                  }}
+                >
+                  {detail?.title}
+                </ContextMenuTrigger>
+                <ContextMenuPortal>
+                  <ContextMenuContent class="w-40">
+                    <ContextMenuItem
+                      onMouseDown={() => {
+                        props.loadComponent(detail.id);
+                        props.setShowItem(detail.id);
+                      }}
+                    >
+                      <span>Mostrar</span>
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onMouseDown={() => {
+                        props.removeDetails?.(
+                          props.component.instanceId,
+                          detail.uuid,
+                        );
+                      }}
+                    >
+                      <span>Remover detalhe</span>
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenuPortal>
+              </ContextMenu>
+            </TooltipTrigger>
+            <Show when={formatTime(props.component.detailTimestamps?.[detail.uuid])}>
+              <TooltipContent>{formatTime(props.component.detailTimestamps?.[detail.uuid])}</TooltipContent>
+            </Show>
+          </Tooltip>
         )}
       </For>
     </div>

@@ -186,7 +186,7 @@ export function useSessionCards(sessionId: () => string) {
       const setup = cards[cardIdx].setups[subIdx];
       setup.selectedComps = [
         ...setup.selectedComps,
-        { component: uuid, details: [], instanceId: newInstanceId },
+        { component: uuid, details: [], instanceId: newInstanceId, addedAt: new Date().toISOString() },
       ];
       (setup as any).version = ((setup as any).version ?? 0) + 1;
     });
@@ -218,16 +218,23 @@ export function useSessionCards(sessionId: () => string) {
       const isInTruth = (s.truth ?? []).some(
         (c: any) => c.instanceId === instanceId,
       );
+      const now = new Date().toISOString();
       if (isInTruth) {
         const comp = (s.truth ?? []).find(
           (c: any) => c.instanceId === instanceId,
         );
-        if (comp) comp.details = [...(comp.details ?? []), insertUuid];
+        if (comp) {
+          comp.details = [...(comp.details ?? []), insertUuid];
+          comp.detailTimestamps = { ...(comp.detailTimestamps ?? {}), [insertUuid]: now };
+        }
       } else {
         const comp = s.selectedComps.find(
           (e: any) => e.instanceId === instanceId,
         );
-        if (comp) comp.details = [...comp.details, insertUuid];
+        if (comp) {
+          comp.details = [...comp.details, insertUuid];
+          comp.detailTimestamps = { ...(comp.detailTimestamps ?? {}), [insertUuid]: now };
+        }
       }
       s.version = (s.version ?? 0) + 1;
     });
@@ -309,7 +316,7 @@ export function useSessionCards(sessionId: () => string) {
       const s = cards[cardIdx].setups[subIdx] as any;
       s.truth = [
         ...(s.truth ?? []),
-        { component: uuid, details: [], instanceId: crypto.randomUUID() },
+        { component: uuid, details: [], instanceId: crypto.randomUUID(), addedAt: new Date().toISOString() },
       ];
     });
   };

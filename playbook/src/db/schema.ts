@@ -52,6 +52,8 @@ export type SelectedComp = {
   component: string;
   details: string[];
   instanceId: string;
+  addedAt?: string;
+  detailTimestamps?: Record<string, string>;
 };
 export type Setup2 = {
   version: number;
