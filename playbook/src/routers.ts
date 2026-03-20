@@ -17,6 +17,7 @@ import {
   enableSessionSharing,
   disableSessionSharing,
   getComponentsByIds,
+  getComponentsByUuids,
 } from "~/db/queries/setupsCRUD";
 import {
   createStrategy as _createStrategy,
@@ -118,7 +119,7 @@ export const updateComponent = authed
       exemples: z.array(z.any()).optional(),
       categories: z.string().optional(),
       questions: z.array(z.any()).optional(),
-      details: z.array(z.number()).optional(),
+      details: z.array(z.string()).optional(),
     }),
   )
   .handler(async ({ context, input }) => {
@@ -392,20 +393,20 @@ const getSessionByShareToken = pub
     const row = await getSetupsRowByShareToken(input.token);
     if (!row) throw new ORPCError("NOT_FOUND");
 
-    // Collect all component IDs referenced in setups2
-    const compIds = new Set<number>();
+    // Collect all component UUIDs referenced in setups2
+    const compUuids = new Set<string>();
     for (const setup of row.setups2 ?? []) {
       for (const sc of setup.selectedComps ?? []) {
-        compIds.add(sc.component);
-        for (const d of (sc as any).details ?? []) compIds.add(d);
+        compUuids.add(sc.component);
+        for (const d of (sc as any).details ?? []) compUuids.add(d);
       }
       for (const tc of (setup as any).truth ?? []) {
-        compIds.add(tc.component);
-        for (const d of (tc as any).details ?? []) compIds.add(d);
+        compUuids.add(tc.component);
+        for (const d of (tc as any).details ?? []) compUuids.add(d);
       }
     }
 
-    const components = await getComponentsByIds([...compIds]);
+    const components = await getComponentsByUuids([...compUuids]);
 
     return {
       id: row.id,

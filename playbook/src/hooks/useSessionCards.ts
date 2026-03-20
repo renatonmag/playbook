@@ -179,14 +179,14 @@ export function useSessionCards(sessionId: () => string) {
   const addSelectedComps = (
     cardIdx: number,
     subIdx: number,
-    id: number,
+    uuid: string,
   ): string => {
     const newInstanceId = crypto.randomUUID();
     updateCards((cards) => {
       const setup = cards[cardIdx].setups[subIdx];
       setup.selectedComps = [
         ...setup.selectedComps,
-        { component: id, details: [], instanceId: newInstanceId },
+        { component: uuid, details: [], instanceId: newInstanceId },
       ];
       (setup as any).version = ((setup as any).version ?? 0) + 1;
     });
@@ -211,7 +211,7 @@ export function useSessionCards(sessionId: () => string) {
     instanceId: string,
     cardIdx: number,
     subIdx: number,
-    insertId: number,
+    insertUuid: string,
   ) => {
     updateCards((cards) => {
       const s = cards[cardIdx].setups[subIdx] as any;
@@ -222,12 +222,12 @@ export function useSessionCards(sessionId: () => string) {
         const comp = (s.truth ?? []).find(
           (c: any) => c.instanceId === instanceId,
         );
-        if (comp) comp.details = [...(comp.details ?? []), insertId];
+        if (comp) comp.details = [...(comp.details ?? []), insertUuid];
       } else {
         const comp = s.selectedComps.find(
           (e: any) => e.instanceId === instanceId,
         );
-        if (comp) comp.details = [...comp.details, insertId];
+        if (comp) comp.details = [...comp.details, insertUuid];
       }
       s.version = (s.version ?? 0) + 1;
     });
@@ -237,7 +237,7 @@ export function useSessionCards(sessionId: () => string) {
     cardIdx: number,
     subIdx: number,
     instanceId: string,
-    detailId: number,
+    detailUuid: string,
   ) => {
     updateCards((cards) => {
       const setup = cards[cardIdx].setups[subIdx];
@@ -245,7 +245,7 @@ export function useSessionCards(sessionId: () => string) {
         (e) => e.instanceId === instanceId,
       );
       if (component) {
-        component.details = component.details.filter((e) => e !== detailId);
+        component.details = component.details.filter((e) => e !== detailUuid);
         (setup as any).version = ((setup as any).version ?? 0) + 1;
       }
     });
@@ -304,12 +304,12 @@ export function useSessionCards(sessionId: () => string) {
     });
   };
 
-  const addTruthComp = (cardIdx: number, subIdx: number, id: number) => {
+  const addTruthComp = (cardIdx: number, subIdx: number, uuid: string) => {
     updateCards((cards) => {
       const s = cards[cardIdx].setups[subIdx] as any;
       s.truth = [
         ...(s.truth ?? []),
-        { component: id, details: [], instanceId: crypto.randomUUID() },
+        { component: uuid, details: [], instanceId: crypto.randomUUID() },
       ];
     });
   };
@@ -331,7 +331,7 @@ export function useSessionCards(sessionId: () => string) {
     cardIdx: number,
     subIdx: number,
     instanceId: string,
-    detailId: number,
+    detailUuid: string,
   ) => {
     updateCards((cards) => {
       const s = cards[cardIdx].setups[subIdx] as any;
@@ -340,7 +340,7 @@ export function useSessionCards(sessionId: () => string) {
       );
       if (comp) {
         comp.details = (comp.details ?? []).filter(
-          (e: number) => e !== detailId,
+          (e: string) => e !== detailUuid,
         );
       }
     });

@@ -169,24 +169,24 @@ export default function Home() {
     () =>
       componentsList.data
         ?.filter((c) => c.strategyId === component()?.strategyId)
-        .map((c) => ({ id: c.id, title: c.title })) ?? [],
+        .map((c) => ({ id: c.id, uuid: c.uuid, title: c.title })) ?? [],
   );
 
   const selectedDetails = createMemo(() => component()?.details ?? []);
 
   const [detailInput, setDetailInput] = createSignal("");
 
-  const addDetail = async (id: number) => {
+  const addDetail = async (uuid: string) => {
     const current = selectedDetails();
-    if (current.includes(id)) return;
+    if (current.includes(uuid)) return;
     await actions.updateComponent(component()?.id, {
-      details: [...current, id],
+      details: [...current, uuid],
     });
   };
 
-  const removeDetail = async (id: number) => {
+  const removeDetail = async (uuid: string) => {
     await actions.updateComponent(component()?.id, {
-      details: selectedDetails().filter((d) => d !== id),
+      details: selectedDetails().filter((d) => d !== uuid),
     });
   };
 
@@ -197,7 +197,7 @@ export default function Home() {
       title,
       strategyId: component()?.strategyId,
     });
-    if (newComp?.id) await addDetail(newComp.id);
+    if (newComp?.uuid) await addDetail(newComp.uuid);
     setDetailInput("");
   };
 

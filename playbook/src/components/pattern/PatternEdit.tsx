@@ -46,8 +46,8 @@ type PatternEditProps = {
   questions: QuestionType[];
   components: { id: number; title: string }[];
   patternId: number;
-  details: number[];
-  availableDetails: { id: number; title: string }[];
+  details: string[];
+  availableDetails: { id: number; uuid: string; title: string }[];
   detailInput: string;
   editingTitle: boolean;
   onTitleMouseDown: () => void;
@@ -65,8 +65,8 @@ type PatternEditProps = {
   onRemoveAnswer: (i: number, ai: number) => void;
   onEditAnswer: (i: number, ai: number, val: string) => void;
   onEditConsequence: (i: number, ai: number, val: number) => void;
-  onDetailSelect: (id: number) => void;
-  onDetailRemove: (id: number) => void;
+  onDetailSelect: (uuid: string) => void;
+  onDetailRemove: (uuid: string) => void;
   onDetailInputChange: (val: string) => void;
   onCreateDetail: () => void;
 };
@@ -297,13 +297,13 @@ export function PatternEdit(props: PatternEditProps) {
       <div class="w-full">
         <div class="text-xl font-bold text-gray-700 mb-4">Detalhes</div>
         <div class={cn(labelVariants(), "mb-2")}>Associar detalhe</div>
-        <Combobox<{ id: number; title: string }>
+        <Combobox<{ id: number; uuid: string; title: string }>
           options={props.availableDetails.filter((d) =>
             d.title.toLowerCase().includes(props.detailInput.toLowerCase()),
           )}
           value={null}
           onChange={(item) => {
-            if (item) props.onDetailSelect(item.id);
+            if (item) props.onDetailSelect(item.uuid);
           }}
           onInputChange={props.onDetailInputChange}
           optionValue="id"
@@ -340,15 +340,15 @@ export function PatternEdit(props: PatternEditProps) {
         <Show when={props.details.length > 0}>
           <div class="mt-4 flex flex-wrap gap-2">
             <For each={props.details}>
-              {(id) => {
+              {(uuid) => {
                 const detail = () =>
-                  props.availableDetails.find((d) => d.id === id);
+                  props.availableDetails.find((d) => d.uuid === uuid);
                 return (
                   <Badge variant="secondary" class="flex items-center gap-1">
-                    <span>{detail()?.title ?? `#${id}`}</span>
+                    <span>{detail()?.title ?? uuid}</span>
                     <button
                       type="button"
-                      onMouseDown={() => props.onDetailRemove(id)}
+                      onMouseDown={() => props.onDetailRemove(uuid)}
                       class="ml-1 hover:text-destructive"
                     >
                       <X size={12} />

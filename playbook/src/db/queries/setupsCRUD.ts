@@ -143,6 +143,14 @@ export const getComponentsByIds = async (ids: number[]) => {
     .where(inArray(componentsTable.id, ids));
 };
 
+export const getComponentsByUuids = async (uuids: string[]) => {
+  if (uuids.length === 0) return [];
+  return db
+    .select({ id: componentsTable.id, uuid: componentsTable.uuid, title: componentsTable.title })
+    .from(componentsTable)
+    .where(inArray(componentsTable.uuid, uuids));
+};
+
 export const listSetupsForUser = async (id: number, userId: number) => {
   const row = await getSetupsRowById(id, userId);
   return row?.setups ?? [];

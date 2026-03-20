@@ -21,7 +21,7 @@ export const AddedBadge = (props: {
   tagComponent?: any;
   untagComponent?: any;
   taggedComp?: any;
-  removeDetails?: (instanceId: string, detailId: number) => void;
+  removeDetails?: (instanceId: string, detailUuid: string) => void;
   copyToActiveSetup?: (instanceId: string) => void;
   isInActiveSetup?: boolean;
   moveComponent?: (instanceId: string, direction: "left" | "right") => void;
@@ -141,7 +141,7 @@ export const AddedBadge = (props: {
                   onMouseDown={() => {
                     props.removeDetails?.(
                       props.component.instanceId,
-                      detail.id,
+                      detail.uuid,
                     );
                   }}
                 >

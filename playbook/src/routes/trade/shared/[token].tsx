@@ -60,9 +60,9 @@ export default function SharedSession() {
   const createSelectedComps = (setup: any, allComps?: any) => {
     if (!allComps) return [];
     return setup.selectedComps.map((e: any) => {
-      const component = allComps?.find((c: any) => c.id === e.component);
-      const details = (e.details ?? []).map((detailId: any) =>
-        allComps?.find((c: any) => c.id === detailId),
+      const component = allComps?.find((c: any) => c.uuid === e.component);
+      const details = (e.details ?? []).map((detailUuid: any) =>
+        allComps?.find((c: any) => c.uuid === detailUuid),
       );
       return { ...e, details, component };
     });

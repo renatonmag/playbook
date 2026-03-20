@@ -123,6 +123,7 @@ export default function Trade() {
   const handleAddSelectedComps = (
     sel: [number, number] | undefined,
     id: number,
+    uuid: string,
   ) => {
     if (!sel) {
       alert("Selecione um setup");
@@ -133,15 +134,15 @@ export default function Trade() {
       alert("Selecione um setup");
       return;
     }
-    const newInstanceId = actions.addSelectedComps(cardIdx, subIdx, id);
+    const newInstanceId = actions.addSelectedComps(cardIdx, subIdx, uuid);
     setTaggedComps([newInstanceId, id, cardIdx, subIdx, "main-component"]);
   };
 
-  const handleAddDetails = (insertId: number) => {
+  const handleAddDetails = (insertUuid: string) => {
     const tagged = taggedComps();
     if (!tagged) return;
     const [instanceId, , cardIdx, subIdx] = tagged;
-    actions.addDetails(instanceId, cardIdx, subIdx, insertId);
+    actions.addDetails(instanceId, cardIdx, subIdx, insertUuid);
   };
 
   const handleAddCard = (asset?: string) => {
@@ -176,11 +177,11 @@ export default function Trade() {
     }
   };
 
-  const handleAddTruthComp = (id: number) => {
+  const handleAddTruthComp = (id: number, uuid: string) => {
     const target = verdadeTarget();
     if (!target) return;
     const [cardIdx, subIdx] = target;
-    actions.addTruthComp(cardIdx, subIdx, id);
+    actions.addTruthComp(cardIdx, subIdx, uuid);
   };
 
   const openRefsDialog = (cardIdx: number, subIdx: number) => {
@@ -282,9 +283,9 @@ export default function Trade() {
   const createSelectedComps = (setup: any, allComps?: any) => {
     if (!allComps) return [];
     return setup.selectedComps.map((e: any) => {
-      const component = allComps?.find((c: any) => c.id === e.component);
-      const details = e.details.map((detailId: any) => {
-        return allComps?.find((c: any) => c.id === detailId);
+      const component = allComps?.find((c: any) => c.uuid === e.component);
+      const details = e.details.map((detailUuid: any) => {
+        return allComps?.find((c: any) => c.uuid === detailUuid);
       });
       return { ...e, details, component };
     });

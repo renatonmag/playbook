@@ -21,7 +21,7 @@ export type ComponentUpdate = {
   markdownId?: number;
   categories?: string;
   markdown?: string;
-  details?: number[];
+  details?: string[];
 };
 
 export const createComponent = async (data: ComponentInsert) => {

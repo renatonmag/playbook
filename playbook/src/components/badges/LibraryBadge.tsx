@@ -28,7 +28,7 @@ export const LibraryBadge = (props: {
           props.setShowItem(props.component.id);
         }}
         onDblClick={() => {
-          props.addSelectedComps(props.selectedSetup(), props.component.id);
+          props.addSelectedComps(props.selectedSetup(), props.component.id, props.component.uuid);
         }}
       >
         {props.component.title}
@@ -45,14 +45,14 @@ export const LibraryBadge = (props: {
           </ContextMenuItem>
           <ContextMenuItem
             onMouseDown={() => {
-              props.addSelectedComps(props.selectedSetup(), props.component.id);
+              props.addSelectedComps(props.selectedSetup(), props.component.id, props.component.uuid);
             }}
           >
             <span>Adicionar setup</span>
           </ContextMenuItem>
           <ContextMenuItem
             onMouseDown={() => {
-              props.addDetails(props.component.id);
+              props.addDetails(props.component.uuid);
             }}
           >
             <span>Adicionar detalhe</span>

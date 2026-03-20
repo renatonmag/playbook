@@ -49,14 +49,14 @@ type Props = {
     cardIdx: number,
     subIdx: number,
     instanceId: string,
-    detailId: number,
+    detailUuid: string,
   ) => void;
   removeTruthComp: (cardIdx: number, subIdx: number, instanceId: string) => void;
   removeTruthDetail: (
     cardIdx: number,
     subIdx: number,
     instanceId: string,
-    detailId: number,
+    detailUuid: string,
   ) => void;
   tagComponent: (
     instanceId: string,

@@ -20,9 +20,9 @@ type Props = {
   verdadeTarget: () => [number, number] | undefined;
   loadComponent: any;
   setShowItem: (val: string) => void;
-  addTruthComp: (id: number) => void;
-  addSelectedComps: (sel: [number, number] | undefined, id: number) => void;
-  addDetails: (insertId: number) => void;
+  addTruthComp: (id: number, uuid: string) => void;
+  addSelectedComps: (sel: [number, number] | undefined, id: number, uuid: string) => void;
+  addDetails: (insertUuid: string) => void;
   addContext: (cardIdx: number, subIdx: number, id: number) => void;
   removeComps: (id: number) => void;
   taggedComps: () => [string, number, number, number, string] | undefined;
@@ -41,7 +41,7 @@ export function LeftPanel(props: Props) {
     const comp = taggedComponent();
     if (!comp?.details?.length) return [];
     return comp.details
-      .map((id: number) => props.componentsData?.find((c: any) => c.id === id))
+      .map((uuid: string) => props.componentsData?.find((c: any) => c.uuid === uuid))
       .filter(Boolean);
   });
 
@@ -81,7 +81,7 @@ export function LeftPanel(props: Props) {
                   component={component}
                   loadComponent={props.loadComponent}
                   setShowItem={props.setShowItem}
-                  addSelectedComps={(_sel: any, id: number) => {
+                  addSelectedComps={(_sel: any, id: number, uuid: string) => {
                     const verdade = props.verdadeTarget();
                     const selected = props.selectedSetup();
                     if (
@@ -90,9 +90,9 @@ export function LeftPanel(props: Props) {
                       verdade[0] === selected[0] &&
                       verdade[1] === selected[1]
                     ) {
-                      props.addTruthComp(id);
+                      props.addTruthComp(id, uuid);
                     } else {
-                      props.addSelectedComps(selected, id);
+                      props.addSelectedComps(selected, id, uuid);
                     }
                   }}
                   addDetails={props.addDetails}
@@ -117,7 +117,7 @@ export function LeftPanel(props: Props) {
                   <Badge
                     variant="secondary"
                     class="cursor-pointer hover:bg-secondary select-none"
-                    onDblClick={() => props.addDetails(detail.id)}
+                    onDblClick={() => props.addDetails(detail.uuid)}
                   >
                     {detail.title}
                   </Badge>
