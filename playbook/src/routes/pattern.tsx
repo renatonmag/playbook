@@ -4,60 +4,28 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
-  Index,
-  Match,
   onCleanup,
-  onMount,
-  Show,
-  Switch,
 } from "solid-js";
 import { produce, unwrap } from "solid-js/store";
 import deepEqual from "deep-equal";
 import { parseMarkdown } from "~/lib/parseMarkdown";
-import { Button } from "~/components/ui/button";
-import ArrowLeft from "lucide-solid/icons/arrow-left";
 import { createStore, reconcile } from "solid-js/store";
 import { checklist, getListComponent, setChecklist } from "~/store/checklist";
-import { json, useParams, useSearchParams } from "@solidjs/router";
-import { UploadButton } from "~/lib/uploadthing";
-import { ImageCaroulsel } from "~/components/ImageCarousel";
-
-import {
-  labelVariants,
-  TextField,
-  TextFieldInput,
-  TextFieldLabel,
-} from "~/components/ui/text-field";
+import { useSearchParams } from "@solidjs/router";
 import { useStore } from "~/store/storeContext";
-import { Separator } from "~/components/ui/separator";
+import { PatternPreview } from "~/components/pattern/PatternPreview";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
-import SquareMinus from "lucide-solid/icons/square-minus";
-import { param } from "drizzle-orm";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxControl,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxItemIndicator,
-  ComboboxItemLabel,
-  ComboboxSection,
-  ComboboxTrigger,
-} from "~/components/ui/combobox";
-import { cn } from "~/lib/utils";
+  PatternEdit,
+  type QuestionType,
+} from "~/components/pattern/PatternEdit";
+import { useQuery } from "@tanstack/solid-query";
+import { orpc } from "~/lib/orpc";
 
-type QuestionType = {
-  id: string;
-  question: string;
-  questionFunction: string;
-  answers: { answer: string; consequence: number }[];
+type PatternDraft = {
+  title: string;
+  categories: string;
+  exemples: { uri: string; key: string }[];
+  markdown: { content: string };
 };
 
 export default function Home() {
@@ -66,14 +34,16 @@ export default function Home() {
     [questionsHistory, setQuestionsHistory] = createStore<QuestionType[]>([]);
 
   const [params, _] = useSearchParams();
-
   const [store, actions] = useStore();
+
+  const componentsList = useQuery(() =>
+    orpc.component.listByUser.queryOptions({}),
+  );
 
   const component = createMemo(() => {
     let id = Number(params.pattern);
     if (!id) id = -1;
-
-    return store.components?.data?.find((c) => c.id === id);
+    return componentsList?.data?.find((c) => c.id === id);
   });
 
   createEffect(() => {
@@ -136,7 +106,6 @@ export default function Home() {
   const editQuestion = (index: number, value: string) => {
     setQuestions(
       produce((draft) => {
-        console.log(value);
         draft[index].question = value;
         return draft;
       }),
@@ -165,13 +134,6 @@ export default function Home() {
     );
   };
 
-  type PatternDraft = {
-    title: string;
-    categories: string;
-    exemples: { uri: string; key: string }[];
-    markdown: { content: string };
-  };
-
   const [patternDraft, setPatternDraft] = createStore<Partial<PatternDraft>>(
     {},
   );
@@ -195,51 +157,62 @@ export default function Home() {
 
     if (deepEqual(patternDraft, {})) return;
 
-    // Set a 2-second debounce timer
     const timer2 = setTimeout(async () => {
       await actions.updateComponent(component()?.id, dataToSave);
       setPatternDraft({});
-      // Optional: revalidate() here if other parts of the UI need the update
     }, 2000);
 
-    // If the user types again before 2s, this clears the previous timer2
     onCleanup(() => clearTimeout(timer2));
   });
+
+  const availableDetails = createMemo(
+    () =>
+      componentsList.data
+        ?.filter((c) => c.strategyId === component()?.strategyId)
+        .map((c) => ({ id: c.id, uuid: c.uuid, title: c.title })) ?? [],
+  );
+
+  const selectedDetails = createMemo(() => component()?.details ?? []);
+
+  const [detailInput, setDetailInput] = createSignal("");
+
+  const addDetail = async (uuid: string) => {
+    const current = selectedDetails();
+    if (current.includes(uuid)) return;
+    await actions.updateComponent(component()?.id, {
+      details: [...current, uuid],
+    });
+  };
+
+  const removeDetail = async (uuid: string) => {
+    await actions.updateComponent(component()?.id, {
+      details: selectedDetails().filter((d) => d !== uuid),
+    });
+  };
+
+  const createAndAddDetail = async () => {
+    const title = detailInput().trim();
+    if (!title) return;
+    const newComp = await actions.createComponent.mutateAsync({
+      title,
+      strategyId: component()?.strategyId,
+    });
+    if (newComp?.uuid) await addDetail(newComp.uuid);
+    setDetailInput("");
+  };
 
   const [html] = createResource(
     () =>
       patternDraft.markdown?.content || component()?.markdown?.content || "",
     parseMarkdown,
   );
-  let previewDiv: HTMLDivElement | undefined;
-
-  createEffect(() => {
-    if (previewDiv) {
-      previewDiv.innerHTML = html() || "";
-    }
-  });
 
   const deleteImage = (key: string) => {
+    const current = patternDraft.exemples ?? component()?.exemples ?? [];
     setPatternDraft(
       "exemples",
-      patternDraft.exemples.filter((e) => e.key !== key),
+      current.filter((e) => e.key !== key),
     );
-  };
-
-  const [value, setValue] = createSignal<Food | null>(null);
-  const onInputChange = (value: string) => {
-    // Remove selection when input is cleared.
-    console.log({ value });
-    if (value === "") {
-      setValue(null);
-    }
-  };
-
-  const createDetail = () => {
-    actions._createComponent.mutate({
-      title: value()?.label || "",
-      kind: "detail",
-    });
   };
 
   if (!params.pattern) {
@@ -249,395 +222,66 @@ export default function Home() {
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-2 gap-1">
       <div class="w-2/3 h-full py-4 px-4 flex flex-col items-center justify-start relative overflow-y-auto">
-        <Button
-          as="a"
-          href={"/lists"}
-          variant="outline"
-          size="icon"
-          class="absolute top-4 left-4"
-        >
-          <ArrowLeft />
-        </Button>
-
-        <div class="font-bold text-xl text-gray-700 mb-4">
-          {patternDraft.title || component()?.title}
-        </div>
-        <ImageCaroulsel
-          class="max-w-2xl"
+        <PatternPreview
+          title={patternDraft.title || component()?.title || ""}
           images={patternDraft.exemples || component()?.exemples || []}
+          html={html() || ""}
         />
-        <div
-          class="prose w-full h-full mt-[30px] wrap-break-word"
-          ref={previewDiv}
-        ></div>
       </div>
-
-      <div class="w-[calc(33%+3rem)] h-full border-2 border-gray-200 rounded-lg py-4 px-4 flex flex-col items-center justify-start overflow-y-auto">
-        <Switch>
-          <Match when={editTitle()}>
-            <TextField class="w-3/4">
-              <TextFieldInput
-                onBlur={() => setEditTitle(false)}
-                value={patternDraft.title || component()?.title}
-                class="text-xl font-bold text-gray-700 mb-4 w-full"
-                type="text"
-                id="text"
-                onInput={(e) => {
-                  setPatternDraft("title", e.currentTarget.value);
-                }}
-                placeholder="categorias separadas por virgula."
-              />
-            </TextField>
-          </Match>
-          <Match when={!editTitle()}>
-            <div
-              class="text-xl font-bold text-gray-700 mb-4"
-              onMouseDown={() => setEditTitle(true)}
-            >
-              {patternDraft.title || component()?.title}
-            </div>
-          </Match>
-        </Switch>
-        <ImageCaroulsel
-          class="max-w-lg"
+      <div class="w-[calc(33%+3rem)] h-full border border-gray-200 rounded-lg py-4 px-4 flex flex-col items-center justify-start overflow-y-auto">
+        <PatternEdit
+          title={patternDraft.title || component()?.title || ""}
           images={patternDraft.exemples || component()?.exemples || []}
-          onDelete={deleteImage}
+          categories={patternDraft.categories || component()?.categories || ""}
+          markdownContent={
+            patternDraft.markdown?.content ||
+            component()?.markdown?.content ||
+            ""
+          }
+          questions={questions}
+          components={
+            store.components?.data?.map((c) => ({
+              id: c.id,
+              title: c.title,
+            })) || []
+          }
+          patternId={Number(params.pattern)}
+          details={selectedDetails()}
+          availableDetails={availableDetails()}
+          detailInput={detailInput()}
+          editingTitle={editTitle()}
+          onTitleMouseDown={() => setEditTitle(true)}
+          onTitleInput={(v) => setPatternDraft("title", v)}
+          onTitleBlur={() => setEditTitle(false)}
+          onDeleteImage={deleteImage}
+          onUploadComplete={(res) =>
+            setPatternDraft("exemples", (s) => [
+              ...(s ?? []),
+              ...res.map((r) => ({ uri: r.ufsUrl, key: r.key })),
+            ])
+          }
+          onCategoriesChange={(v) => setPatternDraft("categories", v)}
+          onMarkdownInput={(v) =>
+            setPatternDraft(
+              produce((d) => {
+                d.markdown = { content: v };
+              }),
+            )
+          }
+          onAddQuestion={addQuestion}
+          onRemoveQuestion={removeQuestion}
+          onEditQuestion={editQuestion}
+          onEditQuestionFunction={editQuestionFunction}
+          onAddAnswer={addAnswer}
+          onRemoveAnswer={removeAnswer}
+          onEditAnswer={editAnswer}
+          onEditConsequence={editConsequence}
+          onDetailSelect={addDetail}
+          onDetailRemove={removeDetail}
+          onDetailInputChange={setDetailInput}
+          onCreateDetail={createAndAddDetail}
         />
-        <UploadButton
-          onClientUploadComplete={(res) => {
-            // Do something with the response
-            setPatternDraft("exemples", (state) => [
-              ...state,
-              ...res.map((r) => ({
-                uri: r.ufsUrl,
-                key: r.key,
-              })),
-            ]);
-            // console.log(res);
-            alert("Upload Completed");
-          }}
-          onUploadError={(error: Error) => {
-            // Do something with the error.
-            alert(`ERROR! ${error.message}`);
-          }}
-          content={{
-            button({ ready, isUploading }) {
-              if (!ready()) return "Preparando...";
-              if (isUploading()) return "Enviando...";
-              return "Escolher imagem"; // The default text whens ready
-            },
-          }}
-          class="my-6 ut-button:px-3 ut-button:py-1 ut-button:text-gray-600 ut-button:bg-gray-200 ut-button:ut-readying:bg-gray-300/50"
-          endpoint="imageUploader"
-        />
-        <TextField class="grid w-full items-center gap-1.5 mb-6">
-          <TextFieldLabel class="col-span-1" for="email">
-            Categoria
-          </TextFieldLabel>
-          <TextFieldInput
-            value={patternDraft.categories || component()?.categories || ""}
-            onChange={(e) => {
-              setPatternDraft("categories", e.currentTarget.value);
-            }}
-            class="col-span-3"
-            type="email"
-            id="email"
-            placeholder="impulse, pullback, trend, range, etc..."
-          />
-        </TextField>
-        <Separator class=" mb-6" />
-        <div class="h-full w-full">
-          <textarea
-            placeholder="Escreva seu texto aqui..."
-            id="markdown"
-            class="w-full min-h-full outline-none resize-none bg-transparent field-sizing-content"
-            onInput={(e) => {
-              setPatternDraft(
-                produce((draft) => {
-                  draft.markdown = { content: e.currentTarget.value || "" };
-                  return draft;
-                }),
-              );
-            }}
-          >
-            {patternDraft.markdown?.content ||
-              component()?.markdown?.content ||
-              ""}
-          </textarea>
-        </div>
-        <Separator class="my-6" />
-        <div class="w-full mb-6">
-          <div
-            class="text-xl font-bold text-gray-700 mb-4"
-            onMouseDown={() => setEditTitle(true)}
-          >
-            Perguntas
-          </div>
-          <For each={questions}>
-            {(question, index) => (
-              <div class="mb-6">
-                <TextField class="flex flex-col w-full gap-1.5 mb-6">
-                  <TextFieldLabel class="col-span-1" for="email">
-                    Pergunta
-                  </TextFieldLabel>
-                  <TextFieldInput
-                    value={
-                      question.question ||
-                      component()?.questions[index()]?.question ||
-                      ""
-                    }
-                    onInput={(e) => {
-                      editQuestion(index(), e.currentTarget.value);
-                    }}
-                    class="col-span-3"
-                    type="text"
-                    id="question"
-                    placeholder="..."
-                  />
-                </TextField>
-                <Select
-                  value={question.questionFunction || ""}
-                  onChange={(value) => editQuestionFunction(index(), value)}
-                  class="mb-6"
-                  options={["Especificação", "Detalhe", "Contexto"]}
-                  placeholder="Função da pergunta."
-                  itemComponent={(props) => (
-                    <SelectItem item={props.item}>
-                      {props.item.rawValue}
-                    </SelectItem>
-                  )}
-                >
-                  <SelectTrigger aria-label="Fruit" class="w-full">
-                    <SelectValue<string>>
-                      {(state) => state.selectedOption()}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent />
-                </Select>
-                <TextField class="flex flex-col w-full gap-1.5 mb-6">
-                  <div class="grid grid-cols-2 gap-2">
-                    <TextFieldLabel for="respostas">Respostas</TextFieldLabel>
-                    <TextFieldLabel for="consequencias">
-                      Consequências
-                    </TextFieldLabel>
-                  </div>
-                  <For each={question.answers}>
-                    {(answer, answerIndex) => (
-                      <div class="grid grid-cols-2 gap-2">
-                        <TextFieldInput
-                          value={
-                            answer.answer ||
-                            component()?.questions[index()]?.answers[
-                              answerIndex()
-                            ]?.answer ||
-                            ""
-                          }
-                          onInput={(e) =>
-                            editAnswer(
-                              index(),
-                              answerIndex(),
-                              e.currentTarget.value,
-                            )
-                          }
-                          class="mb-2"
-                          type="text"
-                          id="questionAnswer"
-                          placeholder="Sim, Não, etc..."
-                        />
-                        <div class="flex gap-2">
-                          <Select
-                            value={answer.consequence || ""}
-                            onChange={(value) => {
-                              editConsequence(index(), answerIndex(), value);
-                            }}
-                            class="flex-1"
-                            options={
-                              store.components?.data?.map((c) => ({
-                                id: c.id,
-                                parentId: Number(params.pattern),
-                                title: c.title,
-                              })) || []
-                            }
-                            placeholder="Selecione o componente"
-                            itemComponent={(props) => (
-                              <SelectItem item={props.item}>
-                                {props.item.rawValue?.title || ""}
-                              </SelectItem>
-                            )}
-                            optionValue={(value) => +value.id}
-                            optionTextValue={(value) => value.title}
-                          >
-                            <SelectTrigger
-                              aria-label="Components"
-                              class="w-full"
-                            >
-                              <SelectValue<{ title: string }>>
-                                {(state) => {
-                                  return state.selectedOption()?.title || "";
-                                }}
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent />
-                          </Select>
-                          <Button
-                            variant="secondary"
-                            size="icon"
-                            onClick={() => removeAnswer(index(), answerIndex())}
-                          >
-                            <SquareMinus />
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </For>
-                </TextField>
-                <div class="flex gap-2">
-                  <Button onMouseDown={() => addAnswer(index())}>
-                    Adicionar resposta
-                  </Button>
-                  <Button onMouseDown={() => removeQuestion(index())}>
-                    Remover pergunta
-                  </Button>
-                  <Show
-                    when={
-                      questions.length === 0 || questions.length - 1 === index()
-                    }
-                  >
-                    <Button onMouseDown={() => addQuestion()}>
-                      Adicionar pergunta
-                    </Button>
-                  </Show>
-                </div>
-              </div>
-            )}
-          </For>
-          <Show when={questions.length === 0}>
-            <Button onMouseDown={() => addQuestion()}>
-              Adicionar pergunta
-            </Button>
-          </Show>
-        </div>
-        {/* ---------- DETAILS ---------- */}
-        <div class="w-full">
-          <div>
-            <div class={cn(labelVariants(), "mb-2")}>Detalhes</div>
-            <Combobox<Food, Category>
-              options={ALL_OPTIONS}
-              value={value()}
-              onChange={setValue}
-              onInputChange={onInputChange}
-              optionValue="value"
-              optionTextValue="label"
-              optionLabel="label"
-              optionDisabled="disabled"
-              optionGroupChildren="options"
-              placeholder="Search a food…"
-              itemComponent={(props) => (
-                <ComboboxItem item={props.item}>
-                  <ComboboxItemLabel>
-                    {props.item.rawValue.label}
-                  </ComboboxItemLabel>
-                  <ComboboxItemIndicator />
-                </ComboboxItem>
-              )}
-              sectionComponent={(props) => (
-                <ComboboxSection>
-                  {props.section.rawValue.label}
-                </ComboboxSection>
-              )}
-            >
-              <ComboboxControl aria-label="Food">
-                <ComboboxInput />
-                <ComboboxTrigger />
-              </ComboboxControl>
-              <ComboboxContent class="w-full max-h-96 overflow-y-auto"></ComboboxContent>
-            </Combobox>
-          </div>
-          <Button onMouseDown={createDetail}>Salvar detalhe</Button>
-        </div>
       </div>
     </main>
   );
 }
-
-interface Food {
-  value: string;
-  label: string;
-  disabled: boolean;
-}
-interface Category {
-  label: string;
-  options: Food[];
-}
-
-const ALL_OPTIONS: Category[] = [
-  {
-    label: "Fruits",
-    options: [
-      { value: "apple", label: "Apple", disabled: false },
-      { value: "banana", label: "Banana", disabled: false },
-      { value: "blueberry", label: "Blueberry", disabled: false },
-      { value: "grapes", label: "Grapes", disabled: true },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-      { value: "pineapple", label: "Pineapple", disabled: false },
-    ],
-  },
-  {
-    label: "Meat",
-    options: [
-      { value: "beef", label: "Beef", disabled: false },
-      { value: "chicken", label: "Chicken", disabled: false },
-      { value: "lamb", label: "Lamb", disabled: false },
-      { value: "pork", label: "Pork", disabled: false },
-    ],
-  },
-];

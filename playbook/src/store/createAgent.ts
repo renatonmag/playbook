@@ -58,13 +58,6 @@ export default function createAgent([state, actions]) {
       send("delete", `/api/components/${id}`, undefined, undefined),
   };
 
-  const Categories = {
-    update: (userId, data) =>
-      send("put", `/api/categories/${data.id}`, { ...data, userId }, undefined),
-    create: (userId, data) =>
-      send("post", `/api/categories`, { ...data, userId }, undefined),
-  }
-
   return {
     Auth,
     Components,

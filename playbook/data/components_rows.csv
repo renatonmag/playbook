@@ -1,0 +1,63 @@
+id,title,markdown_id,image_comparisons,user_id,exemples,categories,questions,kind
+1,sideways,20,[],1,"[{""key"":""H7Ptp2XUgmWuxVWcWGQTtTWqmXS0QM8hOZVpBsnUH7y3gjoc"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuxVWcWGQTtTWqmXS0QM8hOZVpBsnUH7y3gjoc""},{""key"":""H7Ptp2XUgmWuGNVcKG1dwqM5Rp4Yx2POHcjJDZk6szNTQBKa"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuGNVcKG1dwqM5Rp4Yx2POHcjJDZk6szNTQBKa""},{""key"":""H7Ptp2XUgmWurwn2eDBtPwZ1a4ipr0RFY8T9XmU3267fhLQI"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWurwn2eDBtPwZ1a4ipr0RFY8T9XmU3267fhLQI""}]",pullback,[],component
+3,pullback,22,[],1,"[{""key"":""H7Ptp2XUgmWukwoPaG0HaiUJIZvdQN6yW8GwKx4BqtCE02F5"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWukwoPaG0HaiUJIZvdQN6yW8GwKx4BqtCE02F5""},{""key"":""H7Ptp2XUgmWu8bYg5mGc19LQj5Pao7Sbt0TEKBRmkeVY4iZA"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWu8bYg5mGc19LQj5Pao7Sbt0TEKBRmkeVY4iZA""},{""key"":""H7Ptp2XUgmWurmEj8ZBtPwZ1a4ipr0RFY8T9XmU3267fhLQI"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWurmEj8ZBtPwZ1a4ipr0RFY8T9XmU3267fhLQI""},{""key"":""H7Ptp2XUgmWuxW6ZqBTtTWqmXS0QM8hOZVpBsnUH7y3gjoc5"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuxW6ZqBTtTWqmXS0QM8hOZVpBsnUH7y3gjoc5""}]",,"[{""id"":""5a432c12-f2bc-4d74-8a05-84cabda7dd20"",""answers"":[{""answer"":""Grande"",""consequence"":{""id"":14,""title"":""big pb"",""parentId"":3}},{""answer"":""Pequeno"",""consequence"":{""id"":13,""title"":""small pb"",""parentId"":3}}],""question"":""Grande ou pequeno?"",""questionFunction"":""Especificação""},{""id"":""8921a954-d0b4-42dd-8b50-a17c42e794ac"",""answers"":[{""answer"":""Sideways"",""consequence"":{""id"":1,""title"":""sideways"",""parentId"":3}},{""answer"":""Trending"",""consequence"":{""id"":15,""title"":""trending pb"",""parentId"":3}}],""question"":""Sideways or trending?"",""questionFunction"":""Contexto""}]",component
+4,breakout,10,[],1,"[{""key"":""H7Ptp2XUgmWuR5ccUutjpAq92C38PKYoOdeFjtBwmvWfiH0E"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuR5ccUutjpAq92C38PKYoOdeFjtBwmvWfiH0E""},{""key"":""H7Ptp2XUgmWuTEHRWXoStheoRVa0jkOmzG2wiZfJ7p4n8ryq"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuTEHRWXoStheoRVa0jkOmzG2wiZfJ7p4n8ryq""},{""key"":""H7Ptp2XUgmWuU1YUv2O8pQxWEAenkqsdCu15VNILMSRP0GXr"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuU1YUv2O8pQxWEAenkqsdCu15VNILMSRP0GXr""},{""key"":""H7Ptp2XUgmWuAEVQ6JWWKdg7AetHy1RBsn0MJmPTf8EFQwuq"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuAEVQ6JWWKdg7AetHy1RBsn0MJmPTf8EFQwuq""}]",,[],component
+5,spike and channel,11,[],1,"[{""key"":""H7Ptp2XUgmWuXR5i5CwK7ChyeDxpSNvnubBL2z4GWAad9FXf"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuXR5i5CwK7ChyeDxpSNvnubBL2z4GWAad9FXf""},{""key"":""H7Ptp2XUgmWuJODgyOUdgvOjDGA5iFonTXulPb2ctzmBSIMK"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuJODgyOUdgvOjDGA5iFonTXulPb2ctzmBSIMK""},{""key"":""H7Ptp2XUgmWusTYVJv4ohpXBCv7TGzci9Ateubf8LEMWFy4r"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWusTYVJv4ohpXBCv7TGzci9Ateubf8LEMWFy4r""},{""key"":""H7Ptp2XUgmWuQ7O0HpS6KNA0ZtY48EXDbdce6OFfzCHMqhUP"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuQ7O0HpS6KNA0ZtY48EXDbdce6OFfzCHMqhUP""}]",,[],component
+6,trading range,12,[],1,"[{""key"":""H7Ptp2XUgmWuExIMe3crup7wj2dYnDNtQv05a4Ti9kMPEg3l"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuExIMe3crup7wj2dYnDNtQv05a4Ti9kMPEg3l""},{""key"":""H7Ptp2XUgmWuJGqOVnOUdgvOjDGA5iFonTXulPb2ctzmBSIM"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuJGqOVnOUdgvOjDGA5iFonTXulPb2ctzmBSIM""},{""key"":""H7Ptp2XUgmWu1Uk4gvYpVDfsmr0FRezYk8OC6XU2yNLg7u3q"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWu1Uk4gvYpVDfsmr0FRezYk8OC6XU2yNLg7u3q""},{""key"":""H7Ptp2XUgmWu2PiPqdFEzmvfeGwQVYoNu9TRipt5nIbW2q8d"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWu2PiPqdFEzmvfeGwQVYoNu9TRipt5nIbW2q8d""},{""key"":""H7Ptp2XUgmWurRvcojBtPwZ1a4ipr0RFY8T9XmU3267fhLQI"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWurRvcojBtPwZ1a4ipr0RFY8T9XmU3267fhLQI""},{""key"":""H7Ptp2XUgmWudJ7RYD2O93wXaRC2AnKvQsuSLV1DUjNtbfYq"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWudJ7RYD2O93wXaRC2AnKvQsuSLV1DUjNtbfYq""},{""key"":""H7Ptp2XUgmWuBJyNcyUZTkElVHchQu2Zgzo5xDGANBRLseY7"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuBJyNcyUZTkElVHchQu2Zgzo5xDGANBRLseY7""},{""key"":""H7Ptp2XUgmWunW5Mm0CdQ2ugVeUzZMyXIbFiED4CBRxqLprJ"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWunW5Mm0CdQ2ugVeUzZMyXIbFiED4CBRxqLprJ""},{""key"":""H7Ptp2XUgmWuQ87uR6KNA0ZtY48EXDbdce6OFfzCHMqhUPj9"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWuQ87uR6KNA0ZtY48EXDbdce6OFfzCHMqhUPj9""},{""key"":""H7Ptp2XUgmWufEm22JpnLT82PHgkaW9xt4hX6mUvAzIK0OJw"",""uri"":""https://9yrpm0whqq.ufs.sh/f/H7Ptp2XUgmWufEm22JpnLT82PHgkaW9xt4hX6mUvAzIK0OJw""}]",range,[],component
+7,small pb,,[],1,[],,[],component
+8,50% pb bar,,[],1,[],,[],component
+9,wedge,,[],1,[],,[],component
+10,mini wedge,,[],1,[],,[],component
+11,conspicuous bar,15,[],1,[],,"[{""id"":""cf8177ac-91d0-4c10-a61b-1cf63af14783"",""answers"":[{""answer"":"""",""consequence"":0}],""question"":"""",""questionFunction"":""""}]",component
+14,big pb,,[],1,[],,[],component
+15,trending pb,29,[],1,[],impulse,[],component
+16,climax,,[],1,[],,[],component
+17,reversal,,[],1,[],,[],component
+18,parabolic wedge,,[],1,[],,[],component
+19,consecutive wedges,,[],1,[],,[],component
+20,late in trend,,[],1,[],,[],component
+21,reversal bar,,[],1,[],,[],component
+22,rejection candle,,[],1,[],,[],component
+23,impulse bar,,[],1,[],,[],component
+24,ma touch,,[],1,[],,[],component
+25,trend,,[],1,[],,[],component
+26,broad channel,,[],1,[],,[],component
+27,tight channel,,[],1,[],,[],component
+28,3 bars growing,,[],1,[],,[],component
+29,failed wedge,,[],1,[],,[],component
+30,triangle,,[],1,[],,[],component
+31,small triangle,,[],1,[],,[],component
+32,surprise bar,,[],1,[],,[],component
+33,hod,,[],1,[],,[],component
+34,lod,,[],1,[],,[],component
+35,hoy,,[],1,[],,[],component
+36,loy,,[],1,[],,[],component
+37,double top,,[],1,[],,[],component
+38,double bottom,,[],1,[],,[],component
+39,micro dt,,[],1,[],,[],component
+40,micro db,,[],1,[],,[],component
+41,lower high,,[],1,[],,[],component
+42,higher low,,[],1,[],,[],component
+43,ttr,,[],1,[],,[],component
+44,thousand,,[],1,[],,[],component
+45,big up big down,,[],1,[],,[],component
+59,big,,[],1,[],,[],component
+60,small,,[],1,[],,[],component
+61,medium,,[],1,[],,[],component
+62,gap,,[],1,[],,[],component
+64,head and shoulders,,[],1,[],,[],component
+65,endless pb,,[],1,[],,[],component
+66,low,,[],1,[],,[],component
+67,high,,[],1,[],,[],component
+68,middle,,[],1,[],,[],component
+69,bull,,[],1,[],,[],component
+70,bear,,[],1,[],,[],component
+71,continuation bar,,[],1,[],,[],component
+72,continuation,,[],1,[],,[],component
+73,third leg,,[],1,[],,[],component
+74,signal bar,,[],1,[],,[],component
+75,good,,[],1,[],,[],component
+76,bad,,[],1,[],,[],component
+77,channel line,,[],1,[],,[],component
+78,trend line,,[],1,[],,[],component
+79,touch,,[],1,[],,[],component

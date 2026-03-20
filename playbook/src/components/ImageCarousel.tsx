@@ -13,7 +13,11 @@ import { Button } from "./ui/button";
 import SquareMinus from "lucide-solid/icons/square-minus";
 import { deleteFiles } from "~/server/functions";
 
-export function ImageCaroulsel(props: { images: any[]; class?: string }) {
+export function ImageCaroulsel(props: {
+  images: any[];
+  class?: string;
+  onDelete?: (key: string) => void;
+}) {
   return (
     <Carousel class={cn("w-full", props.class)}>
       <CarouselContent>

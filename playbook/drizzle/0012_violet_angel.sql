@@ -1,1 +1,0 @@
-ALTER TABLE "setups" ADD COLUMN "setups2" jsonb DEFAULT '[]'::jsonb NOT NULL;

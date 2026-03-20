@@ -1,1 +1,0 @@
-ALTER TABLE "components" ADD COLUMN "exemples" jsonb DEFAULT '[]'::jsonb NOT NULL;

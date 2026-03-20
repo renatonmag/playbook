@@ -1,0 +1,13 @@
+<>
+            <QueryClientProvider client={queryClient}>
+              <ColorModeScript storageType={storageManager.type} />
+              <ColorModeProvider storageManager={storageManager}>
+                <StoreContext>
+                  <Nav />
+                  <AuthGuard>
+                    <Suspense>{props.children}</Suspense>
+                  </AuthGuard>
+                </StoreContext>
+              </ColorModeProvider>
+            </QueryClientProvider>
+          </>

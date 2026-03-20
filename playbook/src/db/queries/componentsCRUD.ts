@@ -3,15 +3,12 @@ import type { ImageComparison } from "../schema";
 import { componentsTable } from "../schema";
 import { db } from "../index";
 import { updateOrCreateMarkdown } from "./markdownCRUD";
-import {
-  createCategoryAndLinkToComponent,
-  updateCategory,
-} from "./categoriesCRUD";
 
 export type ComponentInsert = {
-  userId: number;
+  userId: string;
   title: string;
   kind?: string;
+  strategyId: number;
   imageComparisons?: ImageComparison[];
   markdownId?: number | null;
 };
@@ -19,11 +16,12 @@ export type ComponentInsert = {
 export type ComponentUpdate = {
   title?: string;
   imageComparisons?: ImageComparison[];
-  exemples?: number[];
-  userId?: number;
+  exemples?: any[];
+  userId?: string;
   markdownId?: number;
   categories?: string;
   markdown?: string;
+  details?: string[];
 };
 
 export const createComponent = async (data: ComponentInsert) => {
@@ -34,6 +32,7 @@ export const createComponent = async (data: ComponentInsert) => {
         userId: data.userId,
         title: data.title,
         kind: data.kind,
+        strategyId: data.strategyId,
         imageComparisons: data.imageComparisons ?? [],
         markdownId: data.markdownId ?? null,
       })
@@ -48,7 +47,7 @@ export const createComponent = async (data: ComponentInsert) => {
   }
 };
 
-export const getComponentById = async (id: number, userId: number) => {
+export const getComponentById = async (id: number, userId: string) => {
   const row = await db.query.componentsTable.findFirst({
     where: (components, { and, eq }) =>
       and(eq(components.id, id), eq(components.userId, userId)),
@@ -60,7 +59,7 @@ export const getComponentById = async (id: number, userId: number) => {
   return row ?? null;
 };
 
-export const listComponentsByUser = async (userId: number) => {
+export const listComponentsByUser = async (userId: string) => {
   return await db.query.componentsTable.findMany({
     where: (components, { eq }) => eq(components.userId, userId),
     with: {
@@ -71,7 +70,7 @@ export const listComponentsByUser = async (userId: number) => {
 
 export const updateComponent = async (
   id: number,
-  userId: number,
+  userId: string,
   data: ComponentUpdate,
 ) => {
   let markdownId = data.markdownId;
@@ -97,6 +96,7 @@ export const updateComponent = async (
     }),
     ...(data.exemples !== undefined && { exemples: data.exemples }),
     ...(data.categories !== undefined && { categories: data.categories }),
+    ...(data.details !== undefined && { details: data.details }),
   };
 
   // Handle markdownId: prioritize explicit markdownId, otherwise use the one from markdown handling
@@ -104,17 +104,17 @@ export const updateComponent = async (
     updateData.markdownId = markdownId;
   }
 
-  console.log(data);
+  console.log(updateData);
 
   const [row] = await db
     .update(componentsTable)
-    .set(data)
+    .set(updateData)
     .where(and(eq(componentsTable.id, id), eq(componentsTable.userId, userId)))
     .returning();
   return row ?? null;
 };
 
-export const deleteComponent = async (id: number, userId: number) => {
+export const deleteComponent = async (id: number, userId: string) => {
   const [row] = await db
     .delete(componentsTable)
     .where(and(eq(componentsTable.id, id), eq(componentsTable.userId, userId)))

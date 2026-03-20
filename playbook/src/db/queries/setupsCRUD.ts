@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Setup, Setup2 } from "../schema";
-import { setupsTable } from "../schema";
+import { componentsTable, setupsTable } from "../schema";
 import { db } from "../index";
 
 export type SetupsRowInsert = {
@@ -67,6 +67,19 @@ export const updateSetupsRow = async (
   return row ?? null;
 };
 
+export const updateSetupsRowStrategies = async (
+  id: number,
+  userId: string,
+  strategies: number[],
+) => {
+  const [row] = await db
+    .update(setupsTable)
+    .set({ strategies })
+    .where(and(eq(setupsTable.id, id), eq(setupsTable.userId, userId)))
+    .returning();
+  return row ?? null;
+};
+
 export const updateOrCreateSetupsRowByUser = async (data: {
   id: number;
   userId: number;
@@ -89,6 +102,53 @@ export const deleteSetupsRow = async (id: number, userId: number) => {
 
 export const deleteAllSetupsRowsByUser = async (userId: number) => {
   return db.delete(setupsTable).where(eq(setupsTable.userId, userId));
+};
+
+export const getSetupsRowByShareToken = async (token: string) => {
+  const [row] = await db
+    .select()
+    .from(setupsTable)
+    .where(and(eq(setupsTable.shareToken, token), eq(setupsTable.isShared, true)));
+  return row ?? null;
+};
+
+export const enableSessionSharing = async (id: number, userId: string) => {
+  const [existing] = await db
+    .select({ shareToken: setupsTable.shareToken })
+    .from(setupsTable)
+    .where(and(eq(setupsTable.id, id), eq(setupsTable.userId, userId)));
+  const token = existing?.shareToken ?? crypto.randomUUID();
+  const [row] = await db
+    .update(setupsTable)
+    .set({ isShared: true, shareToken: token })
+    .where(and(eq(setupsTable.id, id), eq(setupsTable.userId, userId)))
+    .returning();
+  return row ?? null;
+};
+
+export const disableSessionSharing = async (id: number, userId: string) => {
+  const [row] = await db
+    .update(setupsTable)
+    .set({ isShared: false })
+    .where(and(eq(setupsTable.id, id), eq(setupsTable.userId, userId)))
+    .returning();
+  return row ?? null;
+};
+
+export const getComponentsByIds = async (ids: number[]) => {
+  if (ids.length === 0) return [];
+  return db
+    .select({ id: componentsTable.id, title: componentsTable.title })
+    .from(componentsTable)
+    .where(inArray(componentsTable.id, ids));
+};
+
+export const getComponentsByUuids = async (uuids: string[]) => {
+  if (uuids.length === 0) return [];
+  return db
+    .select({ id: componentsTable.id, uuid: componentsTable.uuid, title: componentsTable.title })
+    .from(componentsTable)
+    .where(inArray(componentsTable.uuid, uuids));
 };
 
 export const listSetupsForUser = async (id: number, userId: number) => {

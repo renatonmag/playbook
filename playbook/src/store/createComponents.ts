@@ -1,15 +1,13 @@
+import { onSuccess } from "@orpc/client";
 import {
-  action,
   createAsync,
   createAsyncStore,
   query,
   revalidate,
-  useAction,
 } from "@solidjs/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, untrack } from "solid-js";
+import { createEffect, createSignal, on, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
-import { ComponentUpdate } from "~/db/queries/componentsCRUD";
 import { orpc } from "~/lib/orpc";
 
 export default function createComponents(agent, actions, state, setState) {
@@ -17,71 +15,32 @@ export default function createComponents(agent, actions, state, setState) {
 
   const queryClient = useQueryClient();
 
-  const _componentsList = useQuery(() =>
-    orpc.component.listByUser.queryOptions({}),
+  // const _componentsList = useQuery(() =>
+  //   orpc.component.listByUser.queryOptions({}),
+  // );
+
+  const _updateComponent = useMutation(() =>
+    orpc.component.update.mutationOptions({
+      onSuccess: (res) => {
+        queryClient.setQueryData(
+          orpc.component.listByUser.queryKey(),
+          (old: any[]) =>
+            old?.map((c) => (c.id === res.id ? { ...c, ...res } : c)) ?? [],
+        );
+      },
+    }),
   );
 
-  createEffect(() => {
-    console.log("query", _componentsList.data);
-  });
-
-  const fetchComponents = query(async (userId) => {
-    const response = agent.Components.listByUser(userId);
-    return response;
-  }, "components");
-
-  const components = createAsync(async () => {
-    if (!componentsSource()) return {};
-
-    let components;
-    if (componentsSource() === "mine") {
-      try {
-        components = await fetchComponents(1);
-      } catch (err) {
-        console.log(err);
-      }
-    } else if (componentsSource() === "public") {
-    }
-
-    // // Normalize into the map
-    // const mapped = components.reduce((memo, a) => {
-    //   memo[a.slug] = a;
-    //   return memo;
-    // }, {});
-
-    return components;
-  });
-
-  const fetchSingleComponent = query(async (id, userId) => {
-    console.log("fetching single component");
-    return await agent.Components.get(id, userId);
-  }, "single-component");
-
-  const component = createAsync(async () => {
-    const id = state.displayComponentId;
-    if (!id) return {};
-
-    return await fetchSingleComponent(id, state.user.id);
-  });
-
-  const _updateComponent = action(async (id: string, data: ComponentUpdate) => {
-    const response = await agent.Components.update(id, state.user.id, data);
-    return response;
-  });
-
-  const updateComponent = useAction(_updateComponent);
-
-  interface CategoriesUpdate {
-    id: number;
-    name: string;
-  }
-
-  const _updateCategory = action(async (data: CategoriesUpdate) => {
-    const response = await agent.Categories.update(state.user.id, data);
-    return response;
-  }, "update-category");
-
-  const updateCategory = useAction(_updateCategory);
+  const _deleteComponent = useMutation(() =>
+    orpc.component.delete.mutationOptions({
+      onSuccess: (res) => {
+        queryClient.setQueryData(
+          orpc.component.listByUser.queryKey(),
+          (old: any[]) => old?.filter((c) => c.id !== res.id) ?? [],
+        );
+      },
+    }),
+  );
 
   const createComponent = useMutation(() =>
     orpc.component.create.mutationOptions({
@@ -103,21 +62,14 @@ export default function createComponents(agent, actions, state, setState) {
     loadComponent(componentId) {
       setState("displayComponentId", componentId);
     },
-    async createComponent(componentData: { title: string }) {
-      const component = await agent.Components.create(componentData);
-      revalidate("components");
+    createComponent,
+    updateComponent(id: number, data: Record<string, any>) {
+      return _updateComponent.mutateAsync({ id, ...data });
     },
-    _createComponent: createComponent,
-    updateComponent,
-    deleteComponent(id, userId) {
-      return agent.Components.delete(id, userId);
+    deleteComponent(id: number) {
+      return _deleteComponent.mutateAsync({ id });
     },
-    async createCategory(componentData: { componentId: number; name: string }) {
-      await agent.Categories.create(componentData);
-      revalidate("components");
-    },
-    updateCategory,
   });
 
-  return _componentsList;
+  return null;
 }

@@ -18,12 +18,10 @@ import {
 } from "~/components/ui/text-field";
 import { useStore } from "~/store/storeContext";
 
-export function DialogAddComponent(props: {
-  setComponentName: (componentName: string) => void;
-}) {
+export function DialogAddComponent(props: { strategyId: number | null }) {
   const [componentName, setComponentName] = createSignal("");
 
-  const [state, { createComponent }] = useStore();
+  const [state, actions] = useStore();
 
   return (
     <Dialog>
@@ -55,13 +53,13 @@ export function DialogAddComponent(props: {
             class={buttonVariants({ variant: "default", size: "sm" })}
             type="submit"
             onClick={() => {
-              createComponent({
+              actions.createComponent.mutate({
                 title: componentName(),
-                userId: state.user.id,
+                strategyId: props.strategyId!,
               });
               setComponentName("");
             }}
-            disabled={componentName() === ""}
+            disabled={componentName() === "" || props.strategyId === null}
           >
             Salvar
           </CloseButton>

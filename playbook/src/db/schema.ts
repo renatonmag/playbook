@@ -1,5 +1,7 @@
 import { relations } from "drizzle-orm";
+import { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
+  boolean,
   integer,
   jsonb,
   pgTable,
@@ -8,15 +10,8 @@ import {
   unique,
   varchar,
 } from "drizzle-orm/pg-core";
-
-export const usersTable = pgTable("users", {
-  id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  firstName: varchar({ length: 255 }).notNull(),
-  lastName: varchar({ length: 255 }).notNull(),
-  userName: varchar({ length: 255 }).notNull(),
-  age: integer().notNull(),
-  email: varchar({ length: 255 }).notNull().unique(),
-});
+import { user } from "./auth-schema";
+export * from "./auth-schema";
 
 // Define the shape of your image pair for TypeScript
 export type ImageComparison = {
@@ -36,6 +31,14 @@ export type Answer = {
   consequence: { id: number; title: string; parentId: number };
 };
 
+export type StrategyAnswer = { answer: string };
+export type StrategyQuestion = {
+  id: string;
+  question: string;
+  answers: StrategyAnswer[];
+  subQuestions?: StrategyQuestion[];
+};
+
 export type Setup = {
   version: number;
   id: string;
@@ -46,24 +49,54 @@ export type Setup = {
 };
 
 export type SelectedComp = {
-  component: number;
-  details: number[];
+  component: string;
+  details: string[];
+  instanceId: string;
+  addedAt?: string;
+  detailTimestamps?: Record<string, string>;
 };
 export type Setup2 = {
   version: number;
   id: string;
   selectedComps: SelectedComp[];
   result: string;
+  images?: { uri: string; key: string }[];
+  setupNumber?: number;
+  evolution?: number;
+  asset?: string;
 };
+
+export const strategyTable = pgTable(
+  "strategies",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    userId: text("user_id")
+      .references(() => user.id)
+      .notNull(),
+    name: varchar({ length: 255 }).notNull(),
+    description: text(),
+    questions: jsonb("questions")
+      .$type<StrategyQuestion[]>()
+      .notNull()
+      .default([]),
+    createdAt: timestamp().defaultNow(),
+    isPublic: boolean("is_public").notNull().default(false),
+    shareToken: text("share_token").unique(),
+    forkedFromId: integer("forked_from_id").references((): AnyPgColumn => strategyTable.id),
+  },
+  (t) => [unique().on(t.userId, t.name)],
+);
 
 export const componentsTable = pgTable(
   "components",
   {
     id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    userId: integer("user_id")
-      .references(() => usersTable.id)
+    uuid: text("uuid").notNull().$default(() => crypto.randomUUID()).unique(),
+    userId: text("user_id")
+      .references(() => user.id)
       .notNull(),
     title: varchar({ length: 255 }).notNull(),
+    strategyId: integer("strategy_id").references(() => strategyTable.id),
     imageComparisons: jsonb("image_comparisons")
       .$type<ImageComparison[]>()
       .notNull()
@@ -78,24 +111,28 @@ export const componentsTable = pgTable(
     // `kind` can be "component" or "detail". Default is "component"
     kind: varchar({ length: 255 }).notNull().default("component"),
     questions: jsonb("questions").$type<Question[]>().notNull().default([]),
+    details: jsonb("details").$type<string[]>().notNull().default([]),
   },
-  (t) => [unique().on(t.userId, t.title)],
+  (t) => [unique().on(t.userId, t.title, t.strategyId)],
 );
 
 export const setupsTable = pgTable("setups", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id")
-    .references(() => usersTable.id)
+  userId: text("user_id")
+    .references(() => user.id)
     .notNull(),
   createdAt: timestamp().defaultNow(),
   setups: jsonb("setups").$type<Setup[]>().notNull().default([]),
   setups2: jsonb("setups2").$type<Setup2[]>().notNull().default([]),
+  strategies: jsonb("strategies").$type<number[]>().notNull().default([]),
+  shareToken: text("share_token").unique(),
+  isShared: boolean("is_shared").notNull().default(false),
 });
 
 export const imagesTable = pgTable("images", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id")
-    .references(() => usersTable.id)
+  userId: text("user_id")
+    .references(() => user.id)
     .notNull(),
   uri: text().notNull(),
   // For 1-to-Many, the image holds the reference to its parent component
@@ -104,103 +141,46 @@ export const imagesTable = pgTable("images", {
 
 export const markdownTable = pgTable("markdown", {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id")
-    .references(() => usersTable.id)
+  userId: text("user_id")
+    .references(() => user.id)
     .notNull(),
   content: text().notNull(), // Changed from varchar to text for long markdown
 });
 
-export const checklistTable = pgTable("checklist", {
-  id: integer().primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id")
-    .references(() => usersTable.id)
-    .notNull(),
-  title: varchar({ length: 255 }).notNull(),
-});
-
-// 1. The Categories Master Table
-export const categoriesTable = pgTable(
-  "categories",
-  {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
-    userId: integer("user_id")
-      .references(() => usersTable.id)
-      .notNull(),
-    name: varchar({ length: 50 }).notNull(),
-  },
-  (t) => [unique().on(t.userId, t.name)],
-);
-
-// 2. The Join Table (Links Components to Categories)
-export const componentToCategories = pgTable("component_to_categories", {
-  componentId: integer("component_id").references(() => componentsTable.id),
-  categoryId: integer("category_id").references(() => categoriesTable.id),
-});
-
-export const componentToCategoriesRelations = relations(
-  componentToCategories,
-  ({ one }) => ({
-    component: one(componentsTable, {
-      fields: [componentToCategories.componentId],
-      references: [componentsTable.id],
-    }),
-    category: one(categoriesTable, {
-      fields: [componentToCategories.categoryId],
-      references: [categoriesTable.id],
-    }),
+export const strategyRelations = relations(strategyTable, ({ one, many }) => ({
+  user: one(user, {
+    fields: [strategyTable.userId],
+    references: [user.id],
   }),
-);
-
-// junction table for Checklist <-> Components if a component can be in multiple checklists
-export const checklistToComponents = pgTable("checklist_to_components", {
-  checklistId: integer("checklist_id").references(() => checklistTable.id),
-  componentId: integer("component_id").references(() => componentsTable.id),
-});
-
-export const usersRelations = relations(usersTable, ({ many }) => ({
   components: many(componentsTable),
-  images: many(imagesTable),
-  checklists: many(checklistTable),
-  categories: many(categoriesTable),
 }));
 
 export const componentsRelations = relations(
   componentsTable,
   ({ one, many }) => ({
-    user: one(usersTable, {
+    user: one(user, {
       fields: [componentsTable.userId],
-      references: [usersTable.id],
+      references: [user.id],
+    }),
+    strategy: one(strategyTable, {
+      fields: [componentsTable.strategyId],
+      references: [strategyTable.id],
     }),
     markdown: one(markdownTable, {
       fields: [componentsTable.markdownId],
       references: [markdownTable.id],
     }),
     images: many(imagesTable),
-    categoryLinks: many(componentToCategories),
   }),
 );
 
 export const imagesRelations = relations(imagesTable, ({ one }) => ({
-  user: one(usersTable, {
+  user: one(user, {
     fields: [imagesTable.userId],
-    references: [usersTable.id],
+    references: [user.id],
   }),
   component: one(componentsTable, {
     fields: [imagesTable.componentId],
     references: [componentsTable.id],
-  }),
-}));
-
-export const checklistRelations = relations(checklistTable, ({ one }) => ({
-  user: one(usersTable, {
-    fields: [checklistTable.userId],
-    references: [usersTable.id],
-  }),
-}));
-
-export const categoriesRelations = relations(categoriesTable, ({ one }) => ({
-  user: one(usersTable, {
-    fields: [categoriesTable.userId],
-    references: [usersTable.id],
   }),
 }));

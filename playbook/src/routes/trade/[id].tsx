@@ -3,393 +3,276 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
-  Match,
   onCleanup,
+  onMount,
   Show,
-  Switch,
-  untrack,
 } from "solid-js";
-import { ImageCaroulsel } from "~/components/ImageCarousel";
-import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
-import { Card, CardContent } from "~/components/ui/card";
 import { parseMarkdown } from "~/lib/parseMarkdown";
-import {
-  checklist,
-  selectedComponentsID,
-  selectComponent,
-  getListComponent,
-  deselectComponent,
-} from "~/store/checklist";
 import { useStore } from "~/store/storeContext";
-import { EllipsisVertical, X } from "lucide-solid/icons/index";
-import { A, useParams } from "@solidjs/router";
-import { Answer, Question, Setup, Setup2 } from "~/db/schema";
-import {
-  TextField,
-  TextFieldInput,
-  TextFieldLabel,
-} from "~/components/ui/text-field";
-import { createStore, produce, reconcile, unwrap } from "solid-js/store";
-import { set } from "zod";
-import id from "zod/v4/locales/id.cjs";
-import { ComponentBadge } from "~/components/ComponentBadge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuRadioItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuTrigger,
-  DropdownMenuGroupLabel,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuPortal,
-  DropdownMenuSeparator,
-  DropdownMenuSubTrigger,
-  DropdownMenuShortcut,
-} from "~/components/ui/dropdown-menu";
-import {
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-  Sheet,
-} from "~/components/ui/sheet";
+import { useParams } from "@solidjs/router";
+import { createMutation, useQuery } from "@tanstack/solid-query";
+import { client, orpc } from "~/lib/orpc";
+import { createStore, reconcile, unwrap } from "solid-js/store";
+import { ImageDialog } from "~/components/trade/ImageDialog";
+import { RefsDialog, BarRef } from "~/components/trade/RefsDialog";
+import { EvolutionDialog } from "~/components/trade/EvolutionDialog";
+import { LeftPanel } from "~/components/trade/LeftPanel";
+import { MiddlePanel } from "~/components/trade/MiddlePanel";
+import { RightPanel } from "~/components/trade/RightPanel";
+import { DialogSessionStrategies } from "~/components/DialogSessionStrategies";
+import { useSessionCards } from "~/hooks/useSessionCards";
+import Share2 from "lucide-solid/icons/share-2";
 
 export default function Trade() {
-  const [store, actions] = useStore(),
-    [selectedSheetId, setSelectedSheetId] = createSignal<number | undefined>(),
-    [selectedSetup, setSelectedSetup] = createSignal<number | undefined>(),
-    [taggedComps, setTaggedComps] = createSignal<
-      [number, number, string] | undefined
+  const [store, storeActions] = useStore(),
+    [selectedSheetId, setSelectedSheetId] = createSignal<
+      [number, number] | undefined
     >(),
-    [contextComps, setContextComps] = createSignal<number[]>([]),
-    [hoverItem1, setHoverItem1] = createSignal<string>(""),
-    [hoverItem2, setHoverItem2] = createSignal<string>(""),
+    [selectedSetup, setSelectedSetup] = createSignal<
+      [number, number] | undefined
+    >(),
+    [taggedComps, setTaggedComps] = createSignal<
+      [string, number, number, number, string] | undefined
+    >(),
     [showItem, setShowItem] = createSignal<string>(""),
-    [showAnswers, setShowAnswers] = createSignal<string>("");
+    [search, setSearch] = createSignal(""),
+    [refsDialogTarget, setRefsDialogTarget] = createSignal<
+      [number, number] | undefined
+    >(),
+    [verdadeTarget, setVerdadeTarget] = createSignal<
+      [number, number] | undefined
+    >(),
+    [evolutionDialogTarget, setEvolutionDialogTarget] = createSignal<
+      [number, number] | undefined
+    >();
 
-  const [setups, setSetups] = createStore<{
-    version: number;
-    items: Setup2[];
-  }>({
-    version: 0,
-    items: [
-      {
-        version: 0,
-        id: crypto.randomUUID(),
-        selectedComps: [],
-        result: "",
-      },
-    ],
-  });
+  const [refsDraft, setRefsDraft] = createStore<BarRef[]>([]);
 
   const params = useParams();
 
-  createEffect(() => {
-    const _setups = store.sessions.data?.find(
-      (e: any) => e.id === Number(params.id),
-    );
-    if (!_setups?.setups2) return;
-    setSetups("items", reconcile(structuredClone(unwrap(_setups.setups2))));
-  });
+  const {
+    cards,
+    actions,
+    session,
+    sessionStrategies,
+    setSessionStrategies,
+    showStrategiesDialog,
+    setShowStrategiesDialog,
+    assets,
+    setAssets,
+    selectedAsset,
+    setSelectedAsset,
+  } = useSessionCards(() => params.id);
+
+  const [showShareDialog, setShowShareDialog] = createSignal(false);
+  const [shareState, setShareState] = createSignal<{
+    isShared: boolean;
+    shareToken: string | null;
+  }>({ isShared: false, shareToken: null });
+  const [copySuccess, setCopySuccess] = createSignal(false);
 
   createEffect(() => {
-    if (setups.version === 0) return;
-
-    untrack(() =>
-      actions.updateSession.mutate({
-        id: Number(params.id),
-        setups: setups.items,
-      }),
-    );
-    // const timer = setTimeout(async () => {
-    // }, 600);
-    // onCleanup(() => clearTimeout(timer));
+    const data = session() as any;
+    if (!data) return;
+    setShareState({
+      isShared: data.isShared ?? false,
+      shareToken: data.shareToken ?? null,
+    });
   });
+
+  const toggleShareMutation = createMutation(() =>
+    orpc.trade.toggleShare.mutationOptions({
+      onSuccess: (data: any) => {
+        setShareState({ isShared: data.isShared, shareToken: data.shareToken });
+      },
+    }),
+  );
+
+  const componentsList = useQuery(() =>
+    orpc.component.listByUser.queryOptions({}),
+  );
+
+  const strategiesList = useQuery(() =>
+    orpc.strategy.listByUser.queryOptions({}),
+  );
 
   const component = createMemo(() => {
-    return store.components.data?.find(
+    return componentsList.data?.find(
       (e: any) => e.id === store.displayComponentId,
     );
   });
 
-  const addSetup = () => {
-    setSetups(
-      produce((draft) => {
-        draft.version++;
-        draft.items = [
-          ...draft.items,
-          {
-            version: 0,
-            id: crypto.randomUUID(),
-            selectedComps: [],
-            result: "",
-          },
-        ];
-        setSelectedSetup(draft.items.length - 1);
-        return draft;
-      }),
+  const isActiveSetup = (cardIndex: number, subIndex: number) => {
+    const sel = selectedSetup();
+    return sel !== undefined && sel[0] === cardIndex && sel[1] === subIndex;
+  };
+
+  const sheetOpen = () => {
+    const sel = selectedSetup();
+    const sheet = selectedSheetId();
+    return (
+      sel !== undefined &&
+      sheet !== undefined &&
+      sel[0] === sheet[0] &&
+      sel[1] === sheet[1]
     );
   };
 
-  const deleteSetup = (index: number) => {
-    setSetups(
-      produce((draft) => {
-        draft.items.splice(index, 1);
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
+  // Thin wrappers bridging UI signals with hook actions
 
-  const addSelectedComps = (index: number, id: number) => {
-    if (setups.items.length === 0) return;
-    if (!setups.items?.[index]?.selectedComps) {
-      // TOODO Change this to a toast
+  const handleAddSelectedComps = (
+    sel: [number, number] | undefined,
+    id: number,
+    uuid: string,
+  ) => {
+    if (!sel) {
       alert("Selecione um setup");
       return;
     }
-    if (
-      setups.items[index].selectedComps.findIndex((c) => c.component === id) !==
-      -1
-    )
+    const [cardIdx, subIdx] = sel;
+    if (!cards()?.[cardIdx]?.setups?.[subIdx]) {
+      alert("Selecione um setup");
       return;
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[index];
-        setup.selectedComps = [
-          ...setup.selectedComps,
-          {
-            component: id,
-            details: [],
-          },
-        ];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
-  };
-  const removeSelectedComps = (index: number, id: number) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[index];
-        setup.selectedComps = setup.selectedComps.filter(
-          (e) => e.component !== id,
-        );
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+    }
+    const newInstanceId = actions.addSelectedComps(cardIdx, subIdx, uuid);
+    setTaggedComps([newInstanceId, id, cardIdx, subIdx, "main-component"]);
   };
 
-  const specifyComponent = (index: number, parentId: number, id: number) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[index];
-        // setup.selectedComps = setup.selectedComps.filter((e) => e !== parentId);
-        setup.selectedComps = [...setup.selectedComps, id];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const handleAddDetails = (insertUuid: string) => {
+    const tagged = taggedComps();
+    if (!tagged) return;
+    const [instanceId, , cardIdx, subIdx] = tagged;
+    actions.addDetails(instanceId, cardIdx, subIdx, insertUuid);
   };
 
-  const addDetails = (insertId: number) => {
-    if (taggedComps()?.[0] === undefined || taggedComps()?.[1] === undefined)
-      return;
-    const [componentId, setupIndex] = taggedComps() as [number, number];
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[setupIndex],
-          component = setup.selectedComps.find(
-            (e) => e.component === componentId,
-          );
-        if (!component) return;
-        component.details = [...component.details, insertId];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const handleAddCard = (asset?: string) => {
+    const { cardIndex } = actions.addCard(asset);
+    setSelectedSetup([cardIndex, 0]);
   };
 
-  const removeDetails = (
-    setupIndex: number,
-    componentId: number,
-    detailId: number,
+  const handleAddSubSetup = (cardIndex: number) => {
+    const { cardIndex: ci, subIndex } = actions.addSubSetup(cardIndex);
+    setSelectedSetup([ci, subIndex]);
+  };
+
+  const handleCopyComponentToSetup = (
+    srcCard: number,
+    srcSub: number,
+    instanceId: string,
   ) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[setupIndex],
-          component = setup.selectedComps.find(
-            (e) => e.component === componentId,
-          );
-        if (!component) return;
-        component.details = component.details.filter((e) => e !== detailId);
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+    const target = selectedSetup();
+    if (!target) return;
+    const [targetCard, targetSub] = target;
+    if (targetCard === srcCard && targetSub === srcSub) return;
+    actions.copyComponentToSetup(srcCard, srcSub, instanceId, targetCard, targetSub);
   };
 
-  const addContext = (index: number, id: number) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[index];
-        setup.contextComps = [...setup.contextComps, id];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const handleToggleVerdade = (cardIdx: number, subIdx: number) => {
+    const newShowTruth = actions.toggleVerdade(cardIdx, subIdx);
+    if (newShowTruth) {
+      setVerdadeTarget([cardIdx, subIdx]);
+    } else {
+      const v = verdadeTarget();
+      if (v && v[0] === cardIdx && v[1] === subIdx) setVerdadeTarget(undefined);
+    }
   };
 
-  const removeContext = (index: number, id: number) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[index];
-        setup.contextComps = setup.contextComps.filter((e) => e !== id);
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const handleAddTruthComp = (id: number, uuid: string) => {
+    const target = verdadeTarget();
+    if (!target) return;
+    const [cardIdx, subIdx] = target;
+    actions.addTruthComp(cardIdx, subIdx, uuid);
   };
 
-  const setResult = (index: number, result: string) => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[index];
-        setup.result = result;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const openRefsDialog = (cardIdx: number, subIdx: number) => {
+    const existing = (cards()[cardIdx]?.setups[subIdx] as any)?.refs ?? [];
+    setRefsDraft(reconcile(structuredClone(existing)));
+    setRefsDialogTarget([cardIdx, subIdx]);
   };
 
-  const moveComponent = (setupIndex: number, componentId: number, direction: "left" | "right") => {
-    setSetups(
-      produce((draft) => {
-        const setup = draft.items[setupIndex];
-        const idx = setup.selectedComps.findIndex((c) => c.component === componentId);
-        if (idx === -1) return draft;
-        const newIdx = direction === "left" ? idx - 1 : idx + 1;
-        if (newIdx < 0 || newIdx >= setup.selectedComps.length) return draft;
-        [setup.selectedComps[idx], setup.selectedComps[newIdx]] = [
-          setup.selectedComps[newIdx],
-          setup.selectedComps[idx],
-        ];
-        setup.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const saveRefs = () => {
+    const target = refsDialogTarget();
+    if (!target) return;
+    const [cardIdx, subIdx] = target;
+    actions.saveRefs(cardIdx, subIdx, unwrap(refsDraft));
+    setRefsDialogTarget(undefined);
   };
 
-  const copyComponentToSetup = (sourceSetupIndex: number, componentId: number) => {
-    const targetIndex = selectedSetup();
-    if (targetIndex === undefined || targetIndex === sourceSetupIndex) return;
-
-    const sourceComp = setups.items[sourceSetupIndex].selectedComps.find(
-      (c) => c.component === componentId,
-    );
-    if (!sourceComp) return;
-
-    if (setups.items[targetIndex].selectedComps.some((c) => c.component === componentId))
-      return;
-
-    setSetups(
-      produce((draft) => {
-        const target = draft.items[targetIndex];
-        target.selectedComps = [
-          ...target.selectedComps,
-          { component: sourceComp.component, details: [...sourceComp.details] },
-        ];
-        target.version++;
-        draft.version++;
-        return draft;
-      }),
-    );
+  const openEvolutionDialog = (cardIdx: number, subIdx: number) => {
+    setEvolutionDialogTarget([cardIdx, subIdx]);
   };
 
-  const tagComponent = (id: number, setup: number, type: string) => {
-    setTaggedComps([id, setup, type]);
+  const tagComponent = (
+    instanceId: string,
+    id: number,
+    cardIdx: number,
+    subIdx: number,
+    type: string,
+  ) => {
+    setTaggedComps([instanceId, id, cardIdx, subIdx, type]);
   };
+
   const untagComponent = () => {
     setTaggedComps(undefined);
   };
 
-  createEffect(() => {
-    console.log(taggedComps());
-  });
-
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (!e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-    const tagged = taggedComps();
-    if (!tagged) return;
-    e.preventDefault();
-    const [componentId, setupIndex] = tagged;
-    moveComponent(setupIndex, componentId, e.key === "ArrowLeft" ? "left" : "right");
-  };
-  window.addEventListener("keydown", handleKeyDown);
-  onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+    if (!e.ctrlKey) return;
 
-  const decideQuestioFunction = (
-    index: number,
-    question: Question,
-    answer: Answer,
-  ) => {
-    switch (question.questionFunction) {
-      case "Especificação":
-        specifyComponent(
-          index,
-          answer.consequence.parentId,
-          answer.consequence.id,
-        );
-        return;
-      case "Detalhe":
-        if (setups.items[index].detailsComps.includes(answer.consequence.id))
-          return;
-        addDetails(index, answer.consequence.id);
-        return;
-      case "Contexto":
-        if (setups.items[index].contextComps.includes(answer.consequence.id))
-          return;
-        addContext(index, answer.consequence.id);
-        return;
-      default:
-        return;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const tagged = taggedComps();
+      if (!tagged) return;
+      e.preventDefault();
+      const [instanceId, , cardIdx, subIdx] = tagged;
+      actions.moveComponent(
+        cardIdx,
+        subIdx,
+        instanceId,
+        e.key === "ArrowLeft" ? "left" : "right",
+      );
+      return;
+    }
+
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const sel = selectedSetup();
+      if (!sel) return;
+      e.preventDefault();
+      const [cardIdx, subIdx] = sel;
+      const newPos = actions.moveSetup(
+        cardIdx,
+        subIdx,
+        e.key === "ArrowUp" ? "up" : "down",
+      );
+      if (newPos) {
+        setSelectedSetup(newPos);
+        setTaggedComps(undefined);
+      }
     }
   };
+  onMount(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
 
   const [html] = createResource(
     () => component()?.markdown?.content || "",
     parseMarkdown,
   );
 
-  const [search, setSearch] = createSignal("");
-
   const filteredItems = createMemo(() => {
+    const strategies = sessionStrategies();
+    if (strategies.length === 0) return [];
     const query = search().toLowerCase();
-    if (!query) return store.components.data;
-
-    return store.components.data.filter((item) =>
-      item.title.toLowerCase().includes(query),
+    let items = (componentsList.data ?? []).filter((item) =>
+      strategies.includes(item.strategyId),
     );
+    if (query)
+      items = items.filter((item) => item.title.toLowerCase().includes(query));
+    return items;
   });
 
-  let timer;
-  const handleSearchInput = (e) => {
+  let timer: ReturnType<typeof setTimeout>;
+  const handleSearchInput = (e: any) => {
     clearTimeout(timer);
     const value = e.currentTarget.value;
     timer = setTimeout(() => {
@@ -400,238 +283,201 @@ export default function Trade() {
   const createSelectedComps = (setup: any, allComps?: any) => {
     if (!allComps) return [];
     return setup.selectedComps.map((e: any) => {
-      const component = allComps?.find((c: any) => c.id === e.component);
-      const details = e.details.map((detailId: any) => {
-        return allComps?.find((c: any) => c.id === detailId);
+      const component = allComps?.find((c: any) => c.uuid === e.component);
+      const details = e.details.map((detailUuid: any) => {
+        return allComps?.find((c: any) => c.uuid === detailUuid);
       });
-      return {
-        ...e,
-        details,
-        component,
-      };
+      return { ...e, details, component };
     });
   };
 
+  const evolutionSetupNumbers = createMemo(() => {
+    const target = evolutionDialogTarget();
+    if (!target) return [];
+    const allSetups = cards().flatMap((c) => c.setups);
+    const currentId = (cards()[target[0]]?.setups[target[1]] as any)?.id;
+    return allSetups
+      .map((s, i) => (s as any).setupNumber ?? i + 1)
+      .filter((_, i) => (allSetups[i] as any).id !== currentId);
+  });
+
+  const evolutionCurrent = createMemo(() => {
+    const target = evolutionDialogTarget();
+    if (!target) return undefined;
+    return (cards()[target[0]]?.setups[target[1]] as any)?.evolution;
+  });
+
   return (
     <main class="flex w-full h-[calc(100vh-52px)] text-gray-800 p-1.5 gap-1">
-      <Sheet
-        open={
-          selectedSetup() !== undefined && selectedSheetId() === selectedSetup()
-        }
-        onOpenChange={(value) => {
-          !value ? setSelectedSheetId(undefined) : () => {};
+      <DialogSessionStrategies
+        open={showStrategiesDialog()}
+        strategies={strategiesList.data ?? []}
+        initialSelected={sessionStrategies()}
+        onConfirm={(ids, asset) => {
+          setSessionStrategies(ids);
+          setShowStrategiesDialog(false);
+          storeActions.updateSessionStrategies.mutate({
+            id: Number(params.id),
+            strategies: ids,
+          });
+          actions.setSetupAsset(0, 0, asset);
+          setAssets([asset]);
+          setSelectedAsset(asset);
         }}
-        modal={false}
+      />
+      <ImageDialog
+        open={sheetOpen()}
+        onClose={() => setSelectedSheetId(undefined)}
+        selectedSheetId={selectedSheetId}
+        cards={cards}
+        addSetupImage={actions.addSetupImage}
+        removeSetupImage={actions.removeSetupImage}
+      />
+      <RefsDialog
+        open={refsDialogTarget() !== undefined}
+        onClose={() => setRefsDialogTarget(undefined)}
+        refsDraft={refsDraft}
+        setRefsDraft={setRefsDraft}
+        saveRefs={saveRefs}
+      />
+      <EvolutionDialog
+        open={evolutionDialogTarget() !== undefined}
+        onClose={() => setEvolutionDialogTarget(undefined)}
+        setupNumbers={evolutionSetupNumbers()}
+        currentEvolution={evolutionCurrent()}
+        onConfirm={(num) => {
+          const target = evolutionDialogTarget();
+          if (!target) return;
+          actions.setEvolution(target[0], target[1], num);
+        }}
+      />
+      <LeftPanel
+        filteredItems={filteredItems}
+        search={search}
+        handleSearchInput={handleSearchInput}
+        selectedSetup={selectedSetup}
+        verdadeTarget={verdadeTarget}
+        loadComponent={storeActions.loadComponent}
+        setShowItem={setShowItem}
+        addTruthComp={handleAddTruthComp}
+        addSelectedComps={handleAddSelectedComps}
+        addDetails={handleAddDetails}
+        addContext={actions.addContext}
+        taggedComps={taggedComps}
+        componentsData={componentsList.data}
+        removeComps={(id) => {
+          const sel = selectedSetup();
+          if (sel) actions.removeSelectedComps(sel[0], sel[1], id);
+        }}
+        onManageStrategies={() => setShowStrategiesDialog(true)}
+      />
+      <MiddlePanel
+        cards={cards}
+        selectedSetup={selectedSetup}
+        setSelectedSetup={setSelectedSetup}
+        taggedComps={taggedComps}
+        verdadeTarget={verdadeTarget}
+        componentsData={componentsList.data}
+        isActiveSetup={isActiveSetup}
+        createSelectedComps={createSelectedComps}
+        addCard={handleAddCard}
+        addSubSetup={handleAddSubSetup}
+        assets={assets}
+        selectedAsset={selectedAsset}
+        setSelectedAsset={setSelectedAsset}
+        addAsset={(name: string) => {
+          const upper = name.toUpperCase().trim();
+          if (!upper) return;
+          if (!assets().includes(upper)) {
+            setAssets((prev) => [...prev, upper]);
+          }
+          setSelectedAsset(upper);
+        }}
+        deleteSetup={actions.deleteSetup}
+        setResult={actions.setResult}
+        openRefsDialog={openRefsDialog}
+        toggleVerdade={handleToggleVerdade}
+        removeSelectedComps={actions.removeSelectedComps}
+        removeDetails={actions.removeDetails}
+        removeTruthComp={actions.removeTruthComp}
+        removeTruthDetail={actions.removeTruthDetail}
+        tagComponent={tagComponent}
+        untagComponent={untagComponent}
+        copyComponentToSetup={handleCopyComponentToSetup}
+        moveComponent={actions.moveComponent}
+        setSelectedSheetId={setSelectedSheetId}
+        loadComponent={storeActions.loadComponent}
+        setShowItem={setShowItem}
+        openEvolutionDialog={openEvolutionDialog}
+      />
+      <RightPanel component={component} showItem={showItem} html={html} />
+
+      {/* Share button */}
+      <button
+        class="fixed bottom-4 right-4 z-10 p-2 bg-white border rounded-full shadow hover:bg-gray-50"
+        onClick={() => setShowShareDialog(true)}
+        title="Compartilhar sessão"
       >
-        <SheetContent position="right">
-          <SheetHeader>
-            <SheetTitle>Edit profile</SheetTitle>
-            <SheetDescription>
-              Make changes to your profile here. Click save when you're done.
-            </SheetDescription>
-          </SheetHeader>
-          <div class="grid gap-4 py-4">
-            <TextField class="grid grid-cols-4 items-center gap-4">
-              <TextFieldLabel class="text-right">Name</TextFieldLabel>
-              <TextFieldInput
-                value="Pedro Duarte"
-                class="col-span-3"
-                type="text"
-              />
-            </TextField>
-            <TextField class="grid grid-cols-4 items-center gap-4">
-              <TextFieldLabel class="text-right">Username</TextFieldLabel>
-              <TextFieldInput
-                value="@peduarte"
-                class="col-span-3"
-                type="text"
-              />
-            </TextField>
-          </div>
-          <SheetFooter>
-            <Button type="submit">Save changes</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-      <div class="w-1/3">
-        <TextField class="grid w-full max-w-lg mx-auto items-center mb-6 mt-4">
-          <TextFieldInput
-            type="text"
-            placeholder="Pesquisar..."
-            value={search()}
-            onInput={handleSearchInput}
-          />
-        </TextField>
-        <Card class="w-lg max-w-lg h-fit mx-auto">
-          <CardContent class="flex flex-col gap-2 p-4 flex-wrap mx-auto relative">
-            <div class="text-lg font-bold text-gray-700">Padrões</div>
-            <div class="flex gap-2 flex-wrap items-start">
-              <For each={filteredItems() ?? []}>
-                {(component) => (
-                  <ComponentBadge
-                    component={component}
-                    loadComponent={actions.loadComponent}
-                    setShowItem={setShowItem}
-                    addSelectedComps={addSelectedComps}
-                    addDetails={addDetails}
-                    addContext={addContext}
-                    selectedSetup={selectedSetup}
-                    removeComps={removeSelectedComps}
-                  />
-                )}
-              </For>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      <div class="w-1/3 flex flex-col items-center justify-start gap-4 pt-4 overflow-y-auto">
-        <For each={setups.items}>
-          {(setup, setupIndex) => (
-            <Card
-              class="w-lg max-w-lg h-fit mx-auto overflow-clip"
-              onMouseDown={(e) => {
-                if (e.button === 2) return;
-                setSelectedSetup(setupIndex());
-              }}
-            >
-              <Show
-                when={selectedSetup() === setupIndex()}
-                fallback={<div class="h-1 w-full"></div>}
+        <Share2 size={16} />
+      </button>
+
+      {/* Share dialog */}
+      <Show when={showShareDialog()}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div class="bg-white rounded-lg p-6 shadow-xl w-96">
+            <h2 class="text-lg font-semibold mb-4">Compartilhar sessão</h2>
+
+            <div class="flex items-center gap-2 mb-4">
+              <span class="text-sm text-gray-600">
+                {shareState().isShared
+                  ? "Compartilhamento ativo"
+                  : "Compartilhamento inativo"}
+              </span>
+              <button
+                class="ml-auto px-3 py-1 rounded text-sm bg-blue-600 text-white disabled:opacity-50"
+                onClick={() =>
+                  toggleShareMutation.mutate({
+                    id: Number(params.id),
+                    enable: !shareState().isShared,
+                  })
+                }
+                disabled={toggleShareMutation.isPending}
               >
-                <div class="bg-gray-700 h-1 w-full"></div>
-              </Show>
-              <CardContent class="flex flex-col w-full gap-2 p-4 flex-wrap items-start relative">
-                <div class="flex justify-between items-end w-full">
-                  <div class="text-lg font-bold text-gray-700">Setup</div>
-                  <div class="flex gap-5 items-center">
-                    <div class="text-xs text-gray-600 capitalize">
-                      {setup.result}
-                    </div>
-                    <div class="text-xs text-gray-600">
-                      {"v" + setup.version}
-                    </div>
-                    <div class="text-xs text-gray-600">
-                      {setup.id.slice(0, 6)}
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        as={Button<"button">}
-                        class="mt-[-8px] mr-[-6px]"
-                        variant="ghost"
-                        size="icon"
-                      >
-                        <EllipsisVertical />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent class="w-48">
-                        <DropdownMenuGroup>
-                          <DropdownMenuGroupLabel>
-                            Resultado
-                          </DropdownMenuGroupLabel>
-                          <DropdownMenuRadioGroup
-                            value={setup.result}
-                            onChange={(value) => {
-                              setResult(setupIndex(), value);
-                            }}
-                          >
-                            <DropdownMenuRadioItem value="gain">
-                              Gain
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="loss">
-                              Loss
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="even">
-                              Even
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="flat">
-                              Flat
-                            </DropdownMenuRadioItem>
-                          </DropdownMenuRadioGroup>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onMouseDown={(e) => {
-                              setTimeout(
-                                () => setSelectedSheetId(selectedSetup()),
-                                350,
-                              );
-                            }}
-                          >
-                            <span>Gerenciar imagens</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem></DropdownMenuItem>
-                        </DropdownMenuGroup>
-                        <DropdownMenuSub overlap>
-                          <DropdownMenuSubTrigger>
-                            <span class="text-red-500">Deletar setup</span>
-                          </DropdownMenuSubTrigger>
-                          <DropdownMenuPortal>
-                            <DropdownMenuSubContent>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  deleteSetup(setupIndex());
-                                }}
-                              >
-                                <span class="text-red-500">Confirmar</span>
-                              </DropdownMenuItem>
-                            </DropdownMenuSubContent>
-                          </DropdownMenuPortal>
-                        </DropdownMenuSub>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-                <div class="flex gap-2 flex-wrap items-start">
-                  <For each={createSelectedComps(setup, store.components.data)}>
-                    {(component) => (
-                      <ComponentBadge
-                        component={component}
-                        added={true}
-                        setupIndex={setupIndex()}
-                        loadComponent={actions.loadComponent}
-                        setShowItem={setShowItem}
-                        removeComps={removeSelectedComps}
-                        selectedSetup={selectedSetup}
-                        tagComponent={tagComponent}
-                        untagComponent={untagComponent}
-                        taggedComp={taggedComps()}
-                        removeDetails={removeDetails}
-                        copyToActiveSetup={(componentId) =>
-                          copyComponentToSetup(setupIndex(), componentId)
-                        }
-                        isInActiveSetup={selectedSetup() === setupIndex()}
-                        moveComponent={(componentId, direction) =>
-                          moveComponent(setupIndex(), componentId, direction)
-                        }
-                      />
-                    )}
-                  </For>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </For>
-        <Button class="w-1/3" onMouseDown={addSetup}>
-          Adicionar setup
-        </Button>
-      </div>
-      <div class="w-1/3">
-        <Show when={showItem() === component()?.id}>
-          <div class="pt-4 flex flex-col h-full relative justify-start items-center">
-            <div class="text-lg font-bold text-gray-700 mb-4 sticky top-0">
-              {component()?.title}
+                {shareState().isShared ? "Desativar" : "Ativar"}
+              </button>
             </div>
-            <div class="flex flex-col h-full w-full justify-start items-center overflow-y-auto">
-              <ImageCaroulsel
-                class="max-w-lg"
-                images={component()?.exemples || []}
-              />
-              <div
-                class="prose w-full h-full mx-auto wrap-break-word mt-4"
-                innerHTML={html() || "Sem descrição..."}
-              ></div>
-            </div>
+
+            <Show when={shareState().isShared && shareState().shareToken}>
+              <div class="flex gap-2 items-center">
+                <input
+                  readOnly
+                  class="flex-1 text-xs border rounded p-2 bg-gray-50 min-w-0"
+                  value={`${window.location.origin}/trade/shared/${shareState().shareToken}`}
+                />
+                <button
+                  class="px-2 py-1 text-xs border rounded hover:bg-gray-100 shrink-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      `${window.location.origin}/trade/shared/${shareState().shareToken}`,
+                    );
+                    setCopySuccess(true);
+                    setTimeout(() => setCopySuccess(false), 2000);
+                  }}
+                >
+                  {copySuccess() ? "Copiado!" : "Copiar"}
+                </button>
+              </div>
+            </Show>
+
+            <button
+              class="mt-4 text-sm text-gray-500 underline"
+              onClick={() => setShowShareDialog(false)}
+            >
+              Fechar
+            </button>
           </div>
-        </Show>
-      </div>
+        </div>
+      </Show>
     </main>
   );
 }

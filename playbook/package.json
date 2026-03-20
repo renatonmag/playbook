@@ -7,6 +7,7 @@
     "start": "vinxi start"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.5.3",
     "@kobalte/core": "^0.13.11",
     "@orpc/client": "^1.13.5",
     "@orpc/json-schema": "^1.13.5",
@@ -16,11 +17,15 @@
     "@orpc/zod": "^1.13.5",
     "@solidjs/router": "^0.15.0",
     "@solidjs/start": "^1.1.0",
+    "@supabase/supabase-js": "^2.99.1",
     "@tanstack/solid-query": "^5.90.23",
+    "@tanstack/solid-table": "^8.21.3",
     "@uploadthing/solid": "^7.3.3",
+    "better-auth": "^1.5.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk-solid": "^1.1.2",
+    "cropperjs": "^2.1.0",
     "deep-equal": "^2.2.3",
     "dotenv": "^17.2.4",
     "drizzle-orm": "^0.45.1",

@@ -1,0 +1,1 @@
+ALTER TABLE "setups" ADD COLUMN "strategies" jsonb DEFAULT '[]'::jsonb NOT NULL;
