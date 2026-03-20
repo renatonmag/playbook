@@ -1,4 +1,4 @@
-if (typeof window === 'undefined') {
+if (import.meta.env.SSR) {
     await import('./orpc.server')
 }
     

@@ -1,4 +1,3 @@
-"use server";
 import { utApi } from "./uploadthing";
 
 export async function deleteFiles(fileKeys: string[]) {
