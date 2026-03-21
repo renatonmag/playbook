@@ -81,6 +81,7 @@ export default function Home() {
   };
 
   const filteredItems = createMemo(() => {
+    console.log(componentsList.data);
     const strategyId = selectedStrategyId();
     const query = search().toLowerCase();
     if (strategyId === null) return [];
