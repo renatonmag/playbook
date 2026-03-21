@@ -97,9 +97,11 @@ export const listComponentsByUser = authed
   // .output(z.array(ComponentSchema))
   .handler(async ({ context }) => {
     try {
+      console.log("components");
       const components = await _listComponentsByUser(context.user.id);
       return components;
     } catch (err) {
+      console.log("components");
       throw new Error(err instanceof Error ? err.message : "Database error");
     }
   });

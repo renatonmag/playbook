@@ -92,6 +92,10 @@ export default function Home() {
     return items;
   });
 
+  createEffect(() => {
+    console.log(componentsList.data);
+  });
+
   const addList = () => {
     setChecklist([
       ...checklist,

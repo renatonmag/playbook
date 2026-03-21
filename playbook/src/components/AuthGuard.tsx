@@ -19,7 +19,7 @@ export default function AuthGuard(props: { children: JSX.Element }) {
   // triggers a fresh fetch with the real cookie.
   const [session] = createResource(
     () => !isServer || undefined,
-    () => authClient.getSession()
+    () => authClient.getSession(),
   );
 
   createEffect(() => {

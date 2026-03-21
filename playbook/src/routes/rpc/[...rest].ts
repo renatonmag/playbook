@@ -15,11 +15,18 @@ const handler = new RPCHandler(router, {
 });
 
 async function handle({ request }: APIEvent) {
+  console.log("RPC request:", request.url);
   const session = await auth.api.getSession({ headers: request.headers });
+
+  console.log("RPC session:", session?.user?.id ?? "none");
 
   const context = {
     user: session
-      ? { id: session.user.id, userName: session.user.name, email: session.user.email }
+      ? {
+          id: session.user.id,
+          userName: session.user.name,
+          email: session.user.email,
+        }
       : undefined,
   };
 
