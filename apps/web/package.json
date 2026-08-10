@@ -10,6 +10,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@playbook/domain": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "nuxt": "^4.5.2",
     "tailwindcss": "^4.3.3",
