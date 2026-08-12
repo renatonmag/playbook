@@ -34,6 +34,7 @@ pnpm-debug.log*
 
 # Misc
 *.local
+trash/
 
 # Agent worktrees
 .claude/worktrees/
