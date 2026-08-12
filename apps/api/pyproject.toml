@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "playbook-api"
+version = "0.0.0"
+description = "Playbook's HTTP API. Serves the SaaS endpoints, including the pattern engine."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "playbook-pattern-engine",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/playbook_api"]
+
+# Poetry owns the only venv in the repo. pattern_engine is consumed from the
+# workspace in editable mode, so engine changes need no reinstall.
+[tool.poetry.dependencies]
+playbook-pattern-engine = { path = "../../packages/pattern_engine", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8"
+httpx2 = "*"
+
+# Relative paths resolve against the rootdir (apps/api), so one run covers both
+# this package's tests and the engine's.
+[tool.pytest.ini_options]
+testpaths = ["tests", "../../packages/pattern_engine/tests"]

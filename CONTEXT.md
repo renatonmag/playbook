@@ -32,28 +32,62 @@ going to hold.
 
 ## The detection engine
 
-Decided so far. Everything here is design, not built — `packages/pattern_engine` does not
-exist yet.
+`packages/pattern_engine` now holds the skeleton: `Candle`, `Pivot`, `BaseSeries`,
+`Pattern` and `PatternEngine`. No market Pattern is written yet, and nothing reads Supabase.
 
-**The three moving parts**
+**The moving parts**
 
-- **`ScheduleLoop`** — decides when work happens. It wakes on a tick, works out which
-  Patterns are due, and runs them.
-- **`Store`** — unifies all data. Every Series is asked of the Store, never fetched by a
-  Pattern. Because the Store sees each request as it arrives, it knows which Patterns feed
-  which, and orders the run accordingly.
-- **`BaseSeries`** — the base class every Series type inherits from. Candles are one
-  subclass; a Pattern's output is another.
+- **The pipeline is declared in code.** Which Patterns run, and in what order, is written out
+  by hand — as a list of Pattern instances handed to `PatternEngine`. **There is no Pattern
+  scheduling** — nothing works out which Patterns are due, and nothing infers dependencies.
+  Declaration order is run order. There is no dependency graph.
+- **One `PatternEngine` per Instrument.** A tick walks the universe and builds a throwaway
+  engine per ticker. No Pattern sees two Instruments — see ADR-0003.
+- **`ctx`** — the dict that unifies all data for one run. It starts with the Candles handed to
+  the constructor under `bars` and the ticker under `instrument` — the two keys that are not
+  producer keys — and each Pattern's output is written into it under the
+  Pattern's producer key. It is a **memo table for one pass, not a cache**: discarded when the
+  run ends, never made to persist — that would reintroduce the state independent runs exist to
+  forbid. Because the engine is per-Instrument, `ctx` is keyed by **producer alone**; the
+  Instrument and Timeframe of the `identity` live on the Series itself.
+- **`BaseSeries`** — the one container every Series is, generic in the type of Point it holds.
+  A Series of Candles is the base case; a Pattern's output is a Series of that Pattern's own
+  Point type.
+
+**Asking `ctx` for something it does not have raises.** It never returns an empty Series as a
+stand-in. Empty already has a meaning — the Pattern ran and found nothing — and collapsing
+"not produced yet" into it would turn a mis-written order into a silently missing alert, which
+is the worst failure this system has. In code: `ctx[key]`, never `ctx.get(key, empty)`.
 
 **How a Pattern works**
 
-- **A Pattern is a class with `init` and `run()`.** `init` receives the Series the Pattern
-  depends on, injected by the engine. `run()` reads what was injected and returns a Series.
+Decided in [issue #3](https://github.com/renatonmag/playbook/issues/3).
+
+- **A Pattern is a parameterised class, instantiated by hand in the pipeline list.**
+  `PatternEngine(bars, [EngulfingPattern(emits="5m"), Sma(period=20, emits="5m")])`. Two
+  instances of one class are two Patterns.
+- **The producer is a parameterised key**, derived automatically from the class name plus the
+  instance's parameters — `sma(period=20,emits=5m)`, not a plain `sma`. Without it, two
+  instances of a class collide on one `ctx` key and the second silently overwrites the first.
+- **`init` takes parameters, not Series.** Nothing is injected. `run(ctx)` reads what it needs
+  straight out of `ctx` and returns one Series, which the engine writes under the producer key.
+  A Pattern may also write into `ctx` itself; nothing forbids it.
+- **A Pattern declares `reads` and `emits` separately.** `reads` is the set of Timeframes whose
+  Candles it looks at; `emits` is the single Timeframe its output Series belongs to.
+  `WedgeConfirmed(reads=("1h","5m"), emits="1h")`. This is what lets one Pattern be
+  multi-timeframe without `identity` or `Point` changing — see ADR-0003.
+- **`reads` carries no minimum bar count**, and nothing verifies the Candles handed in are
+  enough. Deliberate for now; the cost is that too few Candles produce an empty Series
+  indistinguishable from "found nothing".
 - **The engine binds targets, the Pattern declares shape.** The universe of Instruments is
-  engine configuration; each Pattern class declares which Timeframes it needs. A Pattern
-  never names a ticker in its own code.
-- **Patterns compose into a graph.** A Pattern may consume the Series produced by more
-  primitive Patterns. The Store resolves the order.
+  engine configuration. A Pattern never names a ticker in its own code.
+- **Patterns compose in sequence.** A Pattern may consume the Series produced by more
+  primitive Patterns, by asking `ctx` for their producer key. The order is declared, not
+  resolved — see above.
+- **The detection method is the Pattern's own business.** Hand-written rule, TA-Lib, a trained
+  classifier, or an LLM reading the chart — all pack Points at the end of `run`, and the
+  contract does not distinguish them. Known cost: the engine is synchronous and serial, so a
+  Pattern that calls the network stalls the whole tick.
 - **Registration is manual for now.** Patterns are wired up in code by hand. Automatic
   discovery is a later concern.
 
@@ -66,12 +100,29 @@ Decided in [issue #2](https://github.com/renatonmag/playbook/issues/2); see ADR-
 - **`BaseSeries` is concrete — nothing is abstract.** A subclass only fixes the Point type.
   Writing a new Pattern costs one Point dataclass, not a Series subclass with abstract
   methods to fill in. Its whole surface: `identity`, `points`, `s[i]`, `len`/`iter`/`bool`
-  (an empty Series is falsy — `if breakouts:` is the trigger test), and `to_dict()`.
-- **A Point is frozen, and carries `at` and `since`.** `at` is the anchor — the Candle the
-  Point belongs to. `since` is the Candle where the occurrence begins, equal to `at` when
-  the occurrence is punctual. A wedge completing on bar 50 that started on bar 20 is one
-  Point with `at` at bar 50 and `since` at bar 20. `since` exists because Validation has to
-  know how much price action to send the LLM.
+  (an empty Series is falsy — `if breakouts:` is the trigger test), `as_of(t)`, and
+  `to_dict()`.
+- **`as_of(t) -> TPoint | None`** answers "which Point was in effect at time `t`?" — the last
+  Point whose `time` is at or before `t`. It is a bisect over a list already ordered by `time`, so
+  O(log n), and it is the whole of what a Series offers for correlating with another Series.
+  It carries no policy: no resampling, no forward-filling into a finer grid. Being a search
+  rather than index arithmetic, it is tolerant of gaps by construction.
+- **A Point is a Candle.** There is no Point base class: `Candle` is the root — frozen, with
+  `time` (the instant the bar opened, UTC) plus OHLCV — and a Pattern's Point subclasses it,
+  adding its payload. So a Point does not *reference* its anchor bar, it *is* that bar, with
+  more on top. `Pivot` is one such subclass, shared by every geometric Pattern: the bar of the
+  vertex plus which price on it is the vertex. `Candle.anchored(bar, **payload)` is how a
+  Pattern packs one without restating the six inherited fields. Extent is not part of the
+  contract, because most occurrences are punctual and have nothing to say about it. The cost:
+  every output Point carries the OHLCV of its bar, so nothing in a Point separates what was
+  measured from what was derived — see ADR-0002's 2026-08-12 amendment.
+- **Extended Patterns declare `since` on their own Point subclass.** The base Point class
+  carries a comment saying so: a Pattern whose occurrence spans several Candles should
+  declare a `since` attribute — the Candle where the occurrence begins — in its own payload.
+  A wedge completing on bar 50 that started on bar 20 is one Point with `time` at bar 50 and
+  `since` at bar 20. It lives on the subclass rather than the base because only some
+  Patterns are extended; Validation reads it, when present, to know how much price action to
+  send the LLM.
 - **The payload is declared by the subclass.** `sma-20` declares `value`; a wedge declares
   its Pivots and geometry. Methods on a Point are allowed, and are the right way for a
   downstream Pattern to ask questions (`upper_line_at`, `height`) — but a method is
@@ -84,17 +135,13 @@ Decided in [issue #2](https://github.com/renatonmag/playbook/issues/2); see ADR-
   name what was being produced, and serialized output carries its provenance.
 - **How much of the window gets filled depends on the Pattern.** An indicator is a
   continuous function of the Candles and has a Point at every Candle of the window — that is
-  what lets `ma-cross` read `sma-20` at the previous Candle. An event detector is evaluated
-  **only at the current Candle** and produces at most one Point, anchored there. No detector
-  sweeps the day looking for past occurrences: an occurrence that fired in an earlier tick is
-  gone, and that is deliberate.
+  what lets `ma-cross` read `sma-20` at the previous Candle. 
 
 **Timing**
 
-- **Scheduled, not continuous.** The base tick is every 5 minutes.
-- **A Pattern runs when its Timeframe closes.** A Pattern that asks for `1h` or `1d`
-  Candles runs only when that Candle closes — the engine reads the requested Timeframe and
-  schedules accordingly, rather than running everything on every tick.
+- **Patterns are not scheduled.** There is no per-Pattern due-ness: a run executes the
+  declared pipeline from top to bottom, and a Pattern asking for `1h` or `1d` is not held
+  back until that Candle closes. What triggers a run at all is still open.
 - **Trading hours come from a config file**, in `0900-1800` form.
 
 **State and failure**
@@ -102,7 +149,12 @@ Decided in [issue #2](https://github.com/renatonmag/playbook/issues/2); see ADR-
 - **Every tick starts from zero.** Ticks are independent: memory is renewed on each run,
   nothing survives. So `run()` is idempotent, and no dedupe is needed — a tick has no
   history to repeat itself against.
-- **A Pattern that raises stops the Patterns that depend on it**, and only those.
+- **A raising Pattern stops nothing.** The engine logs the failure with the producer key,
+  writes nothing into `ctx`, and moves to the next Pattern — see ADR-0004. A Pattern below
+  that reads the missing key raises `KeyError`, which is caught and logged the same way, so a
+  failure travels as a chain of log lines and never leaves `run()`. There is no failure
+  marker and no end-of-tick report. The cost: "failed" and "not produced" are the same thing
+  in `ctx`, and a mis-written pipeline order is discovered only in the log.
 
 **Data**
 
@@ -111,8 +163,13 @@ Decided in [issue #2](https://github.com/renatonmag/playbook/issues/2); see ADR-
 - **The window is by day.** For intraday Timeframes, a Pattern receives every Candle of the
   current day at that Timeframe. For `1d`, `1w` and up, the Pattern states how many it
   wants.
-- **Input behind a seam.** Candles come from Postgres on Supabase, via the Store. Patterns
-  never query.
+- **The engine fetches nothing.** Candles are read from Postgres on Supabase *outside* the
+  engine and handed to the constructor as `bars` — `{"5m": <BaseSeries of Candles>, ...}`. For
+  now that dict is assembled by hand, in a script or the REPL. Candles arrive as a
+  `BaseSeries`, never as raw rows or a DataFrame, so the database's shape never reaches a
+  detection rule. `bars` stays a separate entry rather than Series under the normal key scheme,
+  so a Pattern has two modes of reading: `ctx["bars"][tf]` for Candles, `ctx[producer]` for
+  another Pattern's output.
 - **Output stays in memory** for this version.
 
 ### Out of scope for this effort
@@ -145,8 +202,8 @@ term has a tempting synonym, the synonym is listed as *avoid* — don't drift to
 | **Candle** | One OHLCV bar for an Instrument at a Timeframe. The atomic unit of price data. | *bar*, *tick* |
 | **Timeframe** | The bar interval a Candle covers (`5m`, `15m`, `1h`, `1d`). | *period*, *resolution* |
 | **Series** | An ordered, Candle-aligned run of values for one Instrument + Timeframe. Candles are the base case; a Pattern's output is also a Series — of breakouts, of wedges, of moving-average values. Series is the single currency the engine passes around. | *history*, *chart* |
-| **Point** | One element of a Series: a frozen record anchored at a Candle (`at`), spanning back to `since`, plus the payload its Pattern declares. An occurrence of a Pattern is a Point. | *detection*, *event*, *hit* |
-| **Pivot** | A vertex a Pattern marks on the chart — a price at a Candle, high or low. The tops and bottoms of a wedge are Pivots. Shared across every geometric Pattern. | *top*, *bottom*, *swing* |
+| **Point** | One element of a Series: a Candle (`time` plus OHLCV) extended with the payload its Pattern declares — which, for an extended Pattern, includes a `since` marking where the occurrence begins. An occurrence of a Pattern is a Point. A term, not a class: `Candle` is the root. | *detection*, *event*, *hit* |
+| **Pivot** | A vertex a Pattern marks on the chart — the Candle of the vertex plus which price on it is the vertex, high or low. The tops and bottoms of a wedge are Pivots. Shared across every geometric Pattern. | *top*, *bottom*, *swing* |
 | **Pattern** | A named, reusable rule (e.g. `inside-bar`) that reads one or more Series and produces a Series. A definition, never an occurrence. | *setup*, *strategy* |
 | **Validation** | The LLM's verdict on a candidate: accepted or rejected, plus its reasoning. | *analysis*, *review* |
 | **Signal** | A candidate whose Validation accepted it. This is the only thing the system considers actionable. | *trade*, *entry*, *call* |
@@ -176,7 +233,7 @@ playbook/
 │   └── ingestor/     # market data collection process. Writes the DB.
 └── packages/
     ├── domain/          # Instrument/Candle/Pattern types
-    └── pattern_engine/  # Python. ScheduleLoop, Store, BaseSeries, Patterns.
+    └── pattern_engine/  # Python. ScheduleLoop, PatternEngine, BaseSeries, Patterns.
 ```
 
 `packages/domain` holds the vocabulary above as types. Its pattern-detection code

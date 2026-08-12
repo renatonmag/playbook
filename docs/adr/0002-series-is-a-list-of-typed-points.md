@@ -1,94 +1,72 @@
 # ADR-0002 — A Series is a list of typed Points, not a column of values
 
-- **Status**: Accepted
+- **Status**: Accepted — amended 2026-08-11 (`since` moved off the base Point onto the Point
+  subclasses of extended Patterns) and 2026-08-12 (**the base Point class is gone: the Candle
+  is the root, and the anchor is `time`** — see the amendment at the bottom, which overrides
+  every mention of `at` and of a `Point` base class below).
 - **Date**: 2026-08-09
 - **Ticket**: [#2 — O que BaseSeries guarda e o que ela expõe](https://github.com/renatonmag/playbook/issues/2)
 
-## Context
+- **Problem**: `BaseSeries` is the one interface every Pattern touches, and it must hold three
+  shapes of output at once — `sma-20` (a number at every Candle), `inside-bar` (nothing, over
+  2 bars), and a wedge (variable Pivots over ~30 bars, completing on the current one).
+- **Decision**: `BaseSeries[TPoint]` holds an ordinary `list[TPoint]`. What varies between
+  subclasses is the *type of the Point*, not the structure holding them.
+- A Point is a frozen dataclass whose only base contract is `at`, the anchor Candle. Methods
+  are allowed but must be pure derivation — nothing may be held only in behaviour.
+- A Pattern spanning several Candles declares `since` on its own Point subclass; vertices use a
+  shared `Pivot` type (a price at a Candle), so `double-top`, `head-and-shoulders`, and wedges
+  reuse one vocabulary instead of inventing `top1_price`.
+- `BaseSeries` is concrete, with no abstract members: `identity` (producer, instrument,
+  timeframe), `points`, `s[i]`, `len`/`iter`/`bool`, and `to_dict()`.
+- Event detectors are evaluated only at the current Candle; indicators carry a Point at every
+  Candle of the window. This is why `ma-cross` works — `sma-20` has a Point at the previous bar.
+- **Consequence**: a new Pattern costs one Point dataclass, no Series subclass. Serialization
+  is total, and Validation reads `since` where a Point declares one, falling back to `at`.
+- **Cost**: no vectorized arithmetic over Series. Recoverable inside a Pattern (compute with
+  numpy over Candles, pack Points at the end); only a real problem if a Pattern needs heavy
+  numerics over *another* Pattern's output, which none does.
+- **Cost**: an event detector cannot see its own past occurrences. Accepted — nothing survives
+  a tick, so history would be recomputed noise.
+- **Rejected**: a pandas DataFrame (heterogeneous payloads fall to `object` dtype) and a flat
+  scalar array (fastest, but the wedge does not fit, and the wedge is the point). Also rejected:
+  evaluating detectors over the whole window each tick, and a separate `Occurrence` output type —
+  one currency is what lets Patterns consume each other.
 
-`BaseSeries` is the base class every Series inherits from, and the one interface every
-Pattern class touches. It is the most expensive decision in the engine to reverse.
+## Amendment, 2026-08-12 — the Candle is the root of the Point hierarchy
 
-Three kinds of output have to fit in it:
+Raised while building `packages/pattern_engine`: a Candle **already is** a Point, so a base
+class above it whose only content is the anchor earns nothing.
 
-| | anchoring | span | payload |
-|---|---|---|---|
-| `sma-20` | every Candle | 1 bar | a number |
-| `inside-bar` | current Candle | 2 bars | nothing |
-| wedge | current Candle | ~30 bars | three top Pivots, three bottom Pivots, geometry |
+- **The `Point` base class is dissolved into `Candle`.** `Candle` inherits from nothing and
+  declares its own anchor, `time` — the instant the bar opened, UTC. `at` is gone as a field
+  name everywhere.
+- **A Pattern's Point subclasses `Candle`** and adds its payload. `BaseSeries[TPoint: Candle]`
+  bisects `as_of` over `time`.
+- **`Pivot` stays, now inheriting from `Candle`**: the bar of the vertex, plus `price` — which
+  price on that bar is the vertex.
+- `Candle.anchored(candle, **payload)` builds a Point on a bar, carrying the six Candle fields
+  over, so packing a Point does not restate them.
 
-Python was chosen for its data ecosystem, which argues for a pandas DataFrame or a numpy
-array — a column of values aligned to the Candles of the window. But a wedge is not a value
-at a Candle. It is an occurrence that spans thirty bars, completes on the current one, and
-carries a variable number of vertices. A column of scalars cannot hold it, and the wedge is
-the case that motivates the product.
+**Consequence, and it is the whole of the trade:** an output Point now carries the OHLCV of
+the bar it occurred on. Serialization to Validation and to the development UI gets the price
+action of the anchor for free, without correlating back to the Candle Series — and in
+exchange, a Point no longer separates what was measured from what was derived. `sma-20`'s
+Point holds `value` **and** the bar's open/high/low/close/volume.
 
-A second question sat underneath: does a Pattern evaluate its rule across the whole day's
-window, or only at the Candle that just closed? Nothing survives a tick, so any history in an
-output Series would have to be recomputed rather than remembered.
-
-## Decision
-
-**`BaseSeries[TPoint]` holds an ordinary `list[TPoint]`.** What varies between subclasses is
-the *type of the Point*, not the structure holding them.
-
-**A Point is a frozen dataclass with `at` and `since`**, plus whatever payload its Pattern
-declares. `at` is the anchor Candle; `since` is where the occurrence begins, equal to `at`
-when punctual. Vertices are expressed with a shared **`Pivot`** type — a price at a Candle —
-so a three-top wedge and a four-top wedge are the same class, and `double-top`,
-`head-and-shoulders`, and `triangle` reuse it instead of each inventing `top1_price`,
-`top2_price`.
-
-**Methods on a Point are permitted but must be pure derivation of its attributes.** Nothing
-may be held only in behaviour.
-
-**`BaseSeries` is concrete.** Its full surface is `identity` — `(producer, instrument,
-timeframe)`, stored on the object — `points`, positional `s[i]`, `len`/`iter`/`bool`, and
-`to_dict()`. No abstract members.
-
-**Event detectors are evaluated only at the current Candle**; indicators, being continuous
-functions of the Candles, carry a Point at every Candle of the window.
-
-## Consequences
-
-- A new Pattern costs one Point dataclass. There is no Series subclass to write.
-- The wedge fits without reviving `Detection`: it is one Point, `at` on bar 50, `since` on
-  bar 20, carrying its Pivots.
-- `ma-cross` works, because `sma-20` — an indicator — has a Point at the previous Candle.
-- `since` gives Validation the exact price action to send the LLM. Without it, someone
-  downstream has to guess how much context a wedge deserves.
-- Serialization is total: because Points are frozen and behaviour is pure derivation,
-  `to_dict()` loses nothing that Validation or the development UI needs.
-- Cost: **no vectorized arithmetic over Series**. A mean over a list of dataclasses is a
-  Python loop. This is recoverable inside a Pattern — `sma-20` computes with numpy over the
-  Candles' closes and only packs Points at the end; the Point list is the *interface*, not
-  the compute substrate. It becomes a real problem only if a Pattern needs heavy numerics
-  over *another Pattern's* output, which no known Pattern does.
-- Cost: an event detector cannot see its own past occurrences. Accepted deliberately — ticks
-  are independent, and only a trigger on the current bar is worth anything.
-
-## Alternatives considered
-
-- **pandas DataFrame indexed by Candle timestamp, columns declared per subclass.** Free
-  alignment, free vectorization, `NaN` as a first-class hole. Rejected: heterogeneous
-  payloads fall to `object` dtype anyway, a whole DataFrame to carry one wedge row is
-  structure for nothing, and the variable-length Pivot list has no natural column form.
-- **A flat array of scalars aligned to the window.** The cheapest and fastest option, and the
-  one the Python-for-data argument points at. Rejected because the wedge does not fit, and
-  the wedge is the point.
-- **Evaluating detectors across the whole day's window each tick.** Would give composed
-  Patterns real history to slice. Rejected: nothing persists, so the history would be
-  recomputed noise, and an alarm only cares about what fired now.
-- **Two currencies — Candles as input, an `Occurrence` type as output.** Considered when the
-  Point type briefly looked too small to hold OHLCV. Rejected: a Point with a subclass-declared
-  payload holds a Candle as easily as a wedge, and one currency is what lets Patterns consume
-  each other.
+**Point remains a term** in the glossary — one element of a Series. It is simply no longer a
+class of its own.
 
 ## Deliberately left out
 
 - **Slicing a Series into another Series.** Returns if a Pattern needs to cut Candles between
   two Pivots.
-- **Aligning Series of different Timeframes.** That is a resampling policy, and it belongs to
-  whoever resolves the graph — see [#5](https://github.com/renatonmag/playbook/issues/5).
-- **Whether the producer in `identity` is a plain Pattern id or a parameterised key**
-  (`sma-20` vs `sma(period=20)`) — see [#3](https://github.com/renatonmag/playbook/issues/3).
+- ~~**Aligning Series of different Timeframes.**~~ **Settled** in
+  [#3](https://github.com/renatonmag/playbook/issues/3): there is no resampling policy anywhere.
+  A Pattern that needs two Timeframes declares `reads=("1h","5m")` and correlates them itself;
+  no component aligns Series on its behalf.
+- ~~**Whether the producer in `identity` is a plain Pattern id or a parameterised key.**~~
+  **Settled** in [#3](https://github.com/renatonmag/playbook/issues/3): a **parameterised key**,
+  derived automatically from the class name plus the instance's parameters —
+  `sma(period=20,emits=5m)`. Patterns are parameterised classes instantiated by hand, so two
+  instances of one class must not collide.
