@@ -13,13 +13,20 @@ import type { Candle } from '~/types/candle'
  * Canvas-only, so the caller must keep it out of SSR with `<ClientOnly>`. Deliberately *not*
  * named `.client.vue`: that plus a `<ClientOnly>` wrapper is two client-only boundaries, and the
  * inner one mounts a second instance whose template ref is still null — the chart never renders.
+ *
+ * Overlays go in the default slot. They receive the chart through `provide` rather than props,
+ * so this component never learns what a zigzag is — adding a Pattern costs an overlay component
+ * and a line in the page's registry, and nothing here.
  */
 const props = defineProps<{ candles: Candle[] }>()
 
 const container = ref<HTMLDivElement | null>(null)
 
-let chart: IChartApi | null = null
-let series: ISeriesApi<'Candlestick'> | null = null
+const chart = shallowRef<IChartApi | null>(null)
+const series = shallowRef<ISeriesApi<'Candlestick'> | null>(null)
+
+provide(CHART, chart)
+provide(CANDLE_SERIES, series)
 
 /**
  * The API already emits the library's bar shape, so this is a type assertion and not a
@@ -32,7 +39,7 @@ function asBars(candles: Candle[]): CandlestickData<UTCTimestamp>[] {
 onMounted(() => {
   if (!container.value) return
 
-  chart = createChart(container.value, {
+  chart.value = createChart(container.value, {
     // The library owns sizing via its own ResizeObserver; the container sets the box in CSS.
     autoSize: true,
     layout: {
@@ -56,7 +63,7 @@ onMounted(() => {
     },
   })
 
-  series = chart.addSeries(CandlestickSeries, {
+  series.value = chart.value.addSeries(CandlestickSeries, {
     upColor: '#16a34a',
     downColor: '#dc2626',
     borderUpColor: '#16a34a',
@@ -65,26 +72,33 @@ onMounted(() => {
     wickDownColor: '#dc2626',
   })
 
-  series.setData(asBars(props.candles))
-  chart.timeScale().fitContent()
+  series.value.setData(asBars(props.candles))
+  chart.value.timeScale().fitContent()
 })
 
 watch(
   () => props.candles,
   (candles) => {
-    if (!series || !chart) return
-    series.setData(asBars(candles))
-    chart.timeScale().fitContent()
+    if (!series.value || !chart.value) return
+    series.value.setData(asBars(candles))
+    chart.value.timeScale().fitContent()
   },
 )
 
 onBeforeUnmount(() => {
-  chart?.remove()
-  chart = null
-  series = null
+  // Takes every overlay's series with it, which is why an overlay's own cleanup only has to
+  // handle the case where it is unmounted while the chart lives on.
+  chart.value?.remove()
+  chart.value = null
+  series.value = null
 })
 </script>
 
 <template>
-  <div ref="container" class="h-[520px] w-full" />
+  <div class="h-[520px] w-full">
+    <!-- The library owns this node's children, so overlays — which render nothing — stay
+         outside it. They draw through the chart API, not through the DOM. -->
+    <div ref="container" class="h-full w-full" />
+    <slot />
+  </div>
 </template>

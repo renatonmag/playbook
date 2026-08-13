@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
 import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
+import { producerName, type ZigZagPivot } from '~/types/pattern'
+import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -10,6 +13,21 @@ const SYMBOLS = ['WIN@N'] as const
 
 const DEFAULT_SYMBOL = 'WIN@N'
 const DEFAULT_TIMEFRAME: Timeframe = '5m'
+
+/**
+ * Which component draws which Pattern, keyed by the producer's class part — `zig-zag`, without
+ * its parameters, so two zigzags at different depths share one renderer.
+ *
+ * This registry is the bet that Patterns differ in *how* they are drawn, not only in their data.
+ * If every overlay ends up being "a line plus markers", it should collapse into one data-driven
+ * component and this map should go.
+ */
+const OVERLAYS: Record<string, Component> = {
+  'zig-zag': ZigZagOverlay,
+}
+
+/** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
+const COLORS = ['#2563eb', '#c026d3', '#ea580c', '#0d9488']
 
 const route = useRoute()
 const router = useRouter()
@@ -31,11 +49,46 @@ function select(patch: { symbol?: string, timeframe?: string }) {
   })
 }
 
-const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe)
+// One window, both requests. See `useWindow` for why that matters.
+const window = useWindow(timeframe)
+
+const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe, window)
+const { data: patterns, error: patternsError } = usePatterns(window)
+
+/**
+ * Every Series the pipeline produced, in a shape the checkbox list and the overlays share.
+ *
+ * Series of *any* timeframe are listed, including ones the chart is not showing. Marking one of
+ * those is allowed and will distort the candle spacing, because the chart's time scale is the
+ * union of its series' times — a known and accepted trade.
+ */
+const overlays = computed(() =>
+  Object.entries(patterns.value?.series ?? {}).map(([producer, series], index) => ({
+    producer,
+    component: OVERLAYS[producerName(producer)],
+    points: series.points as ZigZagPivot[],
+    timeframe: series.identity.timeframe,
+    color: COLORS[index % COLORS.length]!,
+  })),
+)
+
+/**
+ * Unchecked producers. Held as the exception rather than the rule so a Series arriving for the
+ * first time is visible by default, with no bookkeeping when the pipeline gains a Pattern.
+ *
+ * Local, not in the URL: the producer key carries the timeframe, so it changes as you switch
+ * timeframes and would not survive in a link anyway.
+ */
+const hidden = ref(new Set<string>())
+
+function toggle(producer: string) {
+  if (hidden.value.has(producer)) hidden.value.delete(producer)
+  else hidden.value.add(producer)
+}
 </script>
 
 <template>
-  <main class="mx-auto max-w-5xl p-8">
+  <main class="mx-auto max-w-7xl p-8">
     <header class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold">Monitor</h1>
@@ -69,31 +122,94 @@ const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe)
       </div>
     </header>
 
-    <!-- `overflow-hidden` clips the chart's square canvas to the rounded corners; without it the
-         white canvas pokes out past the radius at each corner. -->
-    <section class="mt-6 overflow-hidden rounded border border-gray-200">
-      <p v-if="pending" class="p-8 text-center text-sm text-gray-500">
-        Carregando candles…
-      </p>
+    <div class="mt-6 flex flex-col gap-6 lg:flex-row">
+      <!-- `overflow-hidden` clips the chart's square canvas to the rounded corners; without it the
+           white canvas pokes out past the radius at each corner. -->
+      <section class="min-w-0 flex-1 overflow-hidden rounded border border-gray-200">
+        <p v-if="pending" class="p-8 text-center text-sm text-gray-500">
+          Carregando candles…
+        </p>
 
-      <div v-else-if="error" class="p-8 text-center text-sm">
-        <p class="text-red-600">Não foi possível carregar os candles.</p>
-        <p class="mt-1 font-mono text-xs text-gray-500">{{ error.message }}</p>
-        <button class="mt-3 rounded border border-gray-300 px-3 py-1 text-sm" @click="refresh()">
-          Tentar de novo
-        </button>
-      </div>
+        <div v-else-if="error" class="p-8 text-center text-sm">
+          <p class="text-red-600">Não foi possível carregar os candles.</p>
+          <p class="mt-1 font-mono text-xs text-gray-500">{{ error.message }}</p>
+          <button class="mt-3 rounded border border-gray-300 px-3 py-1 text-sm" @click="refresh()">
+            Tentar de novo
+          </button>
+        </div>
 
-      <p v-else-if="!candles?.length" class="p-8 text-center text-sm text-gray-500">
-        Nenhum candle para {{ symbol }} · {{ timeframe }} nesta janela.
-      </p>
+        <p v-else-if="!candles?.length" class="p-8 text-center text-sm text-gray-500">
+          Nenhum candle para {{ symbol }} · {{ timeframe }} nesta janela.
+        </p>
 
-      <ClientOnly v-else>
-        <CandleChart :candles="candles" />
-        <template #fallback>
-          <div class="h-[520px] w-full" />
-        </template>
-      </ClientOnly>
-    </section>
+        <ClientOnly v-else>
+          <CandleChart :candles="candles">
+            <component
+              :is="overlay.component"
+              v-for="overlay in overlays"
+              :key="overlay.producer"
+              :points="overlay.points"
+              :color="overlay.color"
+              :visible="!hidden.has(overlay.producer)"
+            />
+          </CandleChart>
+          <template #fallback>
+            <div class="h-[520px] w-full" />
+          </template>
+        </ClientOnly>
+      </section>
+
+      <aside class="w-full shrink-0 rounded border border-gray-200 p-4 lg:w-80">
+        <h2 class="text-sm font-semibold">Padrões</h2>
+
+        <p v-if="patternsError" class="mt-3 text-xs text-red-600">
+          Não foi possível rodar o pipeline.
+          <span class="block font-mono text-gray-500">{{ patternsError.message }}</span>
+        </p>
+
+        <p v-else-if="!overlays.length" class="mt-3 text-xs text-gray-500">
+          Nenhum padrão produzido nesta janela.
+        </p>
+
+        <ul v-else class="mt-3 space-y-2">
+          <li v-for="overlay in overlays" :key="overlay.producer">
+            <label class="flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                class="mt-0.5"
+                :checked="!hidden.has(overlay.producer)"
+                @change="toggle(overlay.producer)"
+              >
+              <span class="min-w-0">
+                <span class="font-mono break-all" :style="{ color: overlay.color }">
+                  {{ overlay.producer }}
+                </span>
+                <span class="block text-gray-500">
+                  {{ overlay.points.length }} pontos
+                  <span v-if="overlay.timeframe !== timeframe" class="text-amber-600">
+                    · {{ overlay.timeframe }}, fora do timeframe exibido
+                  </span>
+                  <span v-if="!overlay.component" class="text-red-600">
+                    · sem componente de desenho
+                  </span>
+                </span>
+              </span>
+            </label>
+          </li>
+        </ul>
+
+        <!-- A Pattern that raised drew nothing, and so did a Pattern that found nothing. Without
+             this the two are indistinguishable on the chart. -->
+        <div v-if="patterns?.failed?.length" class="mt-4 border-t border-gray-200 pt-3">
+          <p class="text-xs font-semibold text-red-600">Falharam</p>
+          <ul class="mt-1 space-y-1">
+            <li v-for="producer in patterns.failed" :key="producer" class="font-mono text-xs break-all text-gray-500">
+              {{ producer }}
+            </li>
+          </ul>
+          <p class="mt-2 text-xs text-gray-500">A exceção está no log do servidor.</p>
+        </div>
+      </aside>
+    </div>
   </main>
 </template>

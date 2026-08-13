@@ -8,7 +8,9 @@ Trading hours live in config, and the day is the caller's arithmetic; this keeps
 from collections.abc import Sequence
 from datetime import datetime
 
-from pattern_engine import Timeframe
+from pattern_engine import BaseSeries, SeriesIdentity, Timeframe
+from pattern_engine import Candle as Bar
+from pattern_engine.series import CANDLES
 from sqlmodel import Session, select
 
 from ..models.candle import Candle
@@ -71,3 +73,29 @@ def load_candles(
     if len(rows) > limit:
         raise CandleWindowTooLarge(limit)
     return rows
+
+
+def as_series(
+    rows: Sequence[Candle], *, symbol: str, timeframe: Timeframe
+) -> BaseSeries[Bar]:
+    """Database rows as the Series the engine reads — the base case, produced by no Pattern.
+
+    The conversions mirror `CandleOut.from_row`, because the engine and the chart want the same
+    two things: `Decimal` prices as `float`, and a null volume as zero. What differs is `time`,
+    which stays an aware `datetime` here — the Series orders and bisects on it, and only the
+    wire format wants Unix seconds.
+    """
+    return BaseSeries(
+        SeriesIdentity(CANDLES, symbol.upper(), timeframe),
+        [
+            Bar(
+                time=row.time,
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.close),
+                volume=float(row.volume or 0),
+            )
+            for row in rows
+        ],
+    )

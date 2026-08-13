@@ -10,6 +10,7 @@ from sqlmodel import Session
 from ..db import get_session
 from ..schemas.candle import CandleOut
 from ..store.candles import CandleWindowTooLarge, load_candles
+from ..window import validate_window
 
 router = APIRouter()
 
@@ -32,14 +33,7 @@ def read_candles(
     `limit` is a ceiling: a window holding more than it is a 400, never a truncated answer.
     An empty window is a 200 with `[]` — a closed market is not a missing route.
     """
-    # `time` is timestamptz. A naive datetime would still compare, against whatever the
-    # server's timezone happens to be, and silently return the wrong window.
-    for name, value in (("from", start), ("to", end)):
-        if value.tzinfo is None:
-            raise HTTPException(400, f"`{name}` needs a UTC offset, e.g. 2026-08-11T00:00:00Z")
-
-    if start >= end:
-        raise HTTPException(400, "`from` must be earlier than `to`")
+    validate_window(start, end)
 
     try:
         rows = load_candles(
