@@ -1,13 +1,35 @@
 """The zigzag — a chart's alternating run of tops and bottoms.
 
-Two things live here. `ZigZagIndidicator` is the algorithm, kept exactly as it was written:
-it speaks in dicts of `high`/`low` and answers with dense lists parallel to the input, mostly
-`None`. `ZigZagPattern` is the adapter that makes it a Pattern — it translates in both
-directions and packs the surviving vertices into a Series.
+Two things live here. `ZigZagIndidicator` is the algorithm: it speaks in dicts of `high`/`low`
+and answers with dense lists parallel to the input, mostly `None`. `ZigZagPattern` is the
+adapter that makes it a Pattern — it translates in both directions and packs the surviving
+vertices into a Series.
 
-The split is deliberate. The algorithm has known defects (see the module's tests and the
-`since` note on `ZigZagPattern.run`), and wrapping it rather than rewriting it means the
-interface can change without the semantics moving underneath.
+The split is deliberate: wrapping the algorithm rather than rewriting it means the interface
+can change without the semantics moving underneath.
+
+One defect has been fixed in place, because it was the algorithm lying to itself rather than a
+matter of taste — `_find_extremes` moved `last_high_idx`/`last_low_idx` whenever the rolling
+extreme *value* changed, including when the old extreme merely slid out of the window, so the
+indices pointed at bars that were the extreme of nothing. See the comment there. It does not
+move any vertex: `zz`, `highs` and `lows` are unchanged, and only `start` (`ZigZagPivot.since`)
+gets better.
+
+`start` marks where a leg turned: the extreme that was *current at that instant*, which is not
+the same thing as the vertex the cleanup later elects. If price goes on to a lower low, the
+vertex moves there, but the leg turned where it turned — so a mark sitting between two vertices
+is the normal case and the useful one, not a defect. `_update_legs` writing it once and never
+revising it is what makes it mean that. A `_refine_start_points` used to delete every mark
+strictly between two vertices, which threw away roughly two thirds of them and left the chart
+with almost nothing to draw; it is gone.
+
+What is still broken, and deliberately left alone:
+
+- A bar that is both the window's high and its low registers no turn, because `_update_legs`
+  compares the two indices with a strict `<` and they are then equal. Outside bars — exactly
+  the reversal bars this is meant to catch — are what produce that tie.
+- `depth` is unvalidated: `0` raises out of `max()`, and anything past `len(data)` silently
+  returns an empty result.
 """
 
 from dataclasses import dataclass
@@ -48,112 +70,57 @@ class ZigZagIndidicator:
         last_high_idx = last_low_idx = 0
         leg_up = leg_down = False
 
-        # Adjusted loop to include the last candle
+        # The loop runs one past the last bar so the final window — the only one that holds
+        # the last candle — is considered too.
         for idx in range(self._depth, self._size + 1):
-            if idx < self._size:
-                window = self._data[
-                    idx - self._depth : idx
-                ]
-                current_max = max(
-                    candle["high"] for candle in window
-                )
-                current_min = min(
-                    candle["low"] for candle in window
-                )
+            window = self._data[idx - self._depth : idx]
+            current_max = max(candle["high"] for candle in window)
+            current_min = min(candle["low"] for candle in window)
 
-                self._update_highs_lows(
-                    idx,
-                    current_max,
-                    current_min,
-                    last_high,
-                    last_low,
-                )
+            made_high, made_low = self._update_highs_lows(
+                idx, current_max, current_min, last_high, last_low
+            )
 
-                if last_high != current_max:
-                    last_high = current_max
-                    last_high_idx = idx - 1
-                if last_low != current_min:
-                    last_low = current_min
-                    last_low_idx = idx - 1
+            # The index moves only when the bar that just entered *made* the extreme; the
+            # value tracks the window unconditionally. Tying the index to the value — as this
+            # did — moved it whenever the old extreme merely slid off the left of the window,
+            # leaving `last_high_idx` on a bar that is the maximum of nothing. `_update_legs`
+            # then read `self.highs[last_high_idx]`, still `None`, and wrote that into `start`
+            # while flipping the leg flag anyway, so the leg counted as started and its real
+            # beginning was never recorded.
+            #
+            # The value must still be free to fall: it is the rolling maximum, and a downtrend
+            # makes each new top lower than the last one that slid away.
+            if made_high:
+                last_high_idx = idx - 1
+            if made_low:
+                last_low_idx = idx - 1
+            last_high, last_low = current_max, current_min
 
-                leg_up, leg_down = self._update_legs(
-                    idx,
-                    last_high_idx,
-                    last_low_idx,
-                    leg_up,
-                    leg_down,
-                )
-            else:
-                # Handle the last candle by considering the final window
-                window = self._data[
-                    idx - self._depth : idx
-                ]
-                current_max = max(
-                    candle["high"] for candle in window
-                )
-                current_min = min(
-                    candle["low"] for candle in window
-                )
-
-                self._update_highs_lows(
-                    idx,
-                    current_max,
-                    current_min,
-                    last_high,
-                    last_low,
-                )
-
-                # Update legs if necessary
-                if last_high != current_max:
-                    last_high = current_max
-                    last_high_idx = idx - 1
-                if last_low != current_min:
-                    last_low = current_min
-                    last_low_idx = idx - 1
-
-                leg_up, leg_down = self._update_legs(
-                    idx,
-                    last_high_idx,
-                    last_low_idx,
-                    leg_up,
-                    leg_down,
-                )
+            leg_up, leg_down = self._update_legs(
+                idx, last_high_idx, last_low_idx, leg_up, leg_down
+            )
 
         self._cleanup_extremes()
 
-    def _update_highs_lows(
-        self,
-        idx,
-        current_max,
-        current_min,
-        last_high,
-        last_low,
-    ):
-        if idx < self._size:
-            previous_candle = self._data[idx - 1]
-            if (
-                current_max == previous_candle["high"]
-                and last_high != current_max
-            ):
-                self.highs[idx - 1] = current_max
-            if (
-                current_min == previous_candle["low"]
-                and last_low != current_min
-            ):
-                self.lows[idx - 1] = current_min
-        else:
-            # For the extended index, check the last candle
-            previous_candle = self._data[-1]
-            if (
-                current_max == previous_candle["high"]
-                and last_high != current_max
-            ):
-                self.highs[-1] = current_max
-            if (
-                current_min == previous_candle["low"]
-                and last_low != current_min
-            ):
-                self.lows[-1] = current_min
+    def _update_highs_lows(self, idx, current_max, current_min, last_high, last_low):
+        """Mark the bar that just entered the window as a candidate, and say whether it did.
+
+        Returning the two flags is what keeps the caller from restating this condition: it is
+        the single place that decides a bar made an extreme, so the index and the recorded
+        value cannot drift apart.
+
+        `bar` covers the final `idx == self._size` pass without a branch — `idx - 1` is then
+        `self._size - 1`, the last bar, which is the same slot the loop would reach anyway.
+        """
+        bar = idx - 1
+        made_high = current_max == self._data[bar]["high"] and last_high != current_max
+        made_low = current_min == self._data[bar]["low"] and last_low != current_min
+        if made_high:
+            self.highs[bar] = current_max
+        if made_low:
+            self.lows[bar] = current_min
+        return made_high, made_low
 
     def _update_legs(
         self,
@@ -228,24 +195,7 @@ class ZigZagIndidicator:
                 "start": self.start[idx],
             }
             finalized_data.append(entry)
-        refined_data = self._refine_start_points(
-            finalized_data
-        )
-        return refined_data
-
-    def _refine_start_points(self, data):
-        zz_valid = [
-            i
-            for i, entry in enumerate(data)
-            if entry["zz"] is not None
-        ]
-        for idx in range(len(zz_valid) - 1):
-            current_idx = zz_valid[idx]
-            next_idx = zz_valid[idx + 1]
-            for j in range(current_idx + 1, next_idx):
-                if data[j]["start"] is not None:
-                    data[j]["start"] = None
-        return data
+        return finalized_data
 
     def __call__(self):
         self._find_extremes()
@@ -295,10 +245,14 @@ class ZigZagPattern(Pattern):
         `high == low`, which a doji or an auction produces for real. See `_side` for the case
         where a bar is marked on both.
 
-        **`since` is under-populated today**, and that is the algorithm's doing, not this
-        wrapper's: `_update_legs` writes `self.lows[i]` into `start[i]` while that entry is
-        often still `None`, so most leg turns record nothing. Expect most Points to carry
-        `since=None` until that is fixed.
+        `since` names the bar where the leg ending here turned. That bar is usually **not** a
+        vertex, and that is the point of carrying it: it is where the extreme was current when
+        the leg began, which the vertex the cleanup elects afterwards does not tell you. Read
+        it as a bar of the window, never as a Point of this Series.
+
+        It is not guaranteed. A leg that registered no turn at all leaves the range empty, and
+        `_last_start` returns `None` rather than inventing one — a hole to read as "not
+        recorded", not as "turned here". See the module docstring for what still causes those.
         """
         bars: BaseSeries[Candle] = ctx[BARS][self.emits]
         raw = ZigZagIndidicator([{"high": bar.high, "low": bar.low} for bar in bars], self.depth)()
@@ -336,13 +290,21 @@ def _side(entry: dict) -> Literal["high", "low"]:
 
 
 def _last_start(raw: list[dict], *, after: int, upto: int) -> int | None:
-    """The index of the last leg start in `(after, upto]`, or None if the range holds none.
+    """The index of the last leg start in `[after, upto)`, or None if the range holds none.
+
+    A mark at bar `s` says a leg turned there, so it belongs to the first vertex *strictly
+    after* `s` — the one that closes that leg. Hence the half-open range: it takes the previous
+    vertex, whose bar can itself be where the leg turned, and leaves out this one, whose own
+    mark belongs to the leg still running past it.
 
     Bounding the search by the previous vertex is what keeps one leg start from being claimed
     by several vertices. A vertex whose range holds no start gets `None` — an honest hole,
     rather than a stale Candle presented as this leg's origin.
+
+    `max(after, 0)` guards the first vertex, which is called with `after=-1`: a bare
+    `range(-1, upto)` would visit `-1` and read the *last* bar of the series.
     """
-    for index in reversed(range(after + 1, upto + 1)):
+    for index in reversed(range(max(after, 0), upto)):
         if raw[index]["start"] is not None:
             return index
     return None

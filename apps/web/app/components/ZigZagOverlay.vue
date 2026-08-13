@@ -38,9 +38,13 @@ function asLine(points: ZigZagPivot[]): LineData<UTCTimestamp>[] {
  * `time` within its own series, and the line is sparse — it holds vertices only, never the bar a
  * leg began on. The candlestick series has every bar, so every dot lands where it belongs.
  *
- * Expect few of these. The algorithm records far fewer leg starts than it has legs; that is a
- * known defect being fixed separately, and an empty-looking chart here is that defect showing,
- * not this component failing.
+ * A dot lands on the bar where the leg turned — the extreme that was current at that instant —
+ * which is usually *not* one of the vertices on the line. Seeing a dot away from any corner of
+ * the zigzag is the expected picture, not a misplacement.
+ *
+ * Expect roughly four in five legs to carry one. The rest turned on a bar the algorithm does
+ * not record, which is a known defect being fixed separately; those Points arrive with
+ * `since: null` and are skipped here rather than guessed at.
  */
 function asMarkers(points: ZigZagPivot[]): SeriesMarker<Time>[] {
   return points

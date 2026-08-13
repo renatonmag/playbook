@@ -129,9 +129,20 @@ class TestLastStart:
     def test_finds_the_last_start_inside_the_range(self):
         assert _last_start(self.raw(2, 4), after=1, upto=6) == 4
 
-    def test_the_range_excludes_the_previous_vertex_and_includes_this_one(self):
-        assert _last_start(self.raw(3), after=3, upto=6) is None
-        assert _last_start(self.raw(6), after=3, upto=6) == 6
+    def test_the_range_includes_the_previous_vertex_and_excludes_this_one(self):
+        """A mark belongs to the first vertex *after* it — the one closing the leg it began.
+
+        So the previous vertex's own bar is in range: a leg can turn on the very bar that ends
+        the one before it. This vertex's bar is not: a mark there belongs to the leg running
+        past it, and claiming it here would put `since` on the vertex itself.
+        """
+        assert _last_start(self.raw(3), after=3, upto=6) == 3
+        assert _last_start(self.raw(6), after=3, upto=6) is None
+
+    def test_the_first_vertex_does_not_wrap_around_the_series(self):
+        """`run` opens with `after=-1`, and a bare `range(-1, upto)` would read the last bar."""
+        raw = [{"start": None}] * 9 + [{"start": 1.0}]
+        assert _last_start(raw, after=-1, upto=3) is None
 
     def test_a_range_holding_no_start_gives_none(self):
         assert _last_start(self.raw(9), after=1, upto=6) is None
