@@ -34,6 +34,24 @@ pnpm add -D tailwindcss @tailwindcss/vite -w
 
 Tailwind is wired into Nuxt via `@tailwindcss/vite` in `nuxt.config.ts` (Tailwind v4 approach) rather than the older `@nuxtjs/tailwindcss` module, unless a reason emerges to prefer the module.
 
+## Local Services
+
+Fixed ports. Do **not** start additional instances on other ports.
+
+| Service         | URL                     |
+| --------------- | ----------------------- |
+| API (FastAPI)   | `http://localhost:8000` |
+| Web app (Nuxt)  | `http://localhost:3000` |
+
+Before starting either one, check whether it is already up and reuse it if so:
+
+```bash
+curl -sf -o /dev/null http://localhost:8000/health && echo "api up"
+curl -sf -o /dev/null http://localhost:3000 && echo "web up"
+```
+
+If a port is occupied, do not fall back to another port — the running instance is the one to use.
+
 ## Conventions
 
 - `<script setup lang="ts">` in all Vue components
