@@ -43,17 +43,53 @@ const timeframe = computed<Timeframe>(() => {
   return isTimeframe(value) ? value : DEFAULT_TIMEFRAME
 })
 
-function select(patch: { symbol?: string, timeframe?: string }) {
+/**
+ * Where the window ends, or `null` for the live edge.
+ *
+ * Absence is what means "now", so a link without `to` always shows the present while a link with
+ * it shows exactly what the person who copied it saw. An unparseable value falls back to live
+ * rather than erroring, the same silent fallback `symbol` and `timeframe` make.
+ */
+const at = computed<string | null>(() => {
+  const value = route.query.to
+  if (typeof value !== 'string') return null
+  return Number.isNaN(new Date(value).getTime()) ? null : value
+})
+
+/** Names the window for Nuxt's cache. From the URL, not from the resolved `to` — see `useCandles`. */
+const windowKey = computed(() => at.value ?? 'now')
+
+function select(patch: { symbol?: string, timeframe?: string, to?: string }) {
   router.replace({
-    query: { symbol: symbol.value, timeframe: timeframe.value, ...patch },
+    // `undefined` drops the key from the URL, which is how the window goes back to live.
+    query: { symbol: symbol.value, timeframe: timeframe.value, to: at.value ?? undefined, ...patch },
   })
 }
 
-// One window, both requests. See `useWindow` for why that matters.
-const window = useWindow(timeframe)
+/**
+ * `datetime-local` speaks local wall time with no offset, the URL and the routes speak ISO with
+ * one. `toISOString()` cannot format the input's value — it converts to UTC, and the field would
+ * show an hour the user never picked.
+ */
+function toLocalInput(iso: string) {
+  const date = new Date(iso)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 
-const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe, window)
-const { data: patterns, error: patternsError } = usePatterns(window)
+function pin(value: string) {
+  // Empty means the field was cleared: back to live.
+  if (!value) return select({ to: undefined })
+  // `new Date` reads an offsetless string as local time — what was typed — and `Z` is mandatory,
+  // since the routes answer 400 for a naive datetime.
+  select({ to: new Date(value).toISOString() })
+}
+
+// One window, both requests. See `useWindow` for why that matters.
+const window = useWindow(timeframe, at)
+
+const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe, window, windowKey)
+const { data: patterns, error: patternsError } = usePatterns(window, windowKey)
 
 /**
  * Every Series the pipeline produced, in a shape the checkbox list and the overlays share.
@@ -92,8 +128,12 @@ function toggle(producer: string) {
     <header class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold">Monitor</h1>
+        <!-- Says which of the two the view is, so a shared link that is frozen in the past does
+             not read as a live chart that stopped updating. -->
         <p class="mt-1 text-sm text-gray-500">
-          {{ symbol }} · {{ timeframe }}
+          {{ symbol }} · {{ timeframe }} ·
+          <span v-if="at" class="text-amber-600">janela fixada</span>
+          <span v-else>ao vivo</span>
         </p>
       </div>
 
@@ -119,6 +159,31 @@ function toggle(producer: string) {
             <option v-for="option in TIMEFRAMES" :key="option" :value="option">{{ option }}</option>
           </select>
         </label>
+
+        <!-- The field reads local wall time, which the server may not share; rendering it only on
+             the client keeps that difference from surfacing as a hydration mismatch. -->
+        <ClientOnly>
+          <label class="text-sm">
+            <span class="mr-2 text-gray-500">Até</span>
+            <input
+              type="datetime-local"
+              class="rounded border border-gray-300 px-2 py-1"
+              :value="at ? toLocalInput(at) : ''"
+              @change="pin(($event.target as HTMLInputElement).value)"
+            >
+          </label>
+          <template #fallback>
+            <div class="h-[34px] w-56" />
+          </template>
+        </ClientOnly>
+
+        <button
+          v-if="at"
+          class="rounded border border-gray-300 px-3 py-1 text-sm"
+          @click="select({ to: undefined })"
+        >
+          Agora
+        </button>
       </div>
     </header>
 

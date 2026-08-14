@@ -16,6 +16,7 @@ export function useCandles(
   symbol: MaybeRefOrGetter<string>,
   timeframe: MaybeRefOrGetter<Timeframe>,
   window: MaybeRefOrGetter<Window>,
+  windowKey: MaybeRefOrGetter<string>,
 ) {
   const { public: { apiBase } } = useRuntimeConfig()
 
@@ -28,10 +29,12 @@ export function useCandles(
   return useFetch<Candle[]>('/candles', {
     baseURL: apiBase,
     query,
-    // Identifies the request, so it must not contain the window: `from` is derived from the
-    // clock, and a key that changes on every read makes Nuxt store the state under one name and
-    // read it back under another. The window still triggers refetches — `query` is watched.
-    key: computed(() => `candles:${query.value.symbol}:${query.value.timeframe}`),
+    // `windowKey` names the window, and must not be the resolved `from`/`to`: those are derived
+    // from the clock while the window is live, so a key built from them would differ between the
+    // server render and the client, making Nuxt store the state under one name and read it back
+    // under another. A key from the URL is the same on both sides, and still tells two pinned
+    // windows apart — without it the second would be served the first's payload.
+    key: computed(() => `candles:${query.value.symbol}:${query.value.timeframe}:${toValue(windowKey)}`),
     default: () => [],
   })
 }

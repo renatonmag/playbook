@@ -9,7 +9,10 @@ import type { Window } from '~/composables/useWindow'
  * omission: the pipeline is declared in code on the server, and it names the instrument while
  * each Pattern declares the timeframes it reads. The caller chooses the window and nothing else.
  */
-export function usePatterns(window: MaybeRefOrGetter<Window>) {
+export function usePatterns(
+  window: MaybeRefOrGetter<Window>,
+  windowKey: MaybeRefOrGetter<string>,
+) {
   const { public: { apiBase } } = useRuntimeConfig()
 
   const query = computed(() => ({ ...toValue(window) }))
@@ -17,10 +20,11 @@ export function usePatterns(window: MaybeRefOrGetter<Window>) {
   return useFetch<PatternResponse>('/patterns', {
     baseURL: apiBase,
     query,
-    // Constant on purpose: the window comes from the clock, and a key that changes on every
-    // read makes Nuxt store the state under one name and read it back under another. The
-    // pipeline is fixed, so there is only ever one patterns request in flight.
-    key: 'patterns',
+    // The pipeline is fixed, so the window is all that distinguishes one request from another.
+    // `windowKey` names it from the URL rather than from the resolved `from`/`to`: those are
+    // derived from the clock while the window is live and would differ between the server render
+    // and the client, making Nuxt store the state under one name and read it back under another.
+    key: computed(() => `patterns:${toValue(windowKey)}`),
     default: () => ({ series: {}, failed: [] }),
   })
 }

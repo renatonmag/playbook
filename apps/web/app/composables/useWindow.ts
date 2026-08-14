@@ -28,12 +28,19 @@ const DAY_MS = 24 * 60 * 60 * 1000
  *
  * Single because `/candles` and `/patterns` are separate round trips: if each computed its own
  * `now`, the chart and the zigzag could be drawn from different bars, and a disagreement of one
- * bar at the live edge would look like an algorithm defect. Replacing this with a timepicker
- * closes even that gap, since `to` stops being "now".
+ * bar at the live edge would look like an algorithm defect.
+ *
+ * `at` pins where the window ends — an ISO instant chosen by the timepicker, or `null` for the
+ * live edge. Only the end is chosen: `from` stays derived from `LOOKBACK_DAYS`, so a hand-picked
+ * window cannot ask for more bars than the routes will answer.
  */
-export function useWindow(timeframe: MaybeRefOrGetter<Timeframe>) {
+export function useWindow(
+  timeframe: MaybeRefOrGetter<Timeframe>,
+  at?: MaybeRefOrGetter<string | null>,
+) {
   return computed<Window>(() => {
-    const to = new Date()
+    const pinned = toValue(at)
+    const to = pinned ? new Date(pinned) : new Date()
     const from = new Date(to.getTime() - LOOKBACK_DAYS[toValue(timeframe)] * DAY_MS)
 
     // `toISOString()` ends in `Z`; the routes reject naive datetimes with a 400.
