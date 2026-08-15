@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Shape } from '~/types/shape'
+import type { Form } from '~/types/shape'
 
 /**
  * One Candle drawn from its proportions alone — no prices, no scale, no neighbours.
@@ -13,7 +13,7 @@ import type { Shape } from '~/types/shape'
  */
 const props = withDefaults(
   defineProps<{
-    shape: Pick<Shape, 'upper' | 'lower' | 'body' | 'bear'>
+    shape: Form
     width?: number
     height?: number
     /** Dimmed when the rule being edited does not mark this bar. */

@@ -13,7 +13,27 @@ export interface Shape {
   lower: number
   body: number
   bear: boolean
+  /**
+   * `high - low`, in the Instrument's own points — outside the sum, and the only field carrying
+   * a magnitude.
+   *
+   * Nothing about the *form* may read it: two Candles with these proportions and different
+   * amplitudes are the same Shape, which is the whole of issue #10. It exists so a screen
+   * drawing several bars side by side can give them a common scale, because proportions alone
+   * make a 500-point bar and a 40-point one identical.
+   */
+  amplitude: number
 }
+
+/**
+ * A Shape stripped of everything that is not form — no anchor, no size.
+ *
+ * This is what a rule actually reads, and what a bar drawn from proportions actually needs. It
+ * is named because two things need it: a synthetic bar, which the market never produced and so
+ * has neither a `time` nor an `amplitude`, and `ShapeCandle`, which draws from proportions
+ * alone. Every real `Shape` is assignable to it.
+ */
+export type Form = Pick<Shape, 'upper' | 'lower' | 'body' | 'bear'>
 
 /** Which reversal a rule looks for. The bullish bar is the vertical mirror of the bearish one. */
 export const DIRECTIONS = ['baixa', 'alta'] as const
@@ -27,6 +47,6 @@ export type Direction = (typeof DIRECTIONS)[number]
  * single swap is what lets one rule serve both directions, and it must stay identical to
  * `Shape.facing` in the engine — the bench would otherwise judge a rule the Pattern never runs.
  */
-export function facing(shape: Shape, direction: Direction): [number, number] {
+export function facing(shape: Form, direction: Direction): [number, number] {
   return direction === 'baixa' ? [shape.upper, shape.lower] : [shape.lower, shape.upper]
 }

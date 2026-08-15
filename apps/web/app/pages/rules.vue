@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Timeframe } from '~/types/candle'
-import { DIRECTIONS, type Shape } from '~/types/shape'
+import { DIRECTIONS, type Form, type Shape } from '~/types/shape'
 import { COLOUR_MODES, fromQuery, marked, marks, overlap, parseRule, sameRule, toQuery, type Rule } from '~/utils/rule'
 
 /**
@@ -163,12 +163,18 @@ const probeBear = ref(true)
 const probeBody = computed(() => 1 - probeWf.value - probeWc.value)
 const probeValid = computed(() => probeBody.value >= 0)
 
-/** Back from `(wf, wc)` to the direction-neutral measurement the rule reads. */
-const probe = computed<Shape>(() => {
+/**
+ * Back from `(wf, wc)` to the direction-neutral measurement the rule reads.
+ *
+ * A `Form`, not a `Shape`: a bar the market never produced has no anchor and no size, and
+ * inventing a `time` of 0 and an `amplitude` of 0 would describe a bar that never opened and
+ * that `/shapes` would have omitted. `marks` reads neither.
+ */
+const probe = computed<Form>(() => {
   const [upper, lower] = rule.value.direction === 'baixa'
     ? [probeWf.value, probeWc.value]
     : [probeWc.value, probeWf.value]
-  return { time: 0, upper, lower, body: Math.max(0, probeBody.value), bear: probeBear.value }
+  return { upper, lower, body: Math.max(0, probeBody.value), bear: probeBear.value }
 })
 
 const probeMarked = computed(() => probeValid.value && marks(rule.value, probe.value))

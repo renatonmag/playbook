@@ -7,7 +7,7 @@
  * rule on the server with nothing naming it. See the docstring on `/patterns`.
  */
 
-import { facing, type Direction, type Shape } from '~/types/shape'
+import { facing, type Direction, type Form, type Shape } from '~/types/shape'
 
 /**
  * When a rule requires the body's colour to match the reversal.
@@ -64,15 +64,21 @@ export function emptyRule(): Rule {
 }
 
 /** Whether the body's colour satisfies the rule. A bodyless Candle has no colour to disagree with. */
-export function colourAgrees(rule: Rule, shape: Shape): boolean {
+export function colourAgrees(rule: Rule, shape: Form): boolean {
   if (rule.colour === 'nunca') return true
   if (rule.colour === 'acima-de' && shape.body <= rule.colourBodyMin) return true
   if (shape.body === 0) return true
   return rule.direction === 'baixa' ? shape.bear : !shape.bear
 }
 
-/** Whether this rule marks this Candle. */
-export function marks(rule: Rule, shape: Shape): boolean {
+/**
+ * Whether this rule marks this Candle.
+ *
+ * Takes a `Form` rather than a `Shape` because that is exactly what it reads — no anchor, no
+ * size. Which is also what lets the synthetic bar on the bench go through the same function the
+ * real rows do, instead of a second copy of the arithmetic that could drift from this one.
+ */
+export function marks(rule: Rule, shape: Form): boolean {
   const [wf, wc] = facing(shape, rule.direction)
   if (rule.requireWfOverWc && !(wf > 0 && wf > wc)) return false
   if (wf < rule.wfMin || wc > rule.wcMax) return false

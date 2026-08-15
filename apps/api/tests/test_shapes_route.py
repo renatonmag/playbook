@@ -78,8 +78,28 @@ def test_returns_the_proportions_and_the_colour(client):
             "lower": pytest.approx(0.1),
             "body": pytest.approx(0.1),
             "bear": True,
+            "amplitude": pytest.approx(1.0),
         }
     ]
+
+
+def test_amplitude_is_size_alone_and_leaves_the_proportions_untouched(client):
+    """Two bars of identical form and different size: same three fractions, different amplitude.
+
+    This is issue #10's decision stated as a test. Amplitude rides on `ShapeOut` so a bench can
+    draw bars against each other, and the risk of putting it there is that it leaks back into the
+    form — a proportion quietly scaled by size would make two identical Shapes compare unequal.
+    """
+    client.session.rows = [
+        make_row(minute=0, open="38.20", high="39.00", low="38.00", close="38.10"),
+        make_row(minute=5, open="41.80", high="45.00", low="41.00", close="41.40"),
+    ]
+    small, large = client.get("/shapes", params=QUERY).json()
+
+    assert large["amplitude"] == pytest.approx(4 * small["amplitude"])
+    for part in ("upper", "lower", "body"):
+        assert large[part] == pytest.approx(small[part])
+    assert large["bear"] == small["bear"]
 
 
 def test_the_three_parts_sum_to_one(client):
