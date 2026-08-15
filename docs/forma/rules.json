@@ -1,0 +1,41 @@
+{
+  "$comment": "Regras candidatas do fator Forma, na ordem em que apareceram na sessão de #11. Fonte de verdade da bancada em /rules. A página lê este arquivo e nunca o escreve: para guardar uma regra nova, use 'copiar JSON' na bancada e cole aqui, para que cada candidata entre no histórico do git.",
+  "rules": [
+    {
+      "name": "D — caixa larga",
+      "direction": "alta",
+      "requireWfOverWc": false,
+      "wfMin": 0.5,
+      "wcMax": 0.25,
+      "wcMaxRatio": null,
+      "bodyMin": 0,
+      "bodyMax": 1,
+      "colour": "nunca",
+      "colourBodyMin": 0.5
+    },
+    {
+      "name": "F",
+      "direction": "alta",
+      "requireWfOverWc": false,
+      "wfMin": 0.4,
+      "wcMax": 0.2,
+      "wcMaxRatio": null,
+      "bodyMin": 0,
+      "bodyMax": 1,
+      "colour": "acima-de",
+      "colourBodyMin": 0.4
+    },
+    {
+      "name": "G - Corpo grande e cor",
+      "direction": "alta",
+      "requireWfOverWc": false,
+      "wfMin": 0.3,
+      "wcMax": 0.1,
+      "wcMaxRatio": null,
+      "bodyMin": 0,
+      "bodyMax": 1,
+      "colour": "acima-de",
+      "colourBodyMin": 0.4
+    }
+  ]
+}
