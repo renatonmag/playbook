@@ -54,11 +54,16 @@ def _seconds(value: Any) -> Any:
 
     Recursive because a Point may carry another Candle — a zigzag vertex holds the Candle its
     leg began on — and that nested `time` has to reach the chart in the same units as the rest.
+
+    Tuples are walked alongside lists because `asdict` preserves the sequence type: a `Leg`
+    declares `bars` as a `tuple`, so it arrives here as a tuple of dicts. Matching on `list`
+    alone let those through untouched, and the nested `time` reached the chart as an ISO string
+    while every sibling was an integer — the one divergence this module exists to prevent.
     """
     if isinstance(value, datetime):
         return int(value.timestamp())
     if isinstance(value, dict):
         return {key: _seconds(item) for key, item in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [_seconds(item) for item in value]
     return value
