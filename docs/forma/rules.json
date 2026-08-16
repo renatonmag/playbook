@@ -6,12 +6,12 @@
       "direction": "alta",
       "requireWfOverWc": false,
       "wfMin": 0.5,
-      "wcMax": 0.25,
+      "wcMax": 0.35,
       "wcMaxRatio": null,
       "bodyMin": 0,
       "bodyMax": 1,
-      "colour": "nunca",
-      "colourBodyMin": 0.5
+      "colour": "acima-de",
+      "colourBodyMin": 0.35
     },
     {
       "name": "F",
@@ -29,13 +29,37 @@
       "name": "G - Corpo grande e cor",
       "direction": "alta",
       "requireWfOverWc": false,
-      "wfMin": 0.3,
-      "wcMax": 0.1,
+      "wfMin": 0.25,
+      "wcMax": 0.25,
       "wcMaxRatio": null,
       "bodyMin": 0,
       "bodyMax": 1,
       "colour": "acima-de",
-      "colourBodyMin": 0.4
+      "colourBodyMin": 0.3
+    },
+    {
+      "name": "H - Spining com corpo baixo",
+      "direction": "alta",
+      "requireWfOverWc": false,
+      "wfMin": 0.4,
+      "wcMax": 0.4,
+      "wcMaxRatio": null,
+      "bodyMin": 0,
+      "bodyMax": 1,
+      "colour": "sempre",
+      "colourBodyMin": 0.5
+    },
+    {
+      "name": "J",
+      "direction": "alta",
+      "requireWfOverWc": false,
+      "wfMin": 0.5,
+      "wcMax": 0.1,
+      "wcMaxRatio": null,
+      "bodyMin": 0,
+      "bodyMax": 1,
+      "colour": "nunca",
+      "colourBodyMin": 0.5
     }
   ]
 }
