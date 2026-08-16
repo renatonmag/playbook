@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Timeframe } from '~/types/candle'
 import type { Shape } from '~/types/shape'
-import { counts, DEFAULT_K, DEFAULT_SIMILARITY, impliedBodyMin, occurrences, type Occurrence } from '~/utils/two-bar-reversal'
+import { AVERAGE_WINDOW, counts, DEFAULT_EXPANSION, DEFAULT_K, DEFAULT_SIMILARITY, impliedBodyMin, occurrences, type Occurrence } from '~/utils/two-bar-reversal'
 
 /**
  * The bench for `TwoBarReversal` — the sibling of `/rules`, for a rule spanning two Candles.
@@ -62,6 +62,9 @@ const k = dial('k', DEFAULT_K)
 /** How alike the two bodies must be in size. `0` turns the criterion off. */
 const similarity = dial('s', DEFAULT_SIMILARITY)
 
+/** How far the larger bar must beat the recent average amplitude. `0` turns the criterion off. */
+const expansion = dial('m', DEFAULT_EXPANSION)
+
 const timeframe = computed<Timeframe>(() => (route.query.tf === '5m' ? '5m' : '1h'))
 
 /** Newest first by default: the page nobody scrolls past should hold the market that exists now. */
@@ -72,6 +75,7 @@ function update(patch: Record<string, string | undefined>) {
     query: {
       k: String(k.value),
       s: String(similarity.value),
+      m: String(expansion.value),
       tf: timeframe.value,
       ordem: newestFirst.value ? undefined : 'antigas',
       ...patch,
@@ -96,13 +100,19 @@ const failure = computed(() => errorFive.value ?? errorHour.value)
 const hits = computed(() =>
   BENCH_TIMEFRAMES.map(one => ({
     timeframe: one,
-    ...counts(shapes.value[one], k.value, similarity.value, one),
+    ...counts(shapes.value[one], k.value, similarity.value, expansion.value, one),
   })),
 )
 
 /** The occurrences the list is showing, in reading order. */
 const found = computed(() => {
-  const all = occurrences(shapes.value[timeframe.value], k.value, similarity.value, timeframe.value)
+  const all = occurrences(
+    shapes.value[timeframe.value],
+    k.value,
+    similarity.value,
+    expansion.value,
+    timeframe.value,
+  )
   return newestFirst.value ? [...all].reverse() : all
 })
 
@@ -115,7 +125,7 @@ const pages = computed(() => Math.max(1, Math.ceil(found.value.length / PAGE_SIZ
 const page = ref(1)
 
 // Any change to what is being listed invalidates where you were in it.
-watch([k, similarity, timeframe, newestFirst], () => (page.value = 1))
+watch([k, similarity, expansion, timeframe, newestFirst], () => (page.value = 1))
 
 /**
  * The page being shown, with each Candle already paired to the height it draws at.
@@ -197,9 +207,10 @@ function count(value: number) {
       <!-- Said here, in the loudest place on the page, because a list of thousands of rows reads
            as a list of signals unless it is told not to. -->
       <p class="max-w-md text-xs text-gray-500">
-        Isto é um <b>filtro de forma, não um detector de sinal</b>. A regra não olha onde o par
-        acontece — nos ajustes padrão marca ~6% de todos os pares do pregão, o corte barato que
-        deixa o olho humano ver só candidatos. A API mede; a regra é avaliada aqui no navegador.
+        Isto é um <b>filtro de forma e tamanho, não um detector de sinal</b>. A regra não olha
+        <i>onde</i> o par acontece — nos ajustes padrão marca 2% a 4% de todos os pares do pregão,
+        o corte barato que deixa o olho humano ver só candidatos. A API mede; a regra é avaliada
+        aqui no navegador.
       </p>
     </header>
 
@@ -218,8 +229,8 @@ function count(value: number) {
         <h2 class="text-sm font-semibold">A regra</h2>
         <p class="mt-1 text-xs text-gray-500">
           Duas Candles contíguas do mesmo pregão, cada uma com
-          <code class="font-mono">corpo ≥ k · maior pavio</code>, de cores contrárias, e com corpos
-          de tamanhos parecidos.
+          <code class="font-mono">corpo ≥ k · maior pavio</code>, de cores contrárias, com corpos
+          de tamanhos parecidos, e com pelo menos uma delas maior que a média recente.
         </p>
 
         <div class="mt-3 flex flex-wrap items-start gap-x-10 gap-y-4 text-sm">
@@ -256,6 +267,27 @@ function count(value: number) {
             <p class="mt-1 text-xs text-gray-500">
               <code class="font-mono">menor ÷ maior</code> dos dois corpos <b>em pontos</b>, não em
               fração. <code class="font-mono">0</code> desliga.
+            </p>
+          </div>
+
+          <div>
+            <label class="flex items-center gap-2">
+              <span class="text-gray-500"><code class="font-mono">m</code> — contra a média</span>
+              <input
+                type="number" step="0.1" min="0"
+                class="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                :value="expansion"
+                @change="update({ m: ($event.target as HTMLInputElement).value })"
+              >
+            </label>
+            <!-- Three things the dial does not say on its own, and each one is a reading someone
+                 would otherwise get wrong: what is measured, how many bars have to pass, and that
+                 the neighbour dial `s` measures a different quantity in the same units. -->
+            <p class="mt-1 text-xs text-gray-500">
+              <b>pelo menos uma</b> das duas barras com
+              <code class="font-mono">amplitude ≥ m · média</code> das
+              {{ AVERAGE_WINDOW }} anteriores — amplitude, não corpo.
+              <code class="font-mono">0</code> desliga.
             </p>
           </div>
         </div>
@@ -333,8 +365,9 @@ function count(value: number) {
         </div>
 
         <p v-if="!found.length" class="mt-4 text-sm text-gray-500">
-          Nenhuma ocorrência em {{ timeframe }} com <code class="font-mono">k = {{ k }}</code> e
-          <code class="font-mono">s = {{ similarity }}</code>.
+          Nenhuma ocorrência em {{ timeframe }} com <code class="font-mono">k = {{ k }}</code>,
+          <code class="font-mono">s = {{ similarity }}</code> e
+          <code class="font-mono">m = {{ expansion }}</code>.
         </p>
 
         <template v-else>

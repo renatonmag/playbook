@@ -9,15 +9,22 @@
  *
  * **This measures form, not location.** Nothing here asks where in the price action the bars sit,
  * so a pair in the middle of a range counts exactly as much as one at the top of a forty-bar
- * leg — and the first is what a sideways market is made of. At its defaults the rule marks about
- * 6% of the eligible pairs of `WIN@N`, which is the point: it is the cheap cut that takes a
- * history from 100% to something a person can look through, the same job the Forma rule does in
- * issue #11. It is not a signal, and a screen built on it should say so.
+ * leg — and the first is what a sideways market is made of. At its defaults the rule marks a low
+ * single-digit percentage of the eligible pairs of `WIN@N`, which is the point: it is the cheap
+ * cut that takes a history from 100% to something a person can look through, the same job the
+ * Forma rule does in issue #11. It is not a signal, and a screen built on it should say so.
  *
- * Two dials, and they measure different things on purpose. `k` looks *inside* one Candle and is
+ * Three dials, and they measure different things on purpose. `k` looks *inside* one Candle and is
  * scale-free; `similarity` compares the two Candles *to each other* and is not. Tightening one
  * barely moves what the other rejects, which is why both are worth having — unlike a floor on the
  * body, which `k` already implies and which was left out for that reason.
+ *
+ * `expansion` is the odd one out, and the reason it earns a place: it is the only criterion here
+ * that looks **outside the pair**, at the ten Candles before it. The other two can be satisfied by
+ * two tiny bars in a dead hour — they judge shape, and shape is the same at every size. This one
+ * asks whether the pair is large *for the moment it happened in*, which is the difference between
+ * a reversal and the texture of congestion, and it is the only dial that can reject a pair whose
+ * form is flawless.
  */
 
 import { SECONDS, type Timeframe } from '~/types/candle'
@@ -62,7 +69,26 @@ export const DEFAULT_K = 1
  * ones whose two pushes are comparable — a big shove one way answered by a token nudge back is not
  * a reversal, however clean each bar looks on its own.
  */
-export const DEFAULT_SIMILARITY = 0.7
+export const DEFAULT_SIMILARITY = 0.65
+
+/**
+ * How many preceding Candles the amplitude average is taken over.
+ *
+ * A constant rather than a dial: what the number buys is a sense of "recently", and 10 is already
+ * that on both timeframes this bench holds — most of an hour on `5m`, a day and a half on `1h`.
+ * Moving it between 8 and 15 barely moves the counts, so a control for it would be a knob that
+ * looks meaningful and is not.
+ */
+export const AVERAGE_WINDOW = 10
+
+/**
+ * How many times the recent average amplitude the larger of the two bars must reach.
+ *
+ * `1` — literally "bigger than average" — and on by default for the same reason `similarity` is:
+ * without it the rule marks the whole of a quiet range, where every bar is a clean little body
+ * with no shadows and the alternation is just noise taking turns.
+ */
+export const DEFAULT_EXPANSION = 0.9
 
 /**
  * Whether the body dominates the larger of the two shadows.
@@ -145,9 +171,75 @@ export function adjacent(a: Shape, b: Shape, timeframe: Timeframe): boolean {
   return b.time - a.time === SECONDS[timeframe] && utcDay(a.time) === utcDay(b.time)
 }
 
-/** Whether these two Candles are a reversal pair. Assumes they are already known to be adjacent. */
-function reverses(a: Shape, b: Shape, k: number, similarity: number): boolean {
-  return a.bear !== b.bear && dominates(a, k) && dominates(b, k) && alike(a, b, similarity)
+/**
+ * The mean amplitude of the Candles immediately before `shapes[i]` — at most `AVERAGE_WINDOW` of
+ * them — or `null` when there is not one to average.
+ *
+ * Walks backwards through `adjacent`, so the window stops at a session boundary or at a Candle
+ * `/shapes` dropped, exactly as `occurrences` stops going forwards. Without that it would average
+ * yesterday's afternoon into this morning's first bars on `5m`, and the previous *week* on `1h`.
+ *
+ * A short window is used as-is rather than rejected. The alternative would throw away the opening
+ * of every session in the history — some 1200 of them on `5m` — and a mean of four bars is still
+ * an answer to "was this pair big for the moment", just a noisier one.
+ */
+export function averageAmplitude(shapes: Shape[], i: number, timeframe: Timeframe): number | null {
+  let total = 0
+  let seen = 0
+
+  for (let j = i - 1; j >= 0 && seen < AVERAGE_WINDOW; j--) {
+    if (!adjacent(shapes[j]!, shapes[j + 1]!, timeframe)) break
+    total += shapes[j]!.amplitude
+    seen++
+  }
+
+  return seen === 0 ? null : total / seen
+}
+
+/**
+ * Whether the pair at `i` is large for where it happened — `max(amplitude) >= factor × average`.
+ *
+ * **At least one** of the two bars, not both. A reversal is often one ordinary bar answered by an
+ * outsized one, and demanding it of both would ask for two exceptional bars in a row, which is a
+ * much rarer and different thing.
+ *
+ * Amplitude and not `bodyPoints`: this asks how much ground the bar covered, and a long rejection
+ * wick is ground covered. The body is `similarity`'s business, and the two dials stay on separate
+ * measurements so that tightening one does not quietly do the other's job.
+ *
+ * Passes when there is nothing to compare against — no preceding bar, or an average of zero. The
+ * criterion is a comparison, and a comparison with no second term cannot reject.
+ */
+export function expands(shapes: Shape[], i: number, factor: number, timeframe: Timeframe): boolean {
+  if (factor <= 0) return true
+
+  const average = averageAmplitude(shapes, i, timeframe)
+  if (average === null || average <= 0) return true
+
+  return Math.max(shapes[i]!.amplitude, shapes[i + 1]!.amplitude) >= factor * average
+}
+
+/**
+ * Whether the pair at `i` is a reversal. Assumes the two are already known to be adjacent.
+ *
+ * Takes the array and an index rather than the two Candles, because `expands` reads the bars
+ * *before* the pair and a pair alone cannot answer it.
+ */
+function reverses(
+  shapes: Shape[],
+  i: number,
+  k: number,
+  similarity: number,
+  expansion: number,
+  timeframe: Timeframe,
+): boolean {
+  const a = shapes[i]!
+  const b = shapes[i + 1]!
+  return a.bear !== b.bear
+    && dominates(a, k)
+    && dominates(b, k)
+    && alike(a, b, similarity)
+    && expands(shapes, i, expansion, timeframe)
 }
 
 /**
@@ -161,11 +253,19 @@ function reverses(a: Shape, b: Shape, k: number, similarity: number): boolean {
  * a run at the link where the two bodies stop matching instead of discarding the run whole. That
  * is most of its value: raising it from 0 to 0.8 takes the runs of 3 or more bars in the `5m`
  * history from 536 down to 60, because congestion is exactly where body sizes wander.
+ *
+ * `expansion` is per pair for the same reason, with one consequence worth naming: inside a run,
+ * the window of the second link overlaps the first link's bars. The average is always "what came
+ * before *these two*", never "what came before the run" — so a run that starts on a genuine
+ * expansion has to keep expanding to continue, since its own first bars raise the bar for the
+ * next link. That is the reading wanted here: a long alternating stretch of merely-average bars
+ * is congestion, whatever it opened with.
  */
 export function occurrences(
   shapes: Shape[],
   k: number,
   similarity: number,
+  expansion: number,
   timeframe: Timeframe,
 ): Occurrence[] {
   const found: Occurrence[] = []
@@ -180,7 +280,7 @@ export function occurrences(
     const a = shapes[i]!
     const b = shapes[i + 1]!
 
-    if (adjacent(a, b, timeframe) && reverses(a, b, k, similarity)) {
+    if (adjacent(a, b, timeframe) && reverses(shapes, i, k, similarity, expansion, timeframe)) {
       // The run is non-empty only when the previous pair matched too, and then its tail is `a` —
       // every other path has closed it. So pushing `b` alone extends the chain, and `a` is only
       // needed to open a new one.
@@ -206,21 +306,20 @@ export function counts(
   shapes: Shape[],
   k: number,
   similarity: number,
+  expansion: number,
   timeframe: Timeframe,
 ): Counts {
   let eligible = 0
   let pairs = 0
 
   for (let i = 0; i < shapes.length - 1; i++) {
-    const a = shapes[i]!
-    const b = shapes[i + 1]!
-    if (!adjacent(a, b, timeframe)) continue
+    if (!adjacent(shapes[i]!, shapes[i + 1]!, timeframe)) continue
     eligible++
-    if (reverses(a, b, k, similarity)) pairs++
+    if (reverses(shapes, i, k, similarity, expansion, timeframe)) pairs++
   }
 
   const lengths = new Map<number, number>()
-  const found = occurrences(shapes, k, similarity, timeframe)
+  const found = occurrences(shapes, k, similarity, expansion, timeframe)
   for (const one of found) lengths.set(one.shapes.length, (lengths.get(one.shapes.length) ?? 0) + 1)
 
   return { eligible, pairs, occurrences: found.length, lengths }
