@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import {
   createSeriesMarkers,
-  LineSeries,
-  type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type LineData,
   type SeriesMarker,
@@ -16,13 +14,13 @@ import type { ZigZagPivot } from '~/types/pattern'
  * below the bar each leg began on.
  *
  * Renders no markup. It reaches the chart through `inject` and draws through the chart API.
+ *
+ * The line is `useLineOverlay`'s; the markers are what makes this overlay its own component.
  */
 const props = defineProps<{ points: ZigZagPivot[], visible: boolean, color?: string }>()
 
-const chart = inject(CHART, shallowRef(null))
 const candleSeries = inject(CANDLE_SERIES, shallowRef(null))
 
-let line: ISeriesApi<'Line'> | null = null
 // Typed on `Time`, not `UTCTimestamp`: these hang on the candlestick series, whose horizontal
 // scale the chart declares generically.
 let markers: ISeriesMarkersPluginApi<Time> | null = null
@@ -57,38 +55,24 @@ function asMarkers(points: ZigZagPivot[]): SeriesMarker<Time>[] {
     }))
 }
 
-// `watch`, never `onMounted` — a child mounts before its parent, so the chart does not exist
-// yet at this component's `onMounted`. Waiting on the ref is required, not stylistic.
+useLineOverlay(() => asLine(props.points), () => props.visible, () => props.color)
+
+// Same reason the line waits on its own ref: the candlestick series is created in the parent's
+// `onMounted`, which runs after this component's.
 watch(
-  [chart, candleSeries, () => props.points, () => props.visible],
-  ([chartApi, bars, points, visible]) => {
-    if (!chartApi) return
-
-    line ??= chartApi.addSeries(LineSeries, {
-      color: props.color ?? '#2563eb',
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-    })
-
-    line.setData(asLine(points))
-    line.applyOptions({ visible })
-
-    if (bars) {
-      if (!markers) markers = createSeriesMarkers(bars)
-      markers.setMarkers(visible ? asMarkers(points) : [])
-    }
+  [candleSeries, () => props.points, () => props.visible],
+  ([bars, points, visible]) => {
+    if (!bars) return
+    if (!markers) markers = createSeriesMarkers(bars)
+    markers.setMarkers(visible ? asMarkers(points) : [])
   },
   { immediate: true },
 )
 
 onBeforeUnmount(() => {
-  // Only matters when this overlay is unmounted while the chart survives — unchecking a box
-  // hides the series instead of removing it, so this is the "pattern gone from the response"
-  // path. When the whole chart goes, `chart.remove()` has already taken this with it.
+  // The markers hang on a series this component does not own, so removing the line does not
+  // take them with it — they have to be cleared by hand.
   markers?.setMarkers([])
-  if (line && chart.value) chart.value.removeSeries(line)
-  line = null
   markers = null
 })
 </script>

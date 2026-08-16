@@ -30,6 +30,17 @@ export interface ZigZagPivot extends PatternPoint {
   since: PatternPoint | null
 }
 
+/**
+ * One bar where a leg ended, and which of its extremes the vertex is.
+ *
+ * No `since`, unlike `ZigZagPivot`: the leg ending here began at the previous Point of the same
+ * Series, so the line already joins it.
+ */
+export interface LegMark extends PatternPoint {
+  price: number
+  direction: 'high' | 'low'
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   identity: SeriesIdentity
   points: TPoint[]

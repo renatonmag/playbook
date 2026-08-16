@@ -14,7 +14,13 @@ Three rules carry the whole thing:
 - A mark sitting on a bar that its neighbour engulfs walks forward until it lands on a bar that
   stands on its own.
 
-Every pullback leaves exactly one leg mark, with one exception: `leg_mark` is a bool per bar, so
+`leg_mark` is not a flag but a side — `"high"`, `"low"`, or `None` for no mark. A bull leg ends
+at a high and a bear leg at a low, so the side is the leg's own direction read at the instant it
+turns. It travels *with* the mark rather than in a column of its own precisely because the mark
+moves: a mark carried over engulfing bars can land on the bar that begins the next leg, and a
+column indexed at the landing bar would report the side of the wrong leg.
+
+Every pullback leaves exactly one leg mark, with one exception: a bar holds one `leg_mark`, so
 two marks walking onto the same bar are one mark. That needs two legs to end one bar apart and
 the bar between them to be engulfed — rare, and unrepresentable in this output shape rather than
 merely unhandled.
@@ -24,12 +30,27 @@ of bars that says something unambiguous and stops there; a series that opens wit
 then falls for an hour is seeded `bull`, and `mark_pullbacks` corrects it at the first real
 reversal. The price of that is one spurious mark near the start, paid knowingly — the
 alternative is a confirmation window, which is a second, quieter opinion about what a trend is.
+
+`SimpleLegPattern` at the bottom is the adapter that makes this a Pattern — the same split
+`zigzag.py` uses, and for the same reason: the algorithm speaks dicts and knows nothing about
+Series, so its interface can change without the semantics moving underneath.
 """
 
 import math
+from dataclasses import dataclass
+from typing import Literal
+
+from ..candles import Pivot
+from ..engine import BARS, INSTRUMENT
+from ..pattern import Ctx, Pattern
+from ..series import BaseSeries, SeriesIdentity
+from ..timeframes import Timeframe
 
 #: Prices are compared as integers so a comparison never turns on float noise.
 SCALE = 100000
+
+#: Which extreme of the bar a leg running this way ends on.
+SIDES: dict[str, Literal["high", "low"]] = {"bull": "high", "bear": "low"}
 
 
 class PbMark:
@@ -39,8 +60,8 @@ class PbMark:
         self._data = [dict(bar) for bar in data]
         self._prev = None
         """The bar every comparison is made against — not always the previous one."""
-        self._pending = False
-        """A leg mark that has not found a bar to land on yet."""
+        self._pending = None
+        """The side of a leg mark that has not found a bar to land on yet."""
         self._direction = None
 
     def detect_initial_direction(self):
@@ -65,17 +86,22 @@ class PbMark:
         return None
 
     def mark_pullbacks(self, curr_bar):
-        """Whether this bar begins a pullback, flipping the leg direction when it does."""
+        """The side of the leg this bar's turn closes — `"high"`, `"low"`, or `None` for no turn.
+
+        Returning the side rather than a bare `True` is what keeps it attached to the mark. It
+        is read off `_direction` *before* the flip: the leg that just ended is the one being
+        priced, and one line later that state belongs to the leg starting here.
+        """
         if _missing(curr_bar):
             # A hole marks nothing and becomes nothing: adopting it as the reference would make
             # every later comparison false and silently end the marking there.
-            return False
+            return None
         if self._prev is None:
             self._prev = curr_bar
-            return False
+            return None
         if self._engulfs(curr_bar, self._prev):
             self._prev = curr_bar
-            return False
+            return None
 
         turned = False
         if self._direction == "bull":
@@ -84,41 +110,49 @@ class PbMark:
             turned = integer(curr_bar["high"]) > integer(self._prev["high"])
 
         self._prev = curr_bar
-        if turned:
-            self._direction = "bear" if self._direction == "bull" else "bull"
-        return turned
+        if not turned:
+            return None
+        ended = self._direction
+        self._direction = "bear" if ended == "bull" else "bull"
+        return SIDES[ended]
 
     def find_outside_edges(self, curr_bar, next_bar, leg_mark):
         """Where a leg mark finally lands, once the bars that engulf it are stepped over.
 
         A carried mark is judged by the same rule as one of the bar's own, so a run of engulfing
-        bars moves it along the whole run rather than dropping it on the first bar of it.
+        bars moves it along the whole run rather than dropping it on the first bar of it. The
+        side rides along untouched: walking forward changes which bar prices the vertex, never
+        which way the leg that ended was running.
         """
-        carried, self._pending = self._pending, False
-        if not (carried or leg_mark):
-            return False
+        carried, self._pending = self._pending, None
+        side = carried or leg_mark
+        if side is None:
+            return None
         if next_bar is not None and self._engulfs(next_bar, curr_bar):
-            self._pending = True
-            return False
-        return True
+            self._pending = side
+            return None
+        return side
 
     def extract(self):
         self._prev = None
-        self._pending = False
+        self._pending = None
         self._direction = self.detect_initial_direction()
 
-        pullbacks = [self.mark_pullbacks(bar) for bar in self._data]
+        sides = [self.mark_pullbacks(bar) for bar in self._data]
         # A bar carries the mark of the leg that turns on the bar after it.
-        leg_marks = pullbacks[1:] + [False]
+        leg_marks = sides[1:] + [None]
 
-        self._pending = False
+        self._pending = None
         entries = []
         for index, bar in enumerate(self._data):
             next_bar = self._data[index + 1] if index + 1 < len(self._data) else None
             entries.append(
                 {
                     **bar,
-                    "pullback": pullbacks[index],
+                    # A bool, not the side: this column says a leg turned here, and the side
+                    # belongs to the leg that ended — which is the mark's business, not this
+                    # bar's.
+                    "pullback": sides[index] is not None,
                     "leg_mark": self.find_outside_edges(bar, next_bar, leg_marks[index]),
                 }
             )
@@ -161,3 +195,55 @@ def integer(value):
     if value is None or value != value:  # `!=` itself is the NaN test
         return math.nan
     return round(value * SCALE)
+
+
+@dataclass(frozen=True, slots=True)
+class LegMark(Pivot):
+    """Where a leg ended: the bar carrying the mark, and which of its extremes the vertex is.
+
+    No `since`. Unlike `ZigZagPivot`, the beginning of the leg ending here *is* the previous
+    Point of this Series, so carrying it would be restating what the ordering already says.
+    """
+
+    direction: Literal["high", "low"]
+
+
+class SimpleLegPattern(Pattern):
+    """`PbMark` as a Pattern: a Series of the bars where legs ended.
+
+    Output is **sparse** — one Point per leg mark, not one per Candle, though far denser than a
+    zigzag of any useful depth. This rule has no smoothing at all: on real 5m bars it marks a
+    leg roughly every three bars where `zig-zag(depth=8)` finds a vertex every twelve.
+
+    `price` is the extreme of the **marked bar**, which is not always the extreme of the leg.
+    The turn rule reads one side at a time — a bull leg turns on a lower low and never looks at
+    the highs — so a leg can top out several bars before the bar that marks its end. That gap is
+    the rule's own behaviour and is left visible rather than repaired here; moving the price to
+    the leg's true extreme would be a second opinion about where a leg ends, living in the
+    adapter instead of in the rule.
+    """
+
+    def __init__(self, *, reads: tuple[Timeframe, ...], emits: Timeframe) -> None:
+        super().__init__(reads=reads, emits=emits)
+
+    def run(self, ctx: Ctx) -> BaseSeries[LegMark]:
+        """Walk `emits`' Candles once and pack the bars that came back marked.
+
+        `PbMark`'s output is dense and parallel to its input, so `zip` is what pairs a record
+        back to the Candle it came from — no lookup by `time`, and the marker never learns that
+        bars have times at all.
+        """
+        bars = ctx[BARS][self.emits]
+        raw = PbMark([{"high": bar.high, "low": bar.low, "close": bar.close} for bar in bars])()
+
+        points = [
+            LegMark.anchored(
+                bar,
+                price=bar.high if entry["leg_mark"] == "high" else bar.low,
+                direction=entry["leg_mark"],
+            )
+            for bar, entry in zip(bars, raw)
+            if entry["leg_mark"] is not None
+        ]
+
+        return BaseSeries(SeriesIdentity(self.producer, ctx[INSTRUMENT], self.emits), points)

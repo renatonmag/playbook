@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
-import { producerName, type ZigZagPivot } from '~/types/pattern'
+import { producerName, type PatternPoint } from '~/types/pattern'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
+import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -21,9 +22,14 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * This registry is the bet that Patterns differ in *how* they are drawn, not only in their data.
  * If every overlay ends up being "a line plus markers", it should collapse into one data-driven
  * component and this map should go.
+ *
+ * The second entry is the first test of that bet, and it held: `simple-leg` is a line with no
+ * markers, because its Points carry no second bar to mark. What the two overlays share is the
+ * line, and that went to `useLineOverlay` rather than into this map.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
+  'simple-leg': SimpleLegOverlay,
 }
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
@@ -102,7 +108,10 @@ const overlays = computed(() =>
   Object.entries(patterns.value?.series ?? {}).map(([producer, series], index) => ({
     producer,
     component: OVERLAYS[producerName(producer)],
-    points: series.points as ZigZagPivot[],
+    // Left as the base Point: each Pattern declares its own, and this list holds all of them.
+    // The overlay a producer maps to is the thing that knows which one it is getting, and it
+    // narrows in its own props.
+    points: series.points as PatternPoint[],
     timeframe: series.identity.timeframe,
     color: COLORS[index % COLORS.length]!,
   })),

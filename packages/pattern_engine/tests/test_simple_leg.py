@@ -141,7 +141,12 @@ class TestInteger:
 
 
 class TestMarkPullbacks:
-    """The turn rule, bar by bar: a bull leg turns on a lower low, a bear leg on a higher high."""
+    """The turn rule, bar by bar: a bull leg turns on a lower low, a bear leg on a higher high.
+
+    What comes back is the *side* the closing leg ended on — `"high"` for a bull leg, `"low"`
+    for a bear one — so the mark and the extreme it prices can never drift apart. `None` is the
+    whole of "no turn here".
+    """
 
     @staticmethod
     def marker(direction: str | None, prev: dict | None = None) -> PbMark:
@@ -150,30 +155,43 @@ class TestMarkPullbacks:
         mark._prev = prev
         return mark
 
-    def test_the_first_bar_answers_false_and_becomes_the_reference(self):
+    def test_the_first_bar_marks_nothing_and_becomes_the_reference(self):
         mark = self.marker("bull")
-        assert mark.mark_pullbacks(bar(12.0, 11.0)) is False
-        assert mark.mark_pullbacks(bar(11.5, 10.5)) is True
+        assert mark.mark_pullbacks(bar(12.0, 11.0)) is None
+        assert mark.mark_pullbacks(bar(11.5, 10.5)) == "high"
 
-    def test_a_bull_leg_turns_on_a_lower_low(self):
+    def test_a_bull_leg_turns_on_a_lower_low_and_ends_at_a_high(self):
         mark = self.marker("bull", prev=bar(12.0, 11.0))
-        assert mark.mark_pullbacks(bar(11.5, 10.5)) is True
+        assert mark.mark_pullbacks(bar(11.5, 10.5)) == "high"
         assert mark._direction == "bear"
 
     def test_a_bull_leg_holds_while_the_low_rises(self):
         mark = self.marker("bull", prev=bar(12.0, 11.0))
-        assert mark.mark_pullbacks(bar(13.0, 11.5)) is False
+        assert mark.mark_pullbacks(bar(13.0, 11.5)) is None
         assert mark._direction == "bull"
 
-    def test_a_bear_leg_turns_on_a_higher_high(self):
+    def test_a_bear_leg_turns_on_a_higher_high_and_ends_at_a_low(self):
         mark = self.marker("bear", prev=bar(12.0, 11.0))
-        assert mark.mark_pullbacks(bar(12.5, 11.5)) is True
+        assert mark.mark_pullbacks(bar(12.5, 11.5)) == "low"
         assert mark._direction == "bull"
 
     def test_a_bear_leg_holds_while_the_high_falls(self):
         mark = self.marker("bear", prev=bar(12.0, 11.0))
-        assert mark.mark_pullbacks(bar(11.5, 10.0)) is False
+        assert mark.mark_pullbacks(bar(11.5, 10.0)) is None
         assert mark._direction == "bear"
+
+    def test_the_side_is_the_leg_that_ended_not_the_one_that_starts(self):
+        """Read one line later and every mark would come back inverted.
+
+        The bar that turns a bull leg down is the first bar of a bear leg, and `_direction`
+        holds that new leg by the time the call returns. The vertex being priced belongs to the
+        leg that just closed.
+        """
+        mark = self.marker("bull", prev=bar(12.0, 11.0))
+        assert mark.mark_pullbacks(bar(11.5, 10.5)) == "high"
+        assert mark._direction == "bear"
+        assert mark.mark_pullbacks(bar(12.0, 11.0)) == "low"
+        assert mark._direction == "bull"
 
     def test_an_outside_bar_marks_no_pullback(self):
         """A bar that takes out both extremes says nothing about which way the leg went.
@@ -183,11 +201,11 @@ class TestMarkPullbacks:
         this holds in a bear leg as much as a bull one.
         """
         bull = self.marker("bull", prev=bar(12.0, 11.0))
-        assert bull.mark_pullbacks(bar(12.5, 10.5)) is False
+        assert bull.mark_pullbacks(bar(12.5, 10.5)) is None
         assert bull._direction == "bull"
 
         bear = self.marker("bear", prev=bar(12.0, 11.0))
-        assert bear.mark_pullbacks(bar(12.5, 10.5)) is False
+        assert bear.mark_pullbacks(bar(12.5, 10.5)) is None
         assert bear._direction == "bear"
 
     def test_an_outside_bar_becomes_the_reference(self):
@@ -199,28 +217,29 @@ class TestMarkPullbacks:
         """
         mark = self.marker("bull", prev=bar(12.0, 11.0))
         mark.mark_pullbacks(bar(13.0, 10.0))
-        assert mark.mark_pullbacks(bar(12.0, 10.8)) is False
-        assert mark.mark_pullbacks(bar(12.0, 9.9)) is True
+        assert mark.mark_pullbacks(bar(12.0, 10.8)) is None
+        assert mark.mark_pullbacks(bar(12.0, 9.9)) == "high"
 
-    def test_a_bar_always_answers_true_or_false(self):
-        """With no direction seeded, neither branch matches and there is still an answer.
+    def test_a_bar_with_no_direction_seeded_marks_nothing(self):
+        """With no seed, neither branch matches and there is still an answer.
 
         The function used to end without a `return`. The `None` flowed into the `pullback`
-        column and, one `dropna` later, deleted the bar.
+        column and, one `dropna` later, deleted the bar. It is `None` again today, but as the
+        stated "no turn" rather than as a fall-through nobody chose.
         """
         mark = self.marker(None, prev=bar(12.0, 11.0))
-        assert mark.mark_pullbacks(bar(11.5, 10.5)) is False
+        assert mark.mark_pullbacks(bar(11.5, 10.5)) is None
 
     def test_a_bar_with_a_missing_price_marks_nothing(self):
         """A hole in the data is a bar that marks nothing, not a `TypeError` up the stack."""
         mark = self.marker("bull", prev=bar(12.0, 11.0))
-        assert mark.mark_pullbacks(bar(float("nan"), float("nan"))) is False
+        assert mark.mark_pullbacks(bar(float("nan"), float("nan"))) is None
 
     def test_a_bar_with_a_missing_price_does_not_become_the_reference(self):
         """Adopting it would make every later comparison false and end the marking in silence."""
         mark = self.marker("bull", prev=bar(12.0, 11.0))
         mark.mark_pullbacks(bar(float("nan"), float("nan")))
-        assert mark.mark_pullbacks(bar(11.5, 10.5)) is True
+        assert mark.mark_pullbacks(bar(11.5, 10.5)) == "high"
 
 
 class TestFindOutsideEdges:
@@ -231,15 +250,15 @@ class TestFindOutsideEdges:
         return PbMark([])
 
     def test_a_bar_without_a_mark_stays_unmarked(self):
-        assert self.finder().find_outside_edges(bar(12.0, 11.0), bar(13.0, 10.0), False) is False
+        assert self.finder().find_outside_edges(bar(12.0, 11.0), bar(13.0, 10.0), None) is None
 
     def test_a_mark_on_a_bar_its_neighbour_does_not_engulf_stays_put(self):
-        assert self.finder().find_outside_edges(bar(12.0, 11.0), bar(11.5, 10.5), True) is True
+        assert self.finder().find_outside_edges(bar(12.0, 11.0), bar(11.5, 10.5), "high") == "high"
 
     def test_a_mark_on_an_engulfed_bar_moves_to_the_next_bar(self):
         finder = self.finder()
-        assert finder.find_outside_edges(bar(11.0, 10.0), bar(12.0, 9.0), True) is False
-        assert finder.find_outside_edges(bar(12.0, 9.0), bar(11.5, 10.5), False) is True
+        assert finder.find_outside_edges(bar(11.0, 10.0), bar(12.0, 9.0), "high") is None
+        assert finder.find_outside_edges(bar(12.0, 9.0), bar(11.5, 10.5), None) == "high"
 
     def test_a_moved_mark_keeps_moving_if_it_lands_on_another_engulfed_bar(self):
         """A carried mark is judged by the same rule as one of the bar's own.
@@ -249,12 +268,24 @@ class TestFindOutsideEdges:
         the second bar is exactly the kind the shift exists to move marks off of.
         """
         finder = self.finder()
-        assert finder.find_outside_edges(bar(11.0, 10.0), bar(12.0, 9.0), True) is False
-        assert finder.find_outside_edges(bar(12.0, 9.0), bar(13.0, 8.0), False) is False
-        assert finder.find_outside_edges(bar(13.0, 8.0), bar(12.5, 9.5), False) is True
+        assert finder.find_outside_edges(bar(11.0, 10.0), bar(12.0, 9.0), "low") is None
+        assert finder.find_outside_edges(bar(12.0, 9.0), bar(13.0, 8.0), None) is None
+        assert finder.find_outside_edges(bar(13.0, 8.0), bar(12.5, 9.5), None) == "low"
 
     def test_a_mark_on_the_last_bar_has_nowhere_to_move_and_stays(self):
-        assert self.finder().find_outside_edges(bar(12.0, 11.0), None, True) is True
+        assert self.finder().find_outside_edges(bar(12.0, 11.0), None, "low") == "low"
+
+    def test_walking_forward_does_not_change_which_leg_the_mark_belongs_to(self):
+        """The walk moves which bar prices the vertex, never which way the closing leg ran.
+
+        This is the case a side kept in a parallel column would get wrong: the mark can land on
+        a bar belonging to the *next* leg, and a column read at the landing bar would report
+        that leg's side instead of the one that ended.
+        """
+        for side in ("high", "low"):
+            finder = self.finder()
+            assert finder.find_outside_edges(bar(11.0, 10.0), bar(12.0, 9.0), side) is None
+            assert finder.find_outside_edges(bar(12.0, 9.0), bar(11.5, 10.5), None) == side
 
 
 class TestExtract:
@@ -283,15 +314,26 @@ class TestExtract:
         PbMark(source).extract()
         assert source == before
 
-    def test_every_bar_gets_a_boolean_leg_mark(self):
+    def test_every_bar_gets_a_leg_mark_of_a_known_value(self):
         """A `dropna` used to drop the last bar, and the reassignment aligned by index.
 
         `high_1`/`low_1` came from `shift(-1)`, so the final bar was always missing them and was
-        always dropped from the second pass, coming back `NaN`. `NaN` is not `False` — and
+        always dropped from the second pass, coming back `NaN`. `NaN` is not "unmarked" — and
         `if row.leg_mark` on a `NaN` reads as true downstream.
         """
         entries = run(RISING_WITH_PULLBACK)
-        assert all(entry["leg_mark"] in (True, False) for entry in entries)
+        assert all(entry["leg_mark"] in ("high", "low", None) for entry in entries)
+
+    def test_a_mark_is_priced_on_the_side_its_leg_ended(self):
+        """A rising leg ends at a high, a falling one at a low — the vertex the adapter prices.
+
+        Both fixtures run one leg each way, so between them every mark's side is checked against
+        the direction the bars were plainly moving.
+        """
+        rising = [entry["leg_mark"] for entry in run(RISING_WITH_PULLBACK) if entry["leg_mark"]]
+        falling = [entry["leg_mark"] for entry in run(FALLING_WITH_PULLBACK) if entry["leg_mark"]]
+        assert rising == ["high", "low"]
+        assert falling == ["low", "high"]
 
     def test_a_gap_in_an_unrelated_column_does_not_move_the_marks(self):
         """The `dropna` was over every column of the frame, including ones nothing ever read.
@@ -319,18 +361,29 @@ class TestExtract:
         entries = run(FLAT)
         assert len(entries) == len(FLAT)
         assert self.column(entries, "pullback") == [False] * len(FLAT)
-        assert self.column(entries, "leg_mark") == [False] * len(FLAT)
+        assert self.column(entries, "leg_mark") == [None] * len(FLAT)
 
     def test_every_pullback_leaves_a_leg_mark(self):
         """Nothing is lost between the two passes — the shift moves marks, it does not drop them.
 
         `dropna` used to delete bars between the passes, so the count could fall. It can still
         fall in one case, documented in the module docstring: two marks walking onto the same bar
-        are one mark, because `leg_mark` is a bool. Neither fixture here produces that.
+        are one mark, because a bar holds one `leg_mark`. Neither fixture here produces that.
         """
         for source in (RISING_WITH_PULLBACK, FALLING_WITH_PULLBACK):
             entries = run(source)
-            assert sum(self.column(entries, "leg_mark")) == sum(self.column(entries, "pullback"))
+            marks = sum(1 for entry in entries if entry["leg_mark"] is not None)
+            assert marks == sum(self.column(entries, "pullback"))
+
+    def test_the_pullback_column_stays_a_bool(self):
+        """It says a leg turned here, and nothing about which. The side belongs to the mark.
+
+        The two columns answer about different legs — `pullback` about the one starting, the
+        mark about the one that ended — so giving both a side would put two meanings on one
+        vocabulary.
+        """
+        entries = run(RISING_WITH_PULLBACK)
+        assert all(entry["pullback"] in (True, False) for entry in entries)
 
     def test_an_empty_series_yields_nothing(self):
         assert run(EMPTY) == []

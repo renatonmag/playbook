@@ -11,13 +11,17 @@ would diverge in silence, with both appearing to work.
 """
 
 from pattern_engine import Pattern, Timeframe
-from pattern_engine.patterns import ZigZagPattern
+from pattern_engine.patterns import SimpleLegPattern, ZigZagPattern
 
 #: The only ticker the database is known to hold. Becomes a parameter when a second one lands.
 SYMBOL = "WIN@N"
 
 PIPELINE: tuple[Pattern, ...] = (
     ZigZagPattern(depth=8, reads=("5m",), emits="5m"),
+    # Reads the same bars as the zigzag above, deliberately: the two are alternative answers to
+    # "where did this leg end", and running them on one window is what lets the monitor show the
+    # difference. Expect this one to mark several times more often — it has no smoothing.
+    SimpleLegPattern(reads=("5m",), emits="5m"),
 )
 
 

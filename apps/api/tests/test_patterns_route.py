@@ -28,6 +28,10 @@ OPEN = datetime(2026, 8, 11, 13, 0, tzinfo=UTC)
 
 #: Read from the pipeline rather than written out: retuning a Pattern's parameters changes the
 #: producer key, and these tests are about the wiring, not about the tuning.
+PRODUCERS = [pattern.producer for pattern in PIPELINE]
+
+#: One producer to inspect a payload through. Which one does not matter — every Series crosses
+#: the wire by the same schema — so the tests below say `ZIGZAG` only to have something to name.
 ZIGZAG = PIPELINE[0].producer
 
 
@@ -103,7 +107,9 @@ def test_nested_datetimes_become_seconds():
 
 def test_the_declared_pipeline_runs_and_is_keyed_by_producer(client):
     body = client.get("/patterns", params=WINDOW).json()
-    assert list(body["series"]) == [ZIGZAG]
+    # Every declared Pattern, in declaration order — which is run order. Derived from the
+    # pipeline so that adding one is a one-line change there and not a failure here.
+    assert list(body["series"]) == PRODUCERS
     assert body["failed"] == []
     assert body["series"][ZIGZAG]["identity"] == {
         "producer": ZIGZAG,
