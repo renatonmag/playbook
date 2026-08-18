@@ -59,8 +59,7 @@ def split_legs(bars: Sequence[Candle], pivots: Sequence[Pivot]) -> list[list[Can
 
     Raises `ValueError` for a Pivot that does not sit on a bar of `bars`.
     """
-    positions = {bar.time: index for index, bar in enumerate(bars)}
-    marks = [_position(pivot, positions) for pivot in pivots]
+    marks = pivot_marks(bars, pivots)
 
     if not marks:
         return []
@@ -73,6 +72,18 @@ def split_legs(bars: Sequence[Candle], pivots: Sequence[Pivot]) -> list[list[Can
     legs[0][:0] = bars[: marks[0]]
     legs[-1].extend(bars[marks[-1] + 1 :])
     return legs
+
+
+def pivot_marks(bars: Sequence[Candle], pivots: Sequence[Pivot]) -> list[int]:
+    """Where each Pivot sits in the window, as indices into `bars`, in the order handed in.
+
+    Shared with `leg_window.py` rather than written twice: the orphan rule below is a decision
+    about what a mismatched pipeline *does*, and two copies of a decision drift apart in silence.
+
+    Raises `ValueError` for a Pivot that does not sit on a bar of `bars`.
+    """
+    positions = {bar.time: index for index, bar in enumerate(bars)}
+    return [_position(pivot, positions) for pivot in pivots]
 
 
 def _position(pivot: Pivot, positions: dict) -> int:

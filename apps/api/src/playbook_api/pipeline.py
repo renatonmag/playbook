@@ -11,7 +11,12 @@ would diverge in silence, with both appearing to work.
 """
 
 from pattern_engine import Pattern, Timeframe
-from pattern_engine.patterns import LegPattern, SimpleLegPattern, ZigZagPattern
+from pattern_engine.patterns import (
+    LegPattern,
+    LegWindowPattern,
+    SimpleLegPattern,
+    ZigZagPattern,
+)
 
 #: The only ticker the database is known to hold. Becomes a parameter when a second one lands.
 SYMBOL = "WIN@N"
@@ -32,6 +37,12 @@ PIPELINE: tuple[Pattern, ...] = (
     # and a slicer ahead of its detector reads a key that is not in `ctx` yet.
     LegPattern(source=_zigzag, reads=("5m",), emits="5m"),
     LegPattern(source=_simple_leg, reads=("5m",), emits="5m"),
+    # The same legs again, each carrying the five bars that follow its close. A record bar or a
+    # reversal pair can land just *past* the turn, in the opening bars of the next leg, where a
+    # `LegPattern` leg cannot see it. Only the zigzag gets one: this is the smoothed answer, and
+    # a second copy on `_simple_leg` doubles the heaviest payload on the wire to answer a
+    # question nothing is asking yet.
+    LegWindowPattern(source=_zigzag, ahead=5, reads=("5m",), emits="5m"),
 )
 
 
