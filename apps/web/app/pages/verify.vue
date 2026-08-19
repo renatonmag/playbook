@@ -2,6 +2,7 @@
 import type { Component } from 'vue'
 import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
 import { producerName, type PatternPoint } from '~/types/pattern'
+import LegReversalsVerify from '~/components/LegReversalsVerify.vue'
 import LegWindowVerify from '~/components/LegWindowVerify.vue'
 
 /** The monitor's picker, for the same reason: instruments are not a table yet. */
@@ -21,6 +22,7 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  */
 const VERIFIERS: Record<string, Component> = {
   'leg-window': LegWindowVerify,
+  'leg-reversals': LegReversalsVerify,
 }
 
 const route = useRoute()

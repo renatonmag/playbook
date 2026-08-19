@@ -1,23 +1,55 @@
 """The Patterns themselves. The engine imports none of these — a pipeline names them."""
 
 from .leg_processor import Leg, LegPattern, bar_positions, position_of, split_legs
+from .leg_reversals import (
+    AVERAGE_WINDOW,
+    DEFAULT_EXPANSION,
+    DEFAULT_K,
+    DEFAULT_SIMILARITY,
+    LegBar,
+    LegReversals,
+    LegReversalsPattern,
+    MarkType,
+    adjacent,
+    alike,
+    dominates,
+    expands,
+    implied_body_min,
+    marked_bars,
+    reverses,
+)
 from .leg_window import LegWindow, LegWindowPattern, split_leg_windows
 from .simple_leg import LegMark, PbMark, SimpleLegPattern
 from .zigzag import ZigZagIndidicator, ZigZagPattern, ZigZagPivot
 
 __all__ = [
+    "AVERAGE_WINDOW",
+    "DEFAULT_EXPANSION",
+    "DEFAULT_K",
+    "DEFAULT_SIMILARITY",
     "Leg",
+    "LegBar",
     "LegMark",
     "LegPattern",
+    "LegReversals",
+    "LegReversalsPattern",
     "LegWindow",
     "LegWindowPattern",
+    "MarkType",
     "PbMark",
     "SimpleLegPattern",
     "ZigZagIndidicator",
     "ZigZagPattern",
     "ZigZagPivot",
+    "adjacent",
+    "alike",
     "bar_positions",
+    "dominates",
+    "expands",
+    "implied_body_min",
+    "marked_bars",
     "position_of",
+    "reverses",
     "split_leg_windows",
     "split_legs",
 ]

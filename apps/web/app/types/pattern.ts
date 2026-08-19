@@ -62,6 +62,36 @@ export interface LegWindow extends PatternPoint {
   end: number
 }
 
+/**
+ * One bar inside a leg that a reversal filter marked.
+ *
+ * Not a Point of any Series — these arrive nested in `LegReversals.found`, so `time` here is just
+ * the bar's own, and it is the field the whole Pattern exists to produce: the timestamp to look up
+ * on the real chart.
+ */
+export interface LegBar extends PatternPoint {
+  /** Index into `bars` of the `LegWindow` at the same anchor. Meaningless without it. */
+  at: number
+  /**
+   * Which filter marked it. `two-bar` means the bar belongs to a matching pair — with the bar
+   * before it or the one after — listed once either way, so an alternating run reads as several
+   * entries with contiguous `at` rather than one per pair.
+   */
+  type: 'two-bar' | 'reversal-bar'
+}
+
+/**
+ * One leg's marked bars, anchored where its `LegWindow` is.
+ *
+ * Carries the anchor and the list and nothing else: `since`, `end` and the leg's direction are on
+ * the `LegWindow` Point at the same `time`, and restating them would be two Series claiming one
+ * fact. An empty `found` is a leg that matched nothing, which is not the same as a leg missing.
+ */
+export interface LegReversals extends PatternPoint {
+  /** An array on the wire: the Python tuple serializes as a list. */
+  found: LegBar[]
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   identity: SeriesIdentity
   points: TPoint[]
