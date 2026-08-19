@@ -1,116 +1,148 @@
-"""Each leg, plus the bars that came immediately after it.
+"""Each leg, where it turned, and the bars that came after it.
 
-`split_legs` stops at the turn: a `Leg` runs pivot to pivot and ends there. But the bar types
-this project hunts — a record bar, the second bar of a reversal pair — do not respect that
-boundary. One of them can land a bar or two *past* the closing Pivot, in the opening bars of the
-leg that follows, and a rule reading a `Leg` cannot see it at all.
+`split_legs` stops at the turn: a `Leg` runs vertex to vertex and ends there. Two things it
+cannot say, and this module exists for both.
 
-`split_leg_windows` is the same slice with a tail glued on: the leg, plus `ahead` further bars.
-`LegWindowPattern` at the bottom is the adapter that makes it a Pattern. This is a **sibling** of
-`LegPattern`, not a replacement — both run, under separate producer keys, and neither moves.
+**What came after.** The bar types this project hunts — a record bar, the second bar of a
+reversal pair — do not respect the leg's closing vertex. One can land a bar or two *past* it, in
+the opening bars of the leg that follows, where a `Leg` cannot see it at all. So every leg here
+carries `ahead` further bars.
+
+**Where the leg actually began.** `ZigZagPivot.since` names the bar where the leg ending at that
+vertex turned — "the extreme that was *current at that instant*, which is not the same thing as
+the vertex the cleanup later elects", as `zigzag.py` puts it. `_last_start` searches the
+half-open range `[previous vertex, this vertex)`, so that bar sits **strictly inside** the leg it
+closes, at or after the opening vertex and always before the closing one. A leg running from bar
+14 to bar 42 can have turned at bar 18.
+
+That is what `since` is, and why it is read off the Pivot rather than derived from the slicing:
+derived, it would be `0` every time, and the whole fact would be gone. `end` is the closing
+vertex.
+
+```
+bars:  [ opening vertex ......... turn ......... closing vertex ] + ahead more
+index:   0                        since                     end     end+1 ..
+```
+
+- `bars[0 : end + 1]` — the segment between two vertices, which is what `split_legs` calls a leg
+- `bars[since : end + 1]` — the leg **as it actually ran**, from the turn; one bar when no turn
+  was recorded, since `since` is then `end`
+- `bars[end + 1 :]` — the tail this module was written for; it never contains the closing vertex
 
 The rules, and where they agree and disagree with `split_legs`:
 
-- Pivots are found by `time`, via the same `pivot_marks`. One copy of that rule, deliberately:
-  what a mismatched pipeline does is a decision, and a decision written twice diverges in silence.
-- A leg still runs from one Pivot to the next, inclusive at both ends, and the head of the window
-  is still folded into the first leg. Nothing about a leg's *boundaries* changes.
-- After the closing Pivot come `ahead` more bars. They are the opening bars of the next leg, so
-  consecutive `LegWindow`s overlap by `ahead + 1` bars rather than by one.
-- The **last** leg swallows the whole remainder of the window, exactly as `split_legs` does — not
-  `ahead` bars but every bar that is left. Its tail is unbounded.
-- Fewer than two Pivots yields **nothing**, for zero *and* for one. This is the one place the two
-  slicers disagree: `split_legs` answers a single Pivot with the whole window, which is honest
-  because a `Leg` is only a list of bars and claims nothing. A `LegWindow` cannot answer without
-  saying where the leg starts and ends, and with one vertex there is no leg to point at.
+- Vertices are found by `time` through the same `bar_positions`/`position_of`, so the orphan rule
+  is written once. The `since` bars are looked up the same way.
+- A leg still runs from one vertex to the next, inclusive at both ends, so consecutive legs still
+  share their boundary bar — and now also the `ahead` bars after it, overlapping by `ahead + 1`.
+- The window's head is **dropped**, unlike `split_legs`, which folds it into the first leg. Bars
+  before the first vertex belong to a leg that was never emitted, and with `since` spoken for
+  there is no index left to mark where they end. `bars[0]` is a vertex on every leg, no exception.
+- The **last** leg still swallows the whole remainder of the window, exactly as `split_legs`
+  does — not `ahead` bars but every bar that is left. Its tail alone is unbounded.
+- Fewer than two vertices yields **nothing**, for zero *and* for one. `split_legs` answers a
+  single vertex with the whole window, which is honest there because a `Leg` is only a list of
+  bars and claims nothing. A `LegWindow` cannot answer without naming an `end` that is not there.
 - `LegWindow` anchors on its **first** bar, like `Leg`, so `as_of` answers "which leg is running
   now".
 
-`since` and `end` are the point of the class. They are **indices into `bars`, inclusive at both
-ends**, because the operation they exist for is slicing:
+What it costs, stated rather than hidden:
 
-- the leg itself is `bars[since : end + 1]`
-- the tail — the bars this class was written for — is `bars[end + 1 :]`, which never contains the
-  closing Pivot
-- the folded head, on the first leg only, is `bars[:since]`
-
-That makes the head identifiable rather than silently mixed in, which is the one flaw of
-`split_legs` this class does not inherit.
-
-What it does cost, stated rather than hidden:
-
+- **This is a zigzag-only slicer.** `since` is a `ZigZagPivot` field; `LegMark` deliberately has
+  none, and `SimpleLegPattern` as a source raises `AttributeError`. `LegPattern` takes either.
+- `since == end` when the zigzag recorded no turn for that leg. That is a **sentinel, not a
+  guess**: `_last_start` searches the half-open range `[previous vertex, this vertex)`, which
+  excludes the closing vertex, so a recorded turn always satisfies `since < end` and can never
+  produce this value. The cost is that `bars[since : end + 1]` is a single bar on those legs —
+  read it as "no body was recorded", not as a one-bar leg. It is deliberately not `0`, which
+  would claim the leg turned at its opening vertex, precisely what `_last_start` refuses to say.
 - `bars[-1]` is a lookahead bar, never the turn — for *every* leg, not just the edge ones. This
   is why `LegWindow` subclasses `Candle` and not `Leg`: code written against a `Leg` reaches for
-  `bars[-1]` expecting a Pivot, and an `isinstance` relationship would promise it wrongly.
-- `since > 0` only on the first leg, where the window's head sits before the opening Pivot. That
-  head belongs to a leg that was never emitted and runs the other way.
+  `bars[-1]` expecting a vertex, and an `isinstance` relationship would promise it wrongly.
 - A short tail is silent. `bars[end + 1 :]` holds fewer than `ahead` bars when the window ends
   first — reachable only on the second-to-last leg, since the last one takes the remainder.
 - The OHLCV inherited from `Candle` is the anchor bar's and says nothing about the leg.
-- Every bar is now serialized more often still: twice within this Series alone, since each leg's
-  tail is the next leg's opening bars.
+- Every bar is serialized more often still: twice within this Series alone, since each leg's tail
+  is the next leg's opening bars.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ..candles import Candle, Pivot
+from ..candles import Candle
 from ..engine import BARS, INSTRUMENT
 from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..timeframes import Timeframe
-from .leg_processor import pivot_marks
+from .leg_processor import bar_positions, position_of
+from .zigzag import ZigZagPivot
 
 
 @dataclass(frozen=True, slots=True)
 class LegWindow(Candle):
-    """One leg and what followed it: the bars, and where the leg sits among them.
+    """One leg, where it turned, and what followed it. Anchored on its opening vertex.
 
-    Anchored on `bars[0]`, which is the opening Pivot on every leg but the first — there the
-    window's head comes before it, and `since` is what says so.
+    `since` and `end` are indices into `bars`, **inclusive**, because the operation they exist
+    for is slicing. See the module docstring for the diagram.
     """
 
     bars: tuple[Candle, ...]
-    #: Index of the opening Pivot in `bars`, inclusive. `0` except on the first leg.
+    #: Index of the bar the closing vertex says the leg turned on — at or after `0`, always
+    #: strictly before `end`. Equal to `end` when the zigzag recorded no turn at all; see the
+    #: module docstring for why that value cannot be a real one.
     since: int
-    #: Index of the closing Pivot in `bars`, inclusive. The tail is everything after it.
+    #: Index of the closing vertex, inclusive. The tail is everything after it.
     end: int
 
 
 def split_leg_windows(
-    bars: Sequence[Candle], pivots: Sequence[Pivot], ahead: int
+    bars: Sequence[Candle], pivots: Sequence[ZigZagPivot], ahead: int
 ) -> list[LegWindow]:
-    """One `LegWindow` per leg, in order: the leg's bars plus `ahead` more after its close.
+    """One `LegWindow` per leg, in order: vertex to vertex, plus `ahead` bars past the close.
+
+    Takes `ZigZagPivot`s specifically, not any `Pivot`: `since` is read off the vertex that
+    *closes* each leg, and no other detector records it.
 
     Returns the Points themselves rather than raw slices — three values per leg handed back as a
     bare tuple is where an off-by-one hides, and `LegWindow` is a plain dataclass that knows
     nothing about Series, so the split this package keeps is not broken by building it here.
 
-    Empty for fewer than two Pivots. Raises `ValueError` for a Pivot on no bar of `bars`.
+    Empty for fewer than two vertices. Raises `ValueError` for a vertex on no bar of `bars`.
     """
-    marks = pivot_marks(bars, pivots)
+    positions = bar_positions(bars)
+    marks = [position_of(pivot, positions) for pivot in pivots]
     if len(marks) < 2:
         return []
 
     windows = []
     last = len(marks) - 2
     for index, (start, close) in enumerate(zip(marks, marks[1:])):
-        # The first leg keeps the window's head, and the last keeps every bar that is left; both
-        # are `split_legs`' fold, unchanged. Only the legs in between get a tail of exactly
-        # `ahead` — and even theirs comes up short if the window ends inside it.
-        low = 0 if index == 0 else start
+        # No head fold, unlike `split_legs`: a leg begins at its opening vertex, and the bars
+        # before the first one are dropped. The last leg keeps every bar that is left — that
+        # fold stays. Only the legs in between get a tail of exactly `ahead`, and even theirs
+        # comes up short if the window ends inside it.
         high = len(bars) if index == last else close + 1 + ahead
-        window = bars[low:high]
+        # The turn belongs to the vertex that *closes* the leg, which is why this reads
+        # `pivots[index + 1]` and not `pivots[index]`. With no turn recorded, `since` collapses
+        # onto `end` — a value a recorded turn can never take, so the two stay distinguishable.
+        turn = pivots[index + 1].since
         windows.append(
             LegWindow.anchored(
-                window[0], bars=tuple(window), since=start - low, end=close - low
+                bars[start],
+                bars=tuple(bars[start:high]),
+                since=position_of(turn, positions) - start if turn is not None else close - start,
+                end=close - start,
             )
         )
     return windows
 
 
 class LegWindowPattern(Pattern):
-    """`split_leg_windows` as a Pattern: legs carrying the bars that came after them.
+    """`split_leg_windows` as a Pattern: legs that say where they turned and what followed.
+
+    **Zigzag-only**, unlike `LegPattern`, which takes any `BaseSeries[Pivot]`. `since` is a
+    `ZigZagPivot` field, so a `SimpleLegPattern` source raises `AttributeError` here — logged by
+    the engine, and reported by the route under `failed`, with nothing written to `ctx`.
 
     `source` is the detector's **instance**, not its producer key, for the reason `LegPattern`
     gives: passing the key as a string restates what `Pattern.producer` derives, and the two fall
@@ -140,12 +172,11 @@ class LegWindowPattern(Pattern):
     def run(self, ctx: Ctx) -> BaseSeries[LegWindow]:
         """Slice `emits`' Candles at `source`'s vertices, extend each leg, pack one Point per leg.
 
-        Anchors are non-decreasing for free: successive legs start at successive Pivots, and the
-        tails extend the *end* of a window, never its start, so `BaseSeries` has nothing to
-        object to.
+        Anchors are the opening vertices, so they strictly increase and `BaseSeries` has nothing
+        to object to: the tails extend the *end* of a window, never its start.
         """
         bars: BaseSeries[Candle] = ctx[BARS][self.emits]
-        pivots: BaseSeries[Pivot] = ctx[self.source.producer]
+        pivots: BaseSeries[ZigZagPivot] = ctx[self.source.producer]
 
         points = split_leg_windows(bars.points, pivots.points, self.ahead)
 

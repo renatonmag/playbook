@@ -42,6 +42,7 @@ What that costs, stated rather than hidden:
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from ..candles import Candle, Pivot
 from ..engine import BARS, INSTRUMENT
@@ -59,7 +60,8 @@ def split_legs(bars: Sequence[Candle], pivots: Sequence[Pivot]) -> list[list[Can
 
     Raises `ValueError` for a Pivot that does not sit on a bar of `bars`.
     """
-    marks = pivot_marks(bars, pivots)
+    positions = bar_positions(bars)
+    marks = [position_of(pivot, positions) for pivot in pivots]
 
     if not marks:
         return []
@@ -74,31 +76,33 @@ def split_legs(bars: Sequence[Candle], pivots: Sequence[Pivot]) -> list[list[Can
     return legs
 
 
-def pivot_marks(bars: Sequence[Candle], pivots: Sequence[Pivot]) -> list[int]:
-    """Where each Pivot sits in the window, as indices into `bars`, in the order handed in.
+def bar_positions(bars: Sequence[Candle]) -> dict[datetime, int]:
+    """The window as a lookup: each bar's `time` to its index.
 
-    Shared with `leg_window.py` rather than written twice: the orphan rule below is a decision
-    about what a mismatched pipeline *does*, and two copies of a decision drift apart in silence.
-
-    Raises `ValueError` for a Pivot that does not sit on a bar of `bars`.
+    Built once and handed to `position_of` repeatedly, because a slicer locates several things
+    in one window — the vertices, and, in `leg_window.py`, the bar each vertex says its leg
+    turned on.
     """
-    positions = {bar.time: index for index, bar in enumerate(bars)}
-    return [_position(pivot, positions) for pivot in pivots]
+    return {bar.time: index for index, bar in enumerate(bars)}
 
 
-def _position(pivot: Pivot, positions: dict) -> int:
-    """Where a Pivot sits in the window, by `time`.
+def position_of(bar: Candle, positions: dict[datetime, int]) -> int:
+    """Where a bar sits in the window, by `time`.
 
-    An orphan Pivot means the detector and the slicer were pointed at different Timeframes —
-    nothing validates that, since `reads`/`emits` carry no guarantee. Raising beats skipping:
-    a skipped vertex produces a leg that runs straight through it, which is wrong and looks
-    entirely plausible.
+    Takes a `Candle`, not a `Pivot`: `leg_window.py` looks up `ZigZagPivot.since`, which is a
+    plain bar of the window and not a vertex at all. Only `.time` is ever read.
+
+    An orphan means the detector and the slicer were pointed at different Timeframes — nothing
+    validates that, since `reads`/`emits` carry no guarantee. Raising beats skipping: a skipped
+    vertex produces a leg that runs straight through it, which is wrong and looks entirely
+    plausible. Shared rather than written twice, for the same reason: what a mismatched pipeline
+    *does* is a decision, and a decision written twice drifts apart in silence.
     """
     try:
-        return positions[pivot.time]
+        return positions[bar.time]
     except KeyError:
         raise ValueError(
-            f"pivot at {pivot.time} sits on no bar of this window — "
+            f"the bar at {bar.time} sits on no bar of this window — "
             "the pivots and the bars are from different Timeframes"
         ) from None
 

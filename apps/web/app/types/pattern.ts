@@ -41,6 +41,27 @@ export interface LegMark extends PatternPoint {
   direction: 'high' | 'low'
 }
 
+/**
+ * One leg, where it turned, and the bars that followed it.
+ *
+ * `bars[0]` is the opening Pivot and `end` indexes the closing one, both inclusive, so the
+ * vertex-to-vertex segment is `bars.slice(0, end + 1)` and the tail this Pattern exists for is
+ * `bars.slice(end + 1)`. `since` is where the leg *actually* turned — at or after `0`, and below
+ * `end` whenever a turn was recorded — so `bars.slice(since, end + 1)` is the leg as it ran.
+ *
+ * Note `bars[bars.length - 1]` is a lookahead bar, not the turn — the closing Pivot is at `end`.
+ */
+export interface LegWindow extends PatternPoint {
+  /** An array on the wire: the Python tuple serializes as a list. */
+  bars: PatternPoint[]
+  /**
+   * Equal to `end` when the zigzag recorded no turn for this leg — a sentinel, not a claim that
+   * the leg turned on its close. A recorded turn is always strictly below `end`.
+   */
+  since: number
+  end: number
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   identity: SeriesIdentity
   points: TPoint[]

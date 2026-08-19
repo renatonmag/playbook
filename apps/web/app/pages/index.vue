@@ -26,9 +26,14 @@ const alarms: Alarm[] = [
     <h1 class="text-2xl font-bold">Playbook</h1>
     <p class="mt-1 text-sm text-gray-500">Alarmes inteligentes para a B3</p>
 
-    <NuxtLink to="/monitor" class="mt-4 inline-block text-sm text-blue-600 hover:underline">
-      Abrir o monitor →
-    </NuxtLink>
+    <div class="mt-4 flex gap-4">
+      <NuxtLink to="/monitor" class="text-sm text-blue-600 hover:underline">
+        Abrir o monitor →
+      </NuxtLink>
+      <NuxtLink to="/verify" class="text-sm text-blue-600 hover:underline">
+        Verificar padrões →
+      </NuxtLink>
+    </div>
 
     <ul class="mt-6 space-y-2">
       <li

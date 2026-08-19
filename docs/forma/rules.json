@@ -60,6 +60,18 @@
       "bodyMax": 1,
       "colour": "nunca",
       "colourBodyMin": 0.5
+    },
+    {
+      "name": "K",
+      "direction": "alta",
+      "requireWfOverWc": true,
+      "wfMin": 0.49,
+      "wcMax": 1,
+      "wcMaxRatio": null,
+      "bodyMin": 0,
+      "bodyMax": 0.35,
+      "colour": "nunca",
+      "colourBodyMin": 1
     }
   ]
 }
