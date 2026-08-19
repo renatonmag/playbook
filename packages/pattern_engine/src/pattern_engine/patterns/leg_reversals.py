@@ -1,19 +1,29 @@
-"""The bars inside each leg that a reversal filter marks — the two-bar pair, and the Forma rule.
+"""The bars inside each leg that a reversal filter marks — the two-bar pair, the Forma rule, and
+the inside bar.
 
 `LegWindowPattern` hands over a leg and the bars it is made of. Nothing had yet looked *inside*
-those bars. This does, with the two filters this project has been studying in the browser:
+those bars. This does, with the filters this project has been studying in the browser:
 
 - **The two-bar reversal** — two adjacent Candles, each with a body dominating its own shadows,
   in opposite colours, of comparable size, and large for the moment they happened in. Ported
   from `apps/web/app/utils/two-bar-reversal.ts`.
 - **The Forma rule** — one Candle whose proportions match a candidate rule from
   `docs/forma/rules.json`. Ported as `marks` in `shape.py`.
+- **The inside bar** — one Candle whose range its predecessor already covered, both extremes
+  included. See `nests`.
 
-The two are a **union, not a composition**. They are mutually exclusive by arithmetic at the
-default `k`: `dominates` forces `body >= k * wf`, and rule K wants `wf >= 0.49` with
-`body <= 0.35`, which together need `k <= 0.714`. One describes a hammer and the other a bar
-whose body swallows its shadows. So this Pattern answers "which bars of this leg are candidates
-for the turn", by either reading, and a bar that somehow satisfied both would be listed twice.
+The three are a **union, not a composition**: this Pattern answers "which bars of this leg are
+candidates for the turn", by any reading, and a bar satisfying two of them is listed once per
+reading.
+
+The first two never both hold, and by arithmetic rather than luck: `dominates` forces
+`body >= k * wf`, and rule K wants `wf >= 0.49` with `body <= 0.35`, which together need
+`k <= 0.714`. One describes a hammer and the other a bar whose body swallows its shadows.
+
+**The inside bar carries no such exclusion, and is not meant to.** It reads only `high` and `low`,
+so it says nothing about the body that the other two are arguing over, and it lands on the same bar
+as either of them whenever the shape happens to coincide. A bar with two marks is two findings
+about one bar, not a bug — and it is why nothing downstream may key a mark on `at` or `time` alone.
 
 **Everything is measured in the global history, not in the leg's slice.** A leg is a window onto
 `ctx["bars"]`, and both filters read *outside* whatever window they are handed: `expands` averages
@@ -32,9 +42,11 @@ What it costs, stated rather than hidden:
 
 - **The arithmetic now exists twice**, here and in TypeScript, with nothing comparing them. The
   defence is `/verify` next to `/two-bar-reversal`, read by a person.
-- **Candles with no amplitude are counted in the average** and are never marked. `/shapes` drops
-  them before the bench sees them, so the two disagree by three bars in the `5m` history of
-  `WIN@N` — immaterial in effect, real in principle.
+- **Candles with no amplitude are counted in the average** and are invisible to the two filters
+  that read proportions, having none. They are *not* invisible to the inside bar: a bar that
+  traded at one price sits inside whatever preceded it, trivially and truthfully, so it is marked.
+  `/shapes` drops such bars before the bench sees them, so the two disagree by three bars in the
+  `5m` history of `WIN@N` — immaterial in effect, real in principle.
 - **Consecutive legs overlap** by `ahead + 1` bars, so a bar in a leg's tail is listed again as
   part of the next leg. That is a property of `LegWindow`, restated here rather than fixed: the
   question is what each leg contains, and a bar can be in two legs.
@@ -76,9 +88,9 @@ DEFAULT_EXPANSION = 0.9
 #: counts, so a control for it would look meaningful and not be.
 AVERAGE_WINDOW = 10
 
-#: Which filter marked a bar. Two names rather than a flag, because they are different claims
-#: about different shapes — see the module docstring on why they never both hold.
-MarkType = Literal["two-bar", "reversal-bar"]
+#: Which filter marked a bar. Names rather than a flag, because they are different claims about
+#: different shapes — see the module docstring on which of them can hold at once.
+MarkType = Literal["two-bar", "reversal-bar", "inside-bar"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,16 +110,28 @@ class LegBar(Candle):
 
 @dataclass(frozen=True, slots=True)
 class LegReversals(Candle):
-    """One leg's marked bars. Anchored on the leg's opening vertex, like `LegWindow` is.
+    """One leg's marked bars, and which way the leg ran. Anchored on the leg's opening vertex,
+    like `LegWindow` is.
 
-    Carries the anchor and the list, and nothing else — not `since`, not `end`, not the leg's
-    direction. Those are on the `LegWindow` Point at the same anchor, and restating them here
-    would be two Series claiming the same fact.
+    Carries the anchor, the list and the direction, and nothing else — not `since`, not `end`.
+    Those are on the `LegWindow` Point at the same anchor, and restating them here would be two
+    Series claiming the same fact.
+
+    The direction is the exception, and earns it: nothing else in this Point says which way the
+    leg ran, `found` cannot be read for it — a mark is a bar, not a move — and no other Series
+    states it at all. Anything drawing `found` needs it to know which side of the price the marks
+    belong on.
     """
 
     #: Empty when this leg produced nothing. Emitted anyway: an absent leg and a leg that matched
     #: nothing are different facts, and only one of them means the filter is too tight.
     found: tuple[LegBar, ...]
+    #: The leg's **own** move: `bullish` when it closed on a high, `bearish` on a low.
+    #:
+    #: Deliberately *not* the direction the filters were run for, which is the opposite one — the
+    #: bar that turns a fall is a bullish bar, so a `bearish` leg here holds bullish candidates.
+    #: See `run`, where the two are named apart for exactly this reason.
+    direction: Direction
 
 
 def amplitude(candle: Candle) -> float:
@@ -263,6 +287,34 @@ def reverses(
     )
 
 
+def nests(bars: Sequence[Candle], i: int, timeframe: Timeframe) -> bool:
+    """Whether `bars[i]` is an inside bar — its range contained by the bar before it.
+
+    Reads `high` and `low` and nothing else. That is what makes this filter unlike the other two:
+    it has no body term, so it makes no claim about colour, and the leg's direction has nothing to
+    say about it. A bar either sits inside its predecessor or it does not, in a rise as in a fall.
+
+    The comparisons are **not** strict, so a bar sharing one or both extremes with its mother still
+    counts. This is the opposite convention to `SimpleLegPattern._engulfs`, which demands a strict
+    break of both extremes for the inverse relation — deliberately, not by oversight: an equal high
+    is a high that was not exceeded, which is containment, and it is a break of nothing.
+
+    Takes the array and an index rather than two Candles, matching `reverses`, because the pair has
+    to be found in the history to be checked for adjacency at all.
+    """
+    if i <= 0:
+        return False
+
+    previous, current = bars[i - 1], bars[i]
+
+    # Yesterday's last bar is not "the bar before" this one in any sense that makes containment
+    # mean something. Same guard the pair filter and the amplitude average use.
+    if not adjacent(previous, current, timeframe):
+        return False
+
+    return previous.high >= current.high and previous.low <= current.low
+
+
 def marked_bars(
     bars: Sequence[Candle],
     shapes: Sequence[Shape | None],
@@ -289,15 +341,26 @@ def marked_bars(
     the colour of the reversal, so `(i - 1, i)` matching makes bar `i` that colour, and `(i, i+1)`
     matching would make bar `i` the opposite one, since a pair's two bars differ in colour. No bar
     holds both. The direction filter is what makes the de-duplication free.
+
+    That argument is about the pair filter alone, and says nothing about `found` as a whole: an
+    inside bar can and does land on a bar another filter also marked, so one `at` may appear more
+    than once here, with a different `type` each time. Entries stay in `at` order, grouped by bar.
     """
     found: list[LegBar] = []
 
     for at in range(count):
         i = start + at
+
+        # Above the shape guard on purpose: containment is read off `high` and `low`, so unlike
+        # the two below it has something to say about a bar with no amplitude.
+        if nests(bars, i, timeframe):
+            found.append(LegBar.anchored(bars[i], at=at, type="inside-bar"))
+
         shape = shapes[i]
         if shape is None:
-            # No amplitude, so no proportions: neither filter has anything to read. Skipped in
-            # silence — it is a real bar that traded at one price, not an error.
+            # No amplitude, so no proportions: neither of the two shape-reading filters has
+            # anything to read. Skipped in silence — it is a real bar that traded at one price,
+            # not an error.
             continue
 
         pair = reverses(
@@ -378,22 +441,29 @@ class LegReversalsPattern(Pattern):
                     f"where a leg of {self.source.producer} closes"
                 )
 
-            # A leg that ends on a low is a fall that ended, and what turns a fall is a bullish
-            # bar. The mirror on a high. This is the whole of the direction logic.
-            direction: Direction = "bullish" if side == "low" else "bearish"
+            # The leg's own move, which is what the Point reports and what a drawing of it needs.
+            direction: Direction = "bullish" if side == "high" else "bearish"
+            # And the turn it is a candidate for, which is the opposite one: a leg that ends on a
+            # low is a fall that ended, and what turns a fall is a bullish bar. The mirror on a
+            # high. This is the whole of the direction logic — the two are named apart because
+            # they are never the same value, and a single `direction` invites reading one as the
+            # other.
+            reversal: Direction = "bearish" if side == "high" else "bullish"
 
             found = marked_bars(
                 history,
                 shapes,
                 position_of(window.bars[0], positions),
                 len(window.bars),
-                direction,
+                reversal,
                 self.rule,
                 self.k,
                 self.similarity,
                 self.expansion,
                 self.emits,
             )
-            points.append(LegReversals.anchored(window, found=tuple(found)))
+            points.append(
+                LegReversals.anchored(window, found=tuple(found), direction=direction)
+            )
 
         return BaseSeries(SeriesIdentity(self.producer, ctx[INSTRUMENT], self.emits), points)

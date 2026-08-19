@@ -33,11 +33,22 @@ function price(value: number) {
   return value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
 }
 
-/** The two filters read differently and are worth telling apart at a glance. */
+/**
+ * The filters read differently and are worth telling apart at a glance. Same three hues the chart
+ * dots use, so a row here and a dot there are recognisably the same finding.
+ *
+ * A lookup rather than the ternary this was: a ternary gives every unrecognised type the last
+ * branch's colour, which is a wrong answer shown confidently. Keyed on the union, a fourth type
+ * fails the typecheck instead.
+ */
+const BADGES: Record<LegBar['type'], string> = {
+  'two-bar': 'bg-sky-100 text-sky-700',
+  'reversal-bar': 'bg-amber-100 text-amber-700',
+  'inside-bar': 'bg-pink-100 text-pink-700',
+}
+
 function badge(bar: LegBar) {
-  return bar.type === 'two-bar'
-    ? 'bg-sky-100 text-sky-700'
-    : 'bg-amber-100 text-amber-700'
+  return BADGES[bar.type]
 }
 </script>
 

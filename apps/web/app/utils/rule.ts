@@ -3,8 +3,16 @@
  *
  * Pure — no Vue, no fetch — because this is the arithmetic the whole bench rests on, and it has
  * to be readable next to the numbers it produces. It lives in the client rather than behind a
- * query parameter on `/shapes` deliberately: a route that took `wfMin` would put a detection
- * rule on the server with nothing naming it. See the docstring on `/patterns`.
+ * query parameter on `/shapes` deliberately: the bench holds those rows already and judges them
+ * here, with no round trip, so a rule parameter there would buy nothing.
+ *
+ * One rule does travel to the server, and the exception is worth stating rather than leaving to
+ * be discovered. `/monitor` sends these same thresholds to `/patterns`, because `leg-reversals`
+ * applies them *inside* the engine — over legs whose internals never cross the wire — and the
+ * browser cannot do for it what it does for `/shapes`. The old objection to that was "a
+ * detection rule on the server with nothing naming it"; the answer is that such a rule is always
+ * named `K`, whatever its numbers, so it lands under a key the screen can point at. See
+ * `toPatternQuery` below and the module docstring on `/patterns`.
  */
 
 import { facing, type Direction, type Form, type Shape } from '~/types/shape'
@@ -61,6 +69,70 @@ export function emptyRule(): Rule {
     colour: 'nunca',
     colourBodyMin: 0.5,
   }
+}
+
+/**
+ * The rule the pipeline runs when nobody overrides it — a mirror of `RULE_K` in
+ * `apps/api/src/playbook_api/pipeline.py`.
+ *
+ * Copied, not fetched. There is no route that answers "what is the pipeline running", and adding
+ * one to save a duplication of seven numbers would be a route existing for a comment's sake. So
+ * the numbers live in two places and nothing compares them — the same trade `pipeline.py` already
+ * declares against `docs/forma/rules.json`, made twice now, with eyes open. What keeps it from
+ * being silent is the badge on `/monitor`: it reads this constant, so if the two drift, the
+ * screen claims "ajustada" over a rule it is not adjusting and someone notices.
+ *
+ * `name` and `direction` are inert here. `/patterns` refuses both — the first because an override
+ * is always named `K`, the second because `FormaRule` has no such field and the leg decides the
+ * side — and `toPatternQuery` drops them. They are carried only so this is a `Rule`, and
+ * `sameRule` and `parseRule` keep working without a second, nearly-identical type.
+ */
+export const PIPELINE_RULE: Rule = {
+  name: 'K',
+  direction: 'baixa',
+  requireWfOverWc: true,
+  wfMin: 0.49,
+  wcMax: 1,
+  wcMaxRatio: null,
+  bodyMin: 0,
+  bodyMax: 0.35,
+  colour: 'nunca',
+  colourBodyMin: 1,
+}
+
+/**
+ * The rule as `/patterns` takes it: the eight thresholds, and neither `name` nor `dir`.
+ *
+ * Its own function rather than `toQuery` minus two keys, because the route answers **400** to
+ * both of those — deliberately, so that a rule sent whole cannot be half-read in silence. Sending
+ * `toQuery`'s output here would fail every request, and a caller who reached for the obvious
+ * function would have to find out why from a stack trace.
+ *
+ * `wcr` is written as the empty string for "no proportional frontier", exactly as `toQuery` does,
+ * and the route parses it back. That is why the parameter is text on the wire and not a number.
+ */
+export function toPatternQuery(rule: Rule): Record<string, string> {
+  return {
+    pre: rule.requireWfOverWc ? '1' : '0',
+    wf: String(rule.wfMin),
+    wc: String(rule.wcMax),
+    wcr: rule.wcMaxRatio === null ? '' : String(rule.wcMaxRatio),
+    bmin: String(rule.bodyMin),
+    bmax: String(rule.bodyMax),
+    cor: rule.colour,
+    corb: String(rule.colourBodyMin),
+  }
+}
+
+/**
+ * A rule flattened to one string, to name a request.
+ *
+ * `/patterns` answers under the same producer key whatever rule ran — that is the point of the
+ * fixed name — so a window no longer identifies a response. Without this in the cache key, Nuxt
+ * serves the previous rule's marks for the new rule's request, and the chart simply does not move.
+ */
+export function ruleKey(rule: Rule): string {
+  return Object.values(toPatternQuery(rule)).join('|')
 }
 
 /** Whether the body's colour satisfies the rule. A bodyless Candle has no colour to disagree with. */

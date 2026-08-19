@@ -26,6 +26,7 @@ from pattern_engine.patterns.leg_reversals import (
     alike,
     average_amplitude,
     dominates,
+    nests,
 )
 from pattern_engine.patterns.leg_window import LegWindowPattern, split_leg_windows
 from pattern_engine.patterns.zigzag import ZigZagPattern, ZigZagPivot
@@ -67,6 +68,17 @@ SHOOTER = (104.0, 110.0, 100.0, 102.0)
 FLAT = (100.0, 100.0, 100.0, 100.0)
 #: Amplitude 100 and marks nothing — ten times the others, to move an average visibly.
 BIG = (1000.0, 1100.0, 1000.0, 1010.0)
+#: Contained in `FILLER` on both sides — 104 under its 106, 98 over its 96. Deliberately invisible
+#: to the other two filters: body 0.5 dominates nothing a neutral neighbour can pair with, and
+#: both shadows fall short of K's 0.49, so anything this bar is listed for is containment.
+INSIDE = (99.0, 104.0, 98.0, 102.0)
+#: `FILLER`'s exact extremes, reached from the other side — the boundary case for `>=` and `<=`.
+#: A high that was equalled is a high that was not exceeded, so this still nests.
+EDGE = (102.0, 106.0, 96.0, 100.0)
+#: Wider than `FILLER` on both sides, so it nests in nothing. Marks nothing else either.
+OUTSIDE = (100.0, 108.0, 94.0, 102.0)
+#: Covers `HAMMER`'s extremes exactly, which is how one bar is made to carry two findings.
+MOTHER = (101.0, 110.0, 100.0, 109.0)
 
 
 def series(*specs: tuple[float, float, float, float], start: datetime = OPEN) -> BaseSeries[Candle]:
@@ -144,9 +156,40 @@ def run(
     ).run(ctx)
 
 
-def listed(point: LegReversals) -> list[tuple[int, str]]:
-    """A leg's findings as `(at, type)`, which is what every assertion here is really about."""
-    return [(bar.at, bar.type) for bar in point.found]
+def listed(point: LegReversals, type: str | None = None) -> list[tuple[int, str]]:
+    """A leg's findings as `(at, type)`, which is what every assertion here is really about.
+
+    `type` narrows to one filter. Most tests below want that, because the filters are a union over
+    the same bars and each test is about one of them — `inside-bar` in particular fires on any
+    repeated fixture bar, since a bar with the same extremes as the one before it *is* inside it,
+    and padding a fixture with twelve copies of `FILLER` would otherwise make every test an
+    inside-bar test. The unfiltered call is kept for the tests that are about the union itself.
+    """
+    return [
+        (bar.at, bar.type) for bar in point.found if type is None or bar.type == type
+    ]
+
+
+def drifting(n: int) -> list[tuple[float, float, float, float]]:
+    """`n` bars with `FILLER`'s proportions, each stepped up so none sits inside the one before.
+
+    The only padding that marks *nothing at all*. Repeating one constant cannot do it: identical
+    extremes satisfy containment, so a run of one bar is a run of inside bars.
+    """
+    return [(100.0 + 2 * i, 106.0 + 2 * i, 96.0 + 2 * i, 102.0 + 2 * i) for i in range(n)]
+
+
+def nesting(n: int, at: int) -> list[tuple[float, float, float, float]]:
+    """`drifting(n)`, with the bar at `at` replaced by one its predecessor contains.
+
+    Built from that predecessor rather than written out, because `drifting` walks the price up and
+    a fixed constant would sit below the run instead of inside it. `INSIDE`'s proportions, shifted
+    — so the replacement is invisible to the other two filters wherever it lands.
+    """
+    bars = drifting(n)
+    _, high, low, _ = bars[at - 1]
+    bars[at] = (low + 3.0, high - 2.0, low + 2.0, high - 4.0)
+    return bars
 
 
 # --- the Forma rule ---------------------------------------------------------------------
@@ -231,6 +274,98 @@ def test_the_average_stops_at_a_session_boundary():
     assert average_amplitude(whole.points, 2, "5m") is None
 
 
+# --- the inside bar ---------------------------------------------------------------------
+
+
+def test_a_bar_contained_by_the_one_before_it_nests():
+    bars = series(FILLER, INSIDE)
+    assert nests(bars.points, 1, "5m")
+
+
+def test_containment_is_inclusive_on_both_extremes():
+    # The whole difference between this and `_engulfs` in `simple_leg.py`, which demands a strict
+    # break of both. An equal high is a high that was not exceeded — that is containment.
+    bars = series(FILLER, EDGE)
+    assert nests(bars.points, 1, "5m")
+
+    # And the degenerate case the fixtures keep running into: a bar identical to its predecessor
+    # is inside it, which is why padding cannot be one constant repeated.
+    same = series(FILLER, FILLER)
+    assert nests(same.points, 1, "5m")
+
+
+def test_a_bar_wider_on_either_side_does_not_nest():
+    wider = series(FILLER, OUTSIDE)
+    assert not nests(wider.points, 1, "5m")
+
+    # One side is enough to disqualify it: the high is under `FILLER`'s, the low is under it too.
+    below = series(FILLER, (100.0, 104.0, 90.0, 102.0))
+    assert not nests(below.points, 1, "5m")
+
+
+def test_the_mother_bar_is_not_the_one_that_nests():
+    # Containment is asymmetric and read backwards: `INSIDE` sits in `FILLER`, never the reverse.
+    bars = series(INSIDE, FILLER)
+    assert not nests(bars.points, 1, "5m")
+
+
+def test_the_first_bar_of_the_history_nests_in_nothing():
+    bars = series(FILLER, INSIDE)
+    assert not nests(bars.points, 0, "5m")
+
+
+def test_containment_does_not_reach_across_a_session_boundary():
+    # One bar apart to the second, and still not a pair: yesterday's last bar is not "the bar
+    # before" this one in any sense that makes containment mean something.
+    across = series(FILLER, start=datetime(2026, 8, 12, 23, 55, tzinfo=UTC))
+    after = series(INSIDE, start=datetime(2026, 8, 13, 0, 0, tzinfo=UTC))
+    whole = BaseSeries(SeriesIdentity(CANDLES, "WIN@N", "5m"), [*across.points, *after.points])
+
+    assert not nests(whole.points, 1, "5m")
+
+
+def test_a_leg_lists_its_inside_bars_and_not_their_mothers():
+    bars = series(*nesting(18, 12))
+    points = run(bars, (0, None, "high"), (17, 12, "low"))
+
+    # `drifting` nests nowhere, so bar 12 is the only inside bar in the leg — and bar 11, which
+    # contains it, is not listed.
+    assert listed(points[0], "inside-bar") == [(12, "inside-bar")]
+
+
+def test_the_inside_filter_ignores_the_direction_of_the_leg():
+    bars = series(*nesting(20, 12))
+
+    # The same bars, read as a leg that fell and as a leg that rose. Unlike the other two filters,
+    # this one reads no body, so it has nothing to say about which way the leg was going.
+    closing_low = run(bars, (0, None, "high"), (19, 12, "low"))
+    closing_high = run(bars, (0, None, "low"), (19, 12, "high"))
+
+    assert listed(closing_low[0], "inside-bar") == [(12, "inside-bar")]
+    assert listed(closing_high[0], "inside-bar") == [(12, "inside-bar")]
+
+
+def test_the_first_bar_of_a_leg_is_measured_against_the_bar_before_the_leg():
+    # The leg opens at bar 10, and its first bar nests in bar 9 — outside the leg entirely. Same
+    # global measurement the pair filter gets, for the same reason: the slice decides what is
+    # listed, never what is true.
+    bars = series(*nesting(20, 10))
+    points = run(bars, (10, None, "high"), (19, 11, "low"))
+
+    assert listed(points[0], "inside-bar") == [(0, "inside-bar")]
+
+
+def test_one_bar_can_carry_an_inside_mark_and_a_shape_mark_at_once():
+    bars = series(*drifting(12), MOTHER, HAMMER, *drifting(4))
+    points = run(bars, (0, None, "high"), (17, 12, "low"))
+
+    # `MOTHER` covers `HAMMER`'s extremes exactly, and the leg closes on a low, so rule K reads
+    # the hammer too. Two filters, two findings, one bar — the mutual exclusion that holds between
+    # the pair filter and rule K says nothing about containment, and this is where `found` stops
+    # being keyable on `at` alone.
+    assert listed(points[0]) == [(13, "inside-bar"), (13, "reversal-bar")]
+
+
 # --- what a leg lists -------------------------------------------------------------------
 
 
@@ -240,7 +375,7 @@ def test_a_pair_lists_both_of_its_bars_once_each():
     points = run(bars, (0, None, "high"), (17, 12, "low"))
 
     assert len(points) == 1
-    assert listed(points[0]) == [(12, "two-bar"), (13, "two-bar")]
+    assert listed(points[0], "two-bar") == [(12, "two-bar"), (13, "two-bar")]
 
 
 def test_a_chained_run_lists_every_bar_once_and_in_order():
@@ -251,7 +386,7 @@ def test_a_chained_run_lists_every_bar_once_and_in_order():
     # middle link (13, 14) closes bearish and is dropped by the direction filter, which is also
     # what makes a duplicate unreachable: a bar can only close one matching pair, because closing
     # the next one would need it to hold both colours at once.
-    assert listed(points[0]) == [
+    assert listed(points[0], "two-bar") == [
         (12, "two-bar"),
         (13, "two-bar"),
         (14, "two-bar"),
@@ -259,13 +394,18 @@ def test_a_chained_run_lists_every_bar_once_and_in_order():
     ]
 
 
-def test_a_bar_with_no_amplitude_is_never_listed():
+def test_a_bar_with_no_amplitude_is_read_only_by_the_inside_filter():
     bars = series(*([FILLER] * 12), FLAT, HAMMER, *([FILLER] * 4))
     points = run(bars, (0, None, "high"), (17, 12, "low"))
 
-    # The flat bar has no proportions for either filter to read, and is skipped rather than
-    # guessed at. Its neighbour is still measured normally.
-    assert listed(points[0]) == [(13, "reversal-bar")]
+    # The flat bar has no proportions for the two shape filters to read, and is skipped by them
+    # rather than guessed at. Its neighbour is still measured normally.
+    assert listed(points[0], "two-bar") == []
+    assert listed(points[0], "reversal-bar") == [(13, "reversal-bar")]
+
+    # Containment needs no proportions, though: a bar that traded at one price sits inside
+    # whatever preceded it. Listing it is the honest answer, not an escaped edge case.
+    assert (12, "inside-bar") in listed(points[0], "inside-bar")
 
 
 def test_the_direction_comes_from_the_leg_not_from_the_rule():
@@ -275,12 +415,29 @@ def test_the_direction_comes_from_the_leg_not_from_the_rule():
     closing_high = run(bars, (0, None, "low"), (19, 12, "high"))
 
     # One rule, one set of numbers, both sides — the same bars read against the leg they sit in.
-    assert listed(closing_low[0]) == [(12, "reversal-bar")]
-    assert listed(closing_high[0]) == [(14, "reversal-bar")]
+    assert listed(closing_low[0], "reversal-bar") == [(12, "reversal-bar")]
+    assert listed(closing_high[0], "reversal-bar") == [(14, "reversal-bar")]
+
+
+def test_the_point_reports_the_leg_s_own_move_not_the_turn_it_hunts():
+    bars = series(*([FILLER] * 12), HAMMER, FILLER, SHOOTER, *([FILLER] * 5))
+
+    rising = run(bars, (0, None, "low"), (19, 12, "high"))
+    falling = run(bars, (0, None, "high"), (19, 12, "low"))
+
+    assert rising[0].direction == "bullish", "closed on a high, so the leg rose"
+    assert falling[0].direction == "bearish", "closed on a low, so the leg fell"
+
+    # And the marks inside each are the *opposite* side's, which is the whole reason the two
+    # values are kept apart: the rising leg is hunting the bearish bar that ends it.
+    assert listed(rising[0], "reversal-bar") == [(14, "reversal-bar")], "the shooter"
+    assert listed(falling[0], "reversal-bar") == [(12, "reversal-bar")], "the hammer"
 
 
 def test_a_leg_that_marks_nothing_still_emits_a_point():
-    bars = series(*([FILLER] * 20))
+    # `drifting`, not a repeated `FILLER`: a bar with the same extremes as the one before it is
+    # an inside bar, so repeated padding cannot produce an empty `found`.
+    bars = series(*drifting(20))
     points = run(bars, (0, None, "high"), (19, 12, "low"))
 
     assert len(points) == 1
@@ -294,13 +451,13 @@ def test_the_expansion_average_reaches_back_past_the_start_of_the_leg():
     quiet = series(*([FILLER] * 11), BEAR, BULL, *([FILLER] * 7))
     loud = series(*([BIG] * 11), BEAR, BULL, *([FILLER] * 7))
 
-    assert listed(run(quiet, (10, None, "high"), (19, 11, "low"))[0]) == [
+    assert listed(run(quiet, (10, None, "high"), (19, 11, "low"))[0], "two-bar") == [
         (1, "two-bar"),
         (2, "two-bar"),
     ]
     # The same pair, in the same place in its leg, rejected — because the ten bars *before the
     # leg began* were ten times its size. Nothing inside the slice could have said so.
-    assert listed(run(loud, (10, None, "high"), (19, 11, "low"))[0]) == []
+    assert listed(run(loud, (10, None, "high"), (19, 11, "low"))[0], "two-bar") == []
 
 
 def test_a_leg_closing_where_the_pivots_have_no_vertex_raises():

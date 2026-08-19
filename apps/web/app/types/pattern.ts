@@ -75,21 +75,34 @@ export interface LegBar extends PatternPoint {
   /**
    * Which filter marked it. `two-bar` means the bar belongs to a matching pair — with the bar
    * before it or the one after — listed once either way, so an alternating run reads as several
-   * entries with contiguous `at` rather than one per pair.
+   * entries with contiguous `at` rather than one per pair. `inside-bar` means the previous bar
+   * already covered this one's range, both extremes included.
+   *
+   * The three are not exclusive: `inside-bar` reads only the extremes, so it lands on bars the
+   * other two also marked, and `found` then holds one entry per reading. Key a mark on `at` and
+   * `type` together — never on `at` or `time` alone.
    */
-  type: 'two-bar' | 'reversal-bar'
+  type: 'two-bar' | 'reversal-bar' | 'inside-bar'
 }
 
 /**
- * One leg's marked bars, anchored where its `LegWindow` is.
+ * One leg's marked bars and which way it ran, anchored where its `LegWindow` is.
  *
- * Carries the anchor and the list and nothing else: `since`, `end` and the leg's direction are on
- * the `LegWindow` Point at the same `time`, and restating them would be two Series claiming one
- * fact. An empty `found` is a leg that matched nothing, which is not the same as a leg missing.
+ * Carries those two and nothing else: `since` and `end` are on the `LegWindow` Point at the same
+ * `time`, and restating them would be two Series claiming one fact. An empty `found` is a leg that
+ * matched nothing, which is not the same as a leg missing.
  */
 export interface LegReversals extends PatternPoint {
   /** An array on the wire: the Python tuple serializes as a list. */
   found: LegBar[]
+  /**
+   * The leg's **own** move: `bullish` when it closed on a high, `bearish` on a low.
+   *
+   * Not the direction the filters hunted, which is the opposite one — the bar that turns a fall is
+   * a bullish bar, so a `bearish` leg holds bullish candidates. Read it as "which end of the move
+   * these marks sit at", which is what a drawing needs and what `found` cannot say on its own.
+   */
+  direction: 'bullish' | 'bearish'
 }
 
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {

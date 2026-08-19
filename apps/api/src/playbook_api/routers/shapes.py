@@ -1,10 +1,15 @@
 """`GET /shapes` — the Candle proportions the rule bench is built on.
 
 **This route measures; it does not judge.** It answers with `upper`, `lower`, `body` and the
-colour, and takes no rule parameters at all. That is deliberate, and it is the same line
-`/patterns` draws: a route that took `wf_min` and `wc_max` from the query string would make the
-browser the author of the detection rule, and the server the place a rule silently lives. The
-bench composes rules in the client, over rows it already holds.
+colour, and takes no rule parameters at all. That is deliberate, and the reason is this route's
+own rather than borrowed: the bench holds every one of these rows already and composes rules over
+them with no round trip, so a `wf_min` here would buy nothing and would create a second place a
+rule can live — one that no screen names and nothing compares against the client's.
+
+`/patterns` did have to open that door, for `leg-reversals` alone: it applies its rule inside the
+engine, over legs whose internals never cross the wire, so the browser cannot evaluate it the way
+it evaluates these rows. That argument does not reach this route, and until it does, `/shapes`
+measures and the client judges.
 
 Separate from `/candles` because the two have opposite appetites. The chart wants a few hundred
 bars with their prices; the bench wants every bar there is, without them — `/candles` caps at

@@ -2,8 +2,10 @@
 import type { Component } from 'vue'
 import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
 import { producerName, type PatternPoint } from '~/types/pattern'
+import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
+import LegReversalsOverlay from '~/components/LegReversalsOverlay.vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -26,10 +28,15 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * The second entry is the first test of that bet, and it held: `simple-leg` is a line with no
  * markers, because its Points carry no second bar to mark. What the two overlays share is the
  * line, and that went to `useLineOverlay` rather than into this map.
+ *
+ * The third is the other half of the same test: `leg-reversals` is markers with no line, and its
+ * dots are coloured by a field of the Point rather than by this file's palette. Between them the
+ * three cover line-only, markers-only, and both — which is the case for keeping the map.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
   'simple-leg': SimpleLegOverlay,
+  'leg-reversals': LegReversalsOverlay,
 }
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
@@ -91,11 +98,78 @@ function pin(value: string) {
   select({ to: new Date(value).toISOString() })
 }
 
+/**
+ * The Forma rule the pipeline should apply to `leg-reversals`, kept in `localStorage`.
+ *
+ * This is the one thing on this page the server does not decide. It is here rather than on
+ * `/rules` because the bench judges `/shapes` in the browser and this Pattern cannot be judged
+ * that way — it reads the leg's internals, which never cross the wire — so the numbers travel
+ * instead. See the module docstring on `/patterns`.
+ */
+const { rule, update: updateRule, reset: resetRule } = useStoredRule()
+
+/** Whether the numbers differ from what the pipeline runs unattended. */
+const adjusted = computed(() => !sameRule(rule.value, PIPELINE_RULE))
+
 // One window, both requests. See `useWindow` for why that matters.
 const window = useWindow(timeframe, at)
 
 const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe, window, windowKey)
-const { data: patterns, error: patternsError } = usePatterns(window, windowKey)
+const {
+  data: patterns,
+  error: patternsError,
+  // Named, unlike on `/candles`, because a rule edit now starts a pipeline run: without this the
+  // sidebar shows the previous rule's counts with nothing saying they are about to change.
+  pending: patternsPending,
+} = usePatterns(window, windowKey, rule)
+
+/**
+ * The rules committed to `docs/forma/rules.json`, so the ones already worth comparing against are
+ * a click rather than seven fields of typing. The same fetch and the same `parseRule` the bench
+ * uses — it is the same file, and a second reading of it could disagree with the first.
+ */
+const { data: saved } = useFetch<{ rules: unknown[] }>('/api/rules', { default: () => ({ rules: [] }) })
+
+const savedRules = computed(() => (saved.value?.rules ?? []).map(parseRule).map(entry => entry.rule))
+
+/**
+ * Loads a saved rule's **numbers**. Its name stays behind, and that is not an oversight.
+ *
+ * `/patterns` names every override `K` so the producer key never moves, which is what lets the
+ * checkbox above survive an edit. Carrying `J` into the sidebar would put a name on screen that
+ * nothing in the response agrees with.
+ */
+function loadSaved(name: string) {
+  const found = savedRules.value.find(entry => entry.name === name)
+  if (!found) return
+  // `name` and `direction` are deliberately not copied: the route refuses both.
+  const { name: _name, direction: _direction, ...numbers } = found
+  updateRule(numbers)
+}
+
+/** `null` clears the proportional frontier; the field is left empty to mean "unused". */
+function setRatio(value: string) {
+  updateRule({ wcMaxRatio: value === '' ? null : Number(value) })
+}
+
+/**
+ * The body range, clamped so the two ends cannot cross.
+ *
+ * On the bench a crossed range is merely a rule that marks nothing, and you see that immediately
+ * in the counts. Here it is a **400** from `rule_query` — a request that fails rather than one
+ * that answers zero — so dragging `bmin` past `bmax` would flash an error banner mid-edit. The
+ * clamp keeps the invariant on this side of the wire, where it costs one line.
+ */
+function setBody(edge: 'bodyMin' | 'bodyMax', value: string) {
+  const parsed = Number(value)
+  if (Number.isNaN(parsed)) return
+  updateRule(edge === 'bodyMin'
+    ? { bodyMin: Math.min(parsed, rule.value.bodyMax) }
+    : { bodyMax: Math.max(parsed, rule.value.bodyMin) })
+}
+
+/** The number fields in the rule block. Narrower than the bench's — this is a 20rem sidebar. */
+const ruleField = 'w-20 rounded border border-gray-300 px-1.5 py-0.5 text-xs'
 
 /**
  * Every Series the pipeline produced, in a shape the checkbox list and the overlays share.
@@ -107,6 +181,9 @@ const { data: patterns, error: patternsError } = usePatterns(window, windowKey)
 const overlays = computed(() =>
   Object.entries(patterns.value?.series ?? {}).map(([producer, series], index) => ({
     producer,
+    // The class part, kept alongside the component: the sidebar needs to name the Pattern to know
+    // whether it has extra controls, and re-splitting the key in the template would hide that.
+    name: producerName(producer),
     component: OVERLAYS[producerName(producer)],
     // Left as the base Point: each Pattern declares its own, and this list holds all of them.
     // The overlay a producer maps to is the thing that knows which one it is getting, and it
@@ -118,17 +195,65 @@ const overlays = computed(() =>
 )
 
 /**
- * Unchecked producers. Held as the exception rather than the rule so a Series arriving for the
- * first time is visible by default, with no bookkeeping when the pipeline gains a Pattern.
+ * Checked producers. Held as the exception rather than the rule so a Series arriving for the
+ * first time is hidden by default, and the chart opens as candles alone however many Patterns
+ * the pipeline gains.
  *
  * Local, not in the URL: the producer key carries the timeframe, so it changes as you switch
  * timeframes and would not survive in a link anyway.
  */
-const hidden = ref(new Set<string>())
+const shown = ref(new Set<string>())
 
 function toggle(producer: string) {
-  if (hidden.value.has(producer)) hidden.value.delete(producer)
-  else hidden.value.add(producer)
+  if (shown.value.has(producer)) shown.value.delete(producer)
+  else shown.value.add(producer)
+}
+
+/**
+ * The two ways a leg can run, in the order the filters are listed, with the label each gets.
+ *
+ * Only `leg-reversals` splits this way, so this is the one place the page knows a Point-level
+ * field of a specific Pattern. What it does with it is narrow — pass the kept directions down —
+ * and the overlay still owns what a direction *means* for the drawing.
+ */
+const DIRECTIONS = [
+  { value: 'bullish', label: 'bull' },
+  { value: 'bearish', label: 'bear' },
+] as const
+
+type Direction = typeof DIRECTIONS[number]['value']
+
+/**
+ * Directions the bull/bear filters have turned *off*, keyed by producer and direction.
+ *
+ * The exception again, as with `shown`, but inverted: a Series arrives hidden, while a Series you
+ * chose to show arrives with both its directions drawn. Unchecking is the deliberate act, so it is
+ * the thing worth storing.
+ */
+const hiddenDirections = ref(new Set<string>())
+
+function directionKey(producer: string, direction: Direction) {
+  return `${producer}:${direction}`
+}
+
+function directionsFor(producer: string): Direction[] {
+  return DIRECTIONS.map(item => item.value).filter(
+    value => !hiddenDirections.value.has(directionKey(producer, value)),
+  )
+}
+
+function toggleDirection(producer: string, direction: Direction) {
+  const key = directionKey(producer, direction)
+  if (hiddenDirections.value.has(key)) hiddenDirections.value.delete(key)
+  else hiddenDirections.value.add(key)
+}
+
+/**
+ * The props only one overlay takes, spread into the `component` so the others never see them —
+ * an unknown attribute would fall through onto components that render no root element.
+ */
+function extraProps(overlay: { producer: string, name: string }) {
+  return overlay.name === 'leg-reversals' ? { directions: directionsFor(overlay.producer) } : {}
 }
 </script>
 
@@ -224,7 +349,8 @@ function toggle(producer: string) {
               :key="overlay.producer"
               :points="overlay.points"
               :color="overlay.color"
-              :visible="!hidden.has(overlay.producer)"
+              :visible="shown.has(overlay.producer)"
+              v-bind="extraProps(overlay)"
             />
           </CandleChart>
           <template #fallback>
@@ -234,7 +360,11 @@ function toggle(producer: string) {
       </section>
 
       <aside class="w-full shrink-0 rounded border border-gray-200 p-4 lg:w-80">
-        <h2 class="text-sm font-semibold">Padrões</h2>
+        <h2 class="flex items-baseline justify-between text-sm font-semibold">
+          Padrões
+          <!-- The run is now started by editing a field, so it needs to say it is running. -->
+          <span v-if="patternsPending" class="text-xs font-normal text-gray-400">rodando…</span>
+        </h2>
 
         <p v-if="patternsError" class="mt-3 text-xs text-red-600">
           Não foi possível rodar o pipeline.
@@ -251,7 +381,7 @@ function toggle(producer: string) {
               <input
                 type="checkbox"
                 class="mt-0.5"
-                :checked="!hidden.has(overlay.producer)"
+                :checked="shown.has(overlay.producer)"
                 @change="toggle(overlay.producer)"
               >
               <span class="min-w-0">
@@ -269,6 +399,145 @@ function toggle(producer: string) {
                 </span>
               </span>
             </label>
+
+            <!-- Only under a Series that is actually drawn: with the checkbox off there is nothing
+                 for these to filter, and leaving them visible would suggest otherwise. -->
+            <div
+              v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
+              class="mt-1 ml-6 flex gap-3"
+            >
+              <label
+                v-for="direction in DIRECTIONS"
+                :key="direction.value"
+                class="flex items-center gap-1 text-xs text-gray-500"
+              >
+                <input
+                  type="checkbox"
+                  :checked="!hiddenDirections.has(`${overlay.producer}:${direction.value}`)"
+                  @change="toggleDirection(overlay.producer, direction.value)"
+                >
+                {{ direction.label }}
+              </label>
+            </div>
+
+            <!-- The Forma rule this Pattern applies — the only thing on this page the browser
+                 composes and the server runs. Under the same condition as the filters above, and
+                 for a sharper version of the same reason: every committed field is a pipeline
+                 run, and offering them under an unchecked box would spend one on nothing.
+
+                 Inside `ClientOnly` because the stored rule arrives after mount: the server
+                 renders `PIPELINE_RULE` and the client may replace it, which is a hydration
+                 mismatch anywhere it is rendered on both. Same guard as the timepicker above. -->
+            <ClientOnly>
+              <div
+                v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
+                class="mt-2 ml-6 space-y-2 border-l border-gray-100 pl-3 text-xs"
+              >
+                <div class="flex items-baseline justify-between gap-2">
+                  <span class="font-semibold text-gray-500">Regra Forma</span>
+                  <!-- The producer key is identical whichever rule ran — see `/patterns`. This
+                       badge is the only thing on screen that tells an adjusted run from the
+                       declared one, so it is not decoration. -->
+                  <button
+                    v-if="adjusted"
+                    class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100"
+                    @click="resetRule()"
+                  >
+                    ajustada · voltar ao padrão
+                  </button>
+                  <span v-else class="text-[10px] text-gray-400">a do pipeline</span>
+                </div>
+
+                <label v-if="savedRules.length" class="flex items-center justify-between gap-2">
+                  <span class="text-gray-500">Carregar</span>
+                  <select
+                    class="w-28 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                    value=""
+                    @change="loadSaved(($event.target as HTMLSelectElement).value)"
+                  >
+                    <!-- Only the numbers are copied, so the list is a starting point and never a
+                         claim about what the Series is called. -->
+                    <option value="" disabled>só os números…</option>
+                    <option v-for="entry in savedRules" :key="entry.name" :value="entry.name">
+                      {{ entry.name }}
+                    </option>
+                  </select>
+                </label>
+
+                <label class="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    :checked="rule.requireWfOverWc"
+                    @change="updateRule({ requireWfOverWc: ($event.target as HTMLInputElement).checked })"
+                  >
+                  <span>exigir <code class="font-mono">wf &gt; wc</code></span>
+                </label>
+
+                <!-- `@change`, not `@input`: each committed value is a full pipeline run on the
+                     server, and `@change` fires on blur or Enter. That is the debounce. -->
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-gray-500"><code class="font-mono">wf ≥</code></span>
+                  <input
+                    type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wfMin"
+                    @change="updateRule({ wfMin: Number(($event.target as HTMLInputElement).value) })"
+                  >
+                </label>
+
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-gray-500"><code class="font-mono">wc ≤</code></span>
+                  <input
+                    type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wcMax"
+                    @change="updateRule({ wcMax: Number(($event.target as HTMLInputElement).value) })"
+                  >
+                </label>
+
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-gray-500"><code class="font-mono">wc ≤ k·wf</code></span>
+                  <input
+                    type="number" step="0.01" min="0" max="10" :class="ruleField" placeholder="sem k"
+                    :value="rule.wcMaxRatio ?? ''"
+                    @change="setRatio(($event.target as HTMLInputElement).value)"
+                  >
+                </label>
+
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-gray-500"><code class="font-mono">b</code> entre</span>
+                  <span class="flex gap-1">
+                    <input
+                      type="number" step="0.05" min="0" :max="rule.bodyMax"
+                      class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                      :value="rule.bodyMin"
+                      @change="setBody('bodyMin', ($event.target as HTMLInputElement).value)"
+                    >
+                    <input
+                      type="number" step="0.05" :min="rule.bodyMin" max="1"
+                      class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                      :value="rule.bodyMax"
+                      @change="setBody('bodyMax', ($event.target as HTMLInputElement).value)"
+                    >
+                  </span>
+                </div>
+
+                <label class="flex items-center justify-between gap-2">
+                  <span class="text-gray-500">Cor</span>
+                  <select
+                    class="rounded border border-gray-300 px-1 py-0.5 text-xs"
+                    :value="rule.colour"
+                    @change="updateRule({ colour: ($event.target as HTMLSelectElement).value as Rule['colour'] })"
+                  >
+                    <option v-for="option in COLOUR_MODES" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                </label>
+
+                <label v-if="rule.colour === 'acima-de'" class="flex items-center justify-between gap-2">
+                  <span class="text-gray-500">cor se <code class="font-mono">b &gt;</code></span>
+                  <input
+                    type="number" step="0.05" min="0" max="1" :class="ruleField" :value="rule.colourBodyMin"
+                    @change="updateRule({ colourBodyMin: Number(($event.target as HTMLInputElement).value) })"
+                  >
+                </label>
+              </div>
+            </ClientOnly>
           </li>
         </ul>
 
