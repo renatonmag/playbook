@@ -31,9 +31,15 @@ then falls for an hour is seeded `bull`, and `mark_pullbacks` corrects it at the
 reversal. The price of that is one spurious mark near the start, paid knowingly — the
 alternative is a confirmation window, which is a second, quieter opinion about what a trend is.
 
+A leg is only marked once the *next* one turns, so the leg running at the last bar leaves no
+mark at all. `running` is the one thing this class says about it: the side that leg would end on,
+left behind by the walk. It is an attribute rather than a column because a column would put it on
+some bar, and on that bar it would be indistinguishable from a mark that had actually landed.
+
 `SimpleLegPattern` at the bottom is the adapter that makes this a Pattern — the same split
 `zigzag.py` uses, and for the same reason: the algorithm speaks dicts and knows nothing about
-Series, so its interface can change without the semantics moving underneath.
+Series, so its interface can change without the semantics moving underneath. It is where
+`running` becomes a Point: the provisional last vertex, flagged as such.
 """
 
 import math
@@ -63,6 +69,8 @@ class PbMark:
         self._pending = None
         """The side of a leg mark that has not found a bar to land on yet."""
         self._direction = None
+        self.running: Literal["high", "low"] | None = None
+        """The side the leg still in progress would end on, once `extract` has run."""
 
     def detect_initial_direction(self):
         """The direction of the first pair of bars that says something unambiguous.
@@ -139,6 +147,10 @@ class PbMark:
         self._direction = self.detect_initial_direction()
 
         sides = [self.mark_pullbacks(bar) for bar in self._data]
+        # Read before the landing loop, which does not touch `_direction`: what the pullback
+        # pass leaves there is the leg that never turned — the one still running at the last
+        # bar. `None` when no direction was ever seeded, the same silence `leg_mark` keeps.
+        self.running = SIDES[self._direction] if self._direction else None
         # A bar carries the mark of the leg that turns on the bar after it.
         leg_marks = sides[1:] + [None]
 
@@ -206,6 +218,11 @@ class LegMark(Pivot):
     """
 
     direction: Literal["high", "low"]
+    #: True for the **last** Point only, and only while a leg is still running: this bar is the
+    #: newest one in the window, not a turn. The leg has not ended, so the point moves as bars
+    #: close and can change side outright when the turn finally lands elsewhere. Every settled
+    #: mark is `False`. Filter on it before treating this Series as a record of completed legs.
+    provisional: bool
 
 
 class SimpleLegPattern(Pattern):
@@ -221,29 +238,63 @@ class SimpleLegPattern(Pattern):
     the rule's own behaviour and is left visible rather than repaired here; moving the price to
     the leg's true extreme would be a second opinion about where a leg ends, living in the
     adapter instead of in the rule.
+
+    The **last Point is provisional** while a leg is still running, which is most of the time: a
+    mark is only emitted when the *next* leg turns, so without this the Series would stop at the
+    last leg to have closed and the line would end well short of the newest bar. It is anchored
+    on that newest bar and priced by the same rule as every other Point — the side the running
+    leg would end on, read off that bar. What it costs, stated rather than hidden:
+
+    - **It is not a turn**, and it moves. Each new bar redraws it, and when the leg does turn the
+      settled mark lands on some earlier bar entirely. `provisional` is the flag to filter on;
+      this Series is no longer purely a record of completed legs.
+    - **No provisional Point at all** when the newest bar already carries a settled mark — a bar
+      holds one mark, so the running leg opening *on* that bar has no room of its own — or when
+      no direction was ever seeded, which is what an empty or motionless window gives.
     """
 
     def __init__(self, *, reads: tuple[Timeframe, ...], emits: Timeframe) -> None:
         super().__init__(reads=reads, emits=emits)
 
     def run(self, ctx: Ctx) -> BaseSeries[LegMark]:
-        """Walk `emits`' Candles once and pack the bars that came back marked.
+        """Walk `emits`' Candles once and pack the bars that came back marked, plus the running leg.
 
         `PbMark`'s output is dense and parallel to its input, so `zip` is what pairs a record
         back to the Candle it came from — no lookup by `time`, and the marker never learns that
-        bars have times at all.
+        bars have times at all. The provisional Point is appended after that pass, because the
+        bar it sits on carries no mark: that is precisely what makes its leg unfinished.
         """
         bars = ctx[BARS][self.emits]
-        raw = PbMark([{"high": bar.high, "low": bar.low, "close": bar.close} for bar in bars])()
+        # The instance is kept, not just its call: `running` is the second thing it answers, and
+        # it is state left behind by the walk rather than a column of the dense output — a column
+        # would be indistinguishable from a real mark on the bar it sat on.
+        marker = PbMark([{"high": bar.high, "low": bar.low, "close": bar.close} for bar in bars])
+        raw = marker()
 
         points = [
             LegMark.anchored(
                 bar,
                 price=bar.high if entry["leg_mark"] == "high" else bar.low,
                 direction=entry["leg_mark"],
+                provisional=False,
             )
             for bar, entry in zip(bars, raw)
             if entry["leg_mark"] is not None
         ]
+
+        # The leg that never turned, given an endpoint at the newest bar. The `time` guard is the
+        # one-mark-per-bar rule and also what keeps the anchors strictly increasing, which
+        # `BaseSeries` requires: a mark that walked forward onto the last bar is already there.
+        last = bars.points[-1] if bars else None
+        if last is not None and marker.running is not None:
+            if not points or points[-1].time != last.time:
+                points.append(
+                    LegMark.anchored(
+                        last,
+                        price=last.high if marker.running == "high" else last.low,
+                        direction=marker.running,
+                        provisional=True,
+                    )
+                )
 
         return BaseSeries(SeriesIdentity(self.producer, ctx[INSTRUMENT], self.emits), points)

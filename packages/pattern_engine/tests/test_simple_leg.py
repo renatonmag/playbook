@@ -401,3 +401,41 @@ class TestExtract:
 
     def test_calling_the_instance_runs_the_extraction(self):
         assert PbMark(rows(RISING_WITH_PULLBACK))() == run(RISING_WITH_PULLBACK)
+
+
+class TestRunning:
+    """The leg that never turned, which is the one no `leg_mark` can ever describe.
+
+    A mark is emitted only when the *next* leg turns, so the leg open at the last bar leaves the
+    dense output silent. `running` is the only thing said about it — an attribute rather than a
+    column because on any bar it would be indistinguishable from a mark that landed there.
+    """
+
+    @staticmethod
+    def marker(source: Rows) -> PbMark:
+        mark = PbMark(rows(source))
+        mark.extract()
+        return mark
+
+    def test_a_leg_still_rising_would_end_at_a_high(self):
+        # Bar 4's higher high turns the leg back up, and nothing turns it down again.
+        assert self.marker(RISING_WITH_PULLBACK).running == "high"
+
+    def test_a_leg_still_falling_would_end_at_a_low(self):
+        assert self.marker(FALLING_WITH_PULLBACK).running == "low"
+
+    def test_a_series_with_no_seeded_direction_reports_no_running_leg(self):
+        # Nothing was ever running, so there is nothing to report — not a guessed side.
+        assert self.marker(FLAT).running is None
+
+    def test_an_empty_series_reports_no_running_leg(self):
+        assert self.marker(EMPTY).running is None
+
+    def test_it_is_only_answered_once_the_walk_has_run(self):
+        """Read off state the pullback pass leaves behind, so a fresh instance knows nothing."""
+        assert PbMark(rows(RISING_WITH_PULLBACK)).running is None
+
+    def test_the_dense_output_gains_no_column_for_it(self):
+        entries = run(RISING_WITH_PULLBACK)
+        columns = {"high", "low", "close", "pullback", "leg_mark"}
+        assert all(entry.keys() == columns for entry in entries)

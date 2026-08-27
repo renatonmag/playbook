@@ -2,7 +2,7 @@
 
 Which bars `PbMark` picks is `test_simple_leg.py`'s business. What is asserted here is what the
 adapter promises: the output is sparse, ordered, anchored on real bars, priced at the side the
-mark names, and carrying the identity of the run it came from.
+mark names, carrying the identity of the run it came from, and closing on the leg still running.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -101,7 +101,25 @@ def test_a_point_carries_the_ohlcv_of_the_bar_it_is_anchored_on():
         )
 
 
+def test_the_last_point_is_the_leg_still_running_and_says_so():
+    """A mark lands only when the *next* leg turns, so without this the line stops short."""
+    bars = wave()
+    marks = list(run(bars))
+    assert marks[-1].provisional
+    assert marks[-1].time == bars.points[-1].time
+    assert not any(mark.provisional for mark in marks[:-1])
+
+
+def test_the_provisional_point_is_priced_on_the_newest_bar_like_every_other():
+    """No second pricing rule for it — the marked bar's extreme, on the running leg's side."""
+    bars = wave()
+    last = bars.points[-1]
+    running = list(run(bars))[-1]
+    assert running.price == (last.high if running.direction == "high" else last.low)
+
+
 def test_a_series_with_no_readable_direction_yields_an_empty_series():
+    # And no provisional Point either: with nothing seeded there is no running leg to report.
     assert not run(flat())
 
 
@@ -123,7 +141,10 @@ def test_on_an_unambiguous_wave_the_marks_alternate_and_land_on_the_true_extreme
     complaints the monitor is meant to surface (a dense line, and vertices short of the real
     extreme) are both about how the rule meets real data, and neither is visible here.
     """
-    marks = list(run(wave()))
+    # Settled marks only: the last Point is the leg still running, anchored mid-slope on the
+    # newest bar, so it neither alternates with its predecessor nor sits on a true extreme.
+    # Needing this filter is the whole reason the flag exists.
+    marks = [mark for mark in run(wave()) if not mark.provisional]
     sides = [mark.direction for mark in marks]
     assert len(sides) > 2
     assert all(a != b for a, b in zip(sides, sides[1:]))

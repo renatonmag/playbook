@@ -35,10 +35,17 @@ export interface ZigZagPivot extends PatternPoint {
  *
  * No `since`, unlike `ZigZagPivot`: the leg ending here began at the previous Point of the same
  * Series, so the line already joins it.
+ *
+ * The last Point is normally `provisional` — the leg it closes has not turned yet.
  */
 export interface LegMark extends PatternPoint {
   price: number
   direction: 'high' | 'low'
+  /**
+   * True for the last Point only, while a leg is still running: that bar is the newest one in
+   * the window, not a turn. It moves as bars close, and can change side when the turn lands.
+   */
+  provisional: boolean
 }
 
 /**

@@ -12,6 +12,10 @@ import type { LegMark } from '~/types/pattern'
  * the zigzag reaches. The rule reads one side of the bar at a time, so a leg can make its high
  * several bars before the bar that marks its end, and the vertex is priced on the marked bar.
  * That gap is the reason this is on the chart at all — it is the finding, not a defect here.
+ *
+ * The final segment runs to a `provisional` Point — the leg still open at the newest bar, which
+ * has not turned yet. It is drawn like any other: the alternative is a second line style saying
+ * something the whole right edge of a live chart already says.
  */
 const props = defineProps<{ points: LegMark[], visible: boolean, color?: string }>()
 
