@@ -1,11 +1,12 @@
 import type {
-  Coordinate,
   IPrimitivePaneRenderer,
   IPrimitivePaneView,
   ISeriesApi,
   ISeriesPrimitive,
   IChartApi,
+  ITimeScaleApi,
   Logical,
+  PrimitiveHoveredItem,
   PrimitivePaneViewZOrder,
   SeriesAttachedParameter,
   SeriesType,
@@ -44,10 +45,26 @@ import type {
 type RenderTarget = Parameters<IPrimitivePaneRenderer['draw']>[0]
 
 export interface LevelSegment {
+  /**
+   * What this segment *is*, for the caller's benefit and nothing else.
+   *
+   * Opaque here — the primitive never parses it. It is handed back through `hitTest` as the
+   * hovered object's `externalId`, which is how a click on the canvas becomes a click on a
+   * particular thing in the caller's world. See `extremeSegments`, which mints these.
+   */
+  id: string
   /** The bar the segment starts on. Its own candle is the **first** of the span, not the middle. */
   time: UTCTimestamp
   price: number
   color: string
+  /**
+   * Runs to the right-hand end of the data instead of stopping after `options.bars`.
+   *
+   * Length is the only thing a caller may vary per segment, and deliberately so: colour already
+   * carries which of the three levels a line is, and width would read as a heavier claim about the
+   * price rather than as "this one is selected".
+   */
+  extend?: boolean
 }
 
 export interface LevelSegmentsOptions {
@@ -55,6 +72,90 @@ export interface LevelSegmentsOptions {
   bars: number
   /** Stroke width in CSS pixels; scaled to the device's bitmap at draw time. */
   lineWidth: number
+}
+
+/** How far from a segment's line a cursor still counts as being on it, in CSS pixels. */
+const HIT_TOLERANCE = 4
+
+/** Where a segment lies in media (CSS) space: the same numbers the renderer strokes, unscaled. */
+interface SegmentBounds {
+  left: number
+  right: number
+  y: number
+}
+
+/**
+ * The pixel distance between adjacent bar centres, or `null` when the scale cannot answer.
+ *
+ * Derived from the scale itself rather than taken from `TimeScaleOptions.barSpacing`: this is that
+ * distance *by definition*, whatever the option means under zoom or conflation, and it is one call
+ * per frame instead of one per segment. Both ends of the pair are off-screen at most zoom levels,
+ * which is fine — the mapping is linear and defined outside the viewport.
+ */
+function barSpacing(timeScale: ITimeScaleApi<Time>): number | null {
+  const first = timeScale.logicalToCoordinate(0 as Logical)
+  const second = timeScale.logicalToCoordinate(1 as Logical)
+  if (first === null || second === null) return null
+
+  const spacing = second - first
+  return Number.isFinite(spacing) && spacing > 0 ? spacing : null
+}
+
+/**
+ * The right edge of the newest bar the attached series holds, or `null` when there is none.
+ *
+ * This is what "the current bar" means to a segment that runs to it, and it needs no clock and no
+ * prop to say so: the candlestick series carries every bar including the one still open, and the
+ * live feed's `update` is what moves it. Recomputed per frame beside `barSpacing`, so an extended
+ * line grows with the feed on its own.
+ */
+function lastBarEdge(
+  timeScale: ITimeScaleApi<Time>,
+  series: ISeriesApi<SeriesType, Time>,
+  spacing: number,
+): number | null {
+  const last = series.data().at(-1)
+  if (last === undefined) return null
+
+  const x = timeScale.timeToCoordinate(last.time)
+  return x === null ? null : x + spacing / 2
+}
+
+/**
+ * One segment's box, shared by the drawing and the hit test so the two cannot disagree about where
+ * a level is. A second copy of this arithmetic would drift, and the symptom would be a line you can
+ * see but cannot click.
+ *
+ * Whole candles, not centre to centre: the span starts at the left edge of its own bar and ends at
+ * the right edge of the `bars`-th one, so what is drawn covers exactly the candles it claims to.
+ *
+ * An `extend` segment ends at `edge` instead — the current bar — but never *before* where the span
+ * would have put it: `max`, so a level found a bar or two from the live edge does not come out
+ * shorter than the stub it replaced.
+ *
+ * `null` means the bar or the price is outside what the scales can map — off-screen, not wrong.
+ */
+function boundsOf(
+  segment: LevelSegment,
+  timeScale: ITimeScaleApi<Time>,
+  series: ISeriesApi<SeriesType, Time>,
+  spacing: number,
+  bars: number,
+  edge: number | null,
+): SegmentBounds | null {
+  const x = timeScale.timeToCoordinate(segment.time)
+  if (x === null) return null
+
+  const y = series.priceToCoordinate(segment.price)
+  if (y === null) return null
+
+  const span = x + (bars - 0.5) * spacing
+
+  return {
+    left: x - spacing / 2,
+    right: segment.extend && edge !== null ? Math.max(edge, span) : span,
+    y,
+  }
 }
 
 class LevelSegmentsRenderer implements IPrimitivePaneRenderer {
@@ -71,40 +172,24 @@ class LevelSegmentsRenderer implements IPrimitivePaneRenderer {
 
     const timeScale = chart.timeScale()
 
-    // The pixel distance between adjacent bar centres, read once for the whole frame.
-    //
-    // Derived from the scale itself rather than taken from `TimeScaleOptions.barSpacing`: this is
-    // that distance *by definition*, whatever the option means under zoom or conflation, and it
-    // is one call per draw instead of one per segment. Both ends of the pair are off-screen at
-    // most zoom levels, which is fine — the mapping is linear and defined outside the viewport.
-    const first = timeScale.logicalToCoordinate(0 as Logical)
-    const second = timeScale.logicalToCoordinate(1 as Logical)
-    if (first === null || second === null) return
+    const spacing = barSpacing(timeScale)
+    if (spacing === null) return
 
-    const spacing = second - first
-    if (!Number.isFinite(spacing) || spacing <= 0) return
+    const edge = lastBarEdge(timeScale, series, spacing)
 
     // Bitmap space rather than media space, which is what the library's own thin strokes use: a
     // 2px line placed on CSS coordinates lands between device pixels on a HiDPI screen and comes
     // out as a soft grey smear instead of a line.
     target.useBitmapCoordinateSpace(({ context, horizontalPixelRatio, verticalPixelRatio }) => {
-      const width = Math.max(1, Math.round(options.lineWidth * verticalPixelRatio))
+      for (const segment of segments) {
+        const box = boundsOf(segment, timeScale, series, spacing, options.bars, edge)
+        if (box === null) continue
 
-      for (const segment of this.segments) {
-        const x = timeScale.timeToCoordinate(segment.time)
-        // The bar is outside the loaded range, so there is no coordinate to draw at. Skipped in
-        // silence: it is off-screen, not wrong.
-        if (x === null) continue
+        const width = Math.max(1, Math.round(options.lineWidth * verticalPixelRatio))
 
-        const y = series.priceToCoordinate(segment.price)
-        if (y === null) continue
-
-        // Whole candles, not centre to centre: the span starts at the left edge of its own bar
-        // and ends at the right edge of the `bars`-th one, so what is drawn covers exactly the
-        // candles it claims to.
-        const left = (x - spacing / 2) * horizontalPixelRatio
-        const right = (x + (options.bars - 0.5) * spacing) * horizontalPixelRatio
-        const top = Math.round((y as Coordinate) * verticalPixelRatio) - Math.floor(width / 2)
+        const left = box.left * horizontalPixelRatio
+        const right = box.right * horizontalPixelRatio
+        const top = Math.round(box.y * verticalPixelRatio) - Math.floor(width / 2)
 
         context.fillStyle = segment.color
         context.fillRect(Math.round(left), top, Math.round(right) - Math.round(left), width)
@@ -166,6 +251,58 @@ export class LevelSegments implements ISeriesPrimitive<Time> {
 
   renderer(): IPrimitivePaneRenderer {
     return new LevelSegmentsRenderer(this.segments, this.options, this.chart, this.series)
+  }
+
+  /**
+   * Which segment the cursor is on, so a click can name one.
+   *
+   * The library calls this on mouse move and hands the winner's `externalId` to every click and
+   * crosshair subscriber. Without it a click on the pane carries a time and a price and nothing
+   * about what was drawn there — and these segments overlap routinely, so "nearest by price at
+   * this bar" reconstructed by a subscriber would be this arithmetic written a second time.
+   *
+   * One hit, not all of them: the interface asks for the top-most, and nearest wins because two
+   * levels a pixel apart are two answers to "which line did I click" and only one can be right.
+   */
+  hitTest(x: number, y: number): PrimitiveHoveredItem | null {
+    const { chart, series, segments, options } = this
+    if (!chart || !series || segments.length === 0) return null
+
+    const timeScale = chart.timeScale()
+
+    const spacing = barSpacing(timeScale)
+    if (spacing === null) return null
+
+    const edge = lastBarEdge(timeScale, series, spacing)
+
+    let hit: LevelSegment | null = null
+    // Doubles as the running minimum and as the tolerance: a segment further than this is not a
+    // hit at all, so the first comparison is the same test as every later one.
+    let distance = HIT_TOLERANCE
+
+    for (const segment of segments) {
+      const box = boundsOf(segment, timeScale, series, spacing, options.bars, edge)
+      if (box === null) continue
+      if (x < box.left || x > box.right) continue
+
+      const gap = Math.abs(y - box.y)
+      if (gap > distance) continue
+
+      hit = segment
+      distance = gap
+    }
+
+    if (hit === null) return null
+
+    return {
+      externalId: hit.id,
+      zOrder: 'top',
+      cursorStyle: 'pointer',
+      distance,
+      // Line-style, per the interface's own scale — these are strokes, not markers.
+      hitTestPriority: 1,
+      itemType: 'primitive',
+    }
   }
 
   // No `autoscaleInfo`. Every price handed to this primitive is already a `high`, `low` or

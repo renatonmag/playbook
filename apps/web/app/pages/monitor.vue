@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Timeframe } from '~/types/candle'
-import { producerName, type PatternPoint } from '~/types/pattern'
+import { producerName, type LegExtremes, type PatternPoint } from '~/types/pattern'
 import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
@@ -311,6 +311,103 @@ function toggleDirection(producer: string, direction: Direction) {
 }
 
 /**
+ * Producers whose levels should fade out between bars, keyed the same way `shown` is.
+ *
+ * Off by default and stored as the exception, for the third time on this page: a Series you checked
+ * is a Series you want to see, and asking for it to go away again is the deliberate act.
+ */
+const autoHide = ref(new Set<string>())
+
+function toggleAutoHide(producer: string) {
+  if (autoHide.value.has(producer)) autoHide.value.delete(producer)
+  else autoHide.value.add(producer)
+}
+
+/**
+ * Levels somebody clicked on the chart, keyed `producer|segmentId` — the same two-part key
+ * `directionKey` makes, and for the same reason: one Series' pins must not read as another's.
+ *
+ * These are what survives the hide timer. A pin is *not* a fourth filter: unchecking the Series or
+ * one of its directions still hides a pinned level, because those are things the sidebar was asked
+ * to hide and a click on a line is not permission to overrule them.
+ *
+ * Keyed on the leg and the level's role — see `extremeSegmentId` — so a pin follows its leg
+ * through a pipeline re-run rather than being frozen to a price. A leg that leaves the window
+ * takes its pins off the list with it, and that is the honest reading: there is no such level any
+ * more.
+ */
+const pinned = ref(new Set<string>())
+
+function pinKey(producer: string, segment: string) {
+  return `${producer}|${segment}`
+}
+
+function togglePin(producer: string, segment: string) {
+  const key = pinKey(producer, segment)
+  if (pinned.value.has(key)) pinned.value.delete(key)
+  else pinned.value.add(key)
+}
+
+/** The bare segment ids for one Series, which is what its overlay speaks. */
+function pinsFor(producer: string): string[] {
+  const prefix = `${producer}|`
+  return [...pinned.value].filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))
+}
+
+function clearPins(producer: string) {
+  for (const key of pinsFor(producer)) pinned.value.delete(pinKey(producer, key))
+}
+
+/**
+ * The pinned levels of one Series as things with a colour, a role and a price — what the list under
+ * the checkbox shows.
+ *
+ * Resolved against the *current* response through the same `extremeSegments` the overlay draws
+ * from, so the list and the chart cannot disagree, and a pin whose leg is gone simply does not
+ * resolve. `directions` is applied there too, which is why a level hidden by the bull/bear filter
+ * drops out of the list as well as off the chart — it is not on screen, and the list is a legend
+ * for what is.
+ */
+function pinnedSegments(overlay: { producer: string, points: PatternPoint[] }): ExtremeSegment[] {
+  const ids = new Set(pinsFor(overlay.producer))
+  if (ids.size === 0) return []
+
+  return extremeSegments(
+    overlay.points as LegExtremes[],
+    directionsFor(overlay.producer),
+    ids,
+  ).filter(segment => ids.has(segment.id))
+}
+
+/**
+ * One timer for the whole page, not one per producer.
+ *
+ * Every Series is measured by the same bar clock, so per-producer timers would be several copies of
+ * one countdown all firing on the same tick. What is per-producer is only whether a Series *listens*
+ * to it, which is `autoHide` above.
+ */
+const hideTimer = useHideTimer(bar.epoch, () => autoHide.value.size > 0)
+
+/**
+ * A bar time as a clock reading.
+ *
+ * `timeZone: 'UTC'` is what makes the hour come out right in São Paulo, and is *not* a decision to
+ * display UTC: the stored epoch encodes São Paulo wall time labelled as UTC. The docblock on
+ * `pages/record-bars.vue` sets this out in full; without it every label here reads three hours
+ * early. One function rather than one per caller, because that reasoning does not survive being
+ * retyped.
+ *
+ * Unix seconds, so `* 1000`.
+ */
+function barLabel(seconds: number) {
+  return new Date(seconds * 1000).toLocaleTimeString('pt-BR', {
+    timeZone: 'UTC',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/**
  * The bar the last pipeline run reached — one behind `bar.last`, always.
  *
  * `/patterns` withholds the newest bar the feed has written, because that is the one still being
@@ -320,23 +417,14 @@ function toggleDirection(producer: string, direction: Direction) {
  *
  * No clock is consulted, deliberately, and none can be: the server's rule is "a later bar
  * exists", and a wall-clock test here would be worse than useless because bar times are not on
- * the wall clock's scale — see the `timeZone` note below.
+ * the wall clock's scale — see `barLabel`.
  *
- * `timeZone: 'UTC'` is what makes the hour come out right in São Paulo, and is *not* a decision
- * to display UTC: the stored epoch encodes São Paulo wall time labelled as UTC. The docblock on
- * `pages/record-bars.vue` sets this out in full; without it this label reads three hours early.
- *
- * Unix seconds, so `* 1000`. Client-only by where it is rendered — `bar.last` is seeded from the
- * fetch and moved by the socket, and the server has neither.
+ * Client-only by where it is rendered — `bar.last` is seeded from the fetch and moved by the
+ * socket, and the server has neither.
  */
 const lastBarLabel = computed(() => {
   if (bar.last.value === null) return null
-  const closed = bar.last.value - SECONDS[timeframe.value]
-  return new Date(closed * 1000).toLocaleTimeString('pt-BR', {
-    timeZone: 'UTC',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return barLabel(bar.last.value - SECONDS[timeframe.value])
 })
 
 /**
@@ -344,7 +432,30 @@ const lastBarLabel = computed(() => {
  * an unknown attribute would fall through onto components that render no root element.
  */
 function extraProps(overlay: { producer: string, name: string }) {
-  return DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {}
+  return {
+    ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
+    ...overlay.name === 'leg-extremes'
+      ? {
+          pinned: pinsFor(overlay.producer),
+          // The timer no longer decides whether the Series draws, only how much of it: a Series
+          // whose countdown has fired keeps whatever was pinned. See `isVisible`.
+          onlyPinned: autoHide.value.has(overlay.producer) && hideTimer.hidden.value,
+          onPin: (segment: string) => togglePin(overlay.producer, segment),
+        }
+      : {},
+  }
+}
+
+/**
+ * Whether a Series is drawn right now, which is now the checkbox and nothing else.
+ *
+ * The hide timer used to be the second half of this and is not any more: with pins it decides
+ * *which* segments a `leg-extremes` Series draws rather than whether it draws at all, and that is
+ * a question only the overlay can answer — it is the thing that knows what a segment is. It gets
+ * the timer's state as `onlyPinned`, from `extraProps`.
+ */
+function isVisible(overlay: { producer: string }) {
+  return shown.value.has(overlay.producer)
 }
 </script>
 
@@ -462,7 +573,7 @@ function extraProps(overlay: { producer: string, name: string }) {
               :key="overlay.producer"
               :points="overlay.points"
               :color="overlay.color"
-              :visible="shown.has(overlay.producer)"
+              :visible="isVisible(overlay)"
               v-bind="extraProps(overlay)"
             />
           </CandleChart>
@@ -558,6 +669,85 @@ function extraProps(overlay: { producer: string, name: string }) {
                 {{ EXTREME_LABELS[type] }}
               </span>
             </div>
+
+            <!-- The levels bury the candles a few legs in, and they are worth most right after a
+                 leg closes. This trades them for the price action in between: on, they show for
+                 half a minute after each new candle and then get out of the way.
+
+                 `ClientOnly` because the state word is decided by a timer, which only exists in
+                 the browser — the same reason the feed's status above is wrapped. -->
+            <div
+              v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
+              class="mt-1 ml-6"
+            >
+              <ClientOnly>
+                <button
+                  class="rounded border px-2 py-0.5 text-xs"
+                  :class="autoHide.has(overlay.producer)
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-500'"
+                  @click="toggleAutoHide(overlay.producer)"
+                >
+                  Ocultar após 30s
+                  <!-- "oculto" stopped being the whole truth once levels could be pinned: with a
+                       pin held, the Series is hidden *except* for it. -->
+                  <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
+                    · {{ hideTimer.hidden.value ? 'oculto' : 'visível' }}
+                    <template v-if="hideTimer.hidden.value && pinnedSegments(overlay).length">
+                      ({{ pinnedSegments(overlay).length }} fixados)
+                    </template>
+                  </span>
+                </button>
+                <template #fallback>
+                  <div class="h-[24px] w-32" />
+                </template>
+              </ClientOnly>
+            </div>
+
+            <!-- What survives the timer, and the only place a pinned level can be read as words:
+                 on the chart it is a slightly thicker line among many.
+
+                 `ClientOnly` because a pin only exists after a click, and because the count beside
+                 the switch above is decided by a timer the server does not have. -->
+            <ClientOnly>
+              <div
+                v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
+                class="mt-1 ml-6 text-xs"
+              >
+                <div v-if="pinnedSegments(overlay).length" class="flex items-baseline justify-between gap-2">
+                  <span class="text-gray-500">Fixados</span>
+                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
+                    limpar
+                  </button>
+                </div>
+                <p v-else class="text-gray-400">
+                  Clique numa linha do gráfico para mantê-la visível.
+                </p>
+
+                <ul class="mt-1 space-y-0.5">
+                  <li
+                    v-for="segment in pinnedSegments(overlay)"
+                    :key="segment.id"
+                    class="flex items-center gap-1.5 text-gray-500"
+                  >
+                    <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: segment.color }" />
+                    <span>{{ EXTREME_LABELS[segment.type] }}</span>
+                    <span class="font-mono">{{ segment.price }}</span>
+                    <span class="text-gray-400">{{ barLabel(segment.time) }}</span>
+                    <button
+                      class="ml-auto text-gray-400 hover:text-gray-600"
+                      :aria-label="`desafixar ${EXTREME_LABELS[segment.type]}`"
+                      @click="togglePin(overlay.producer, segment.id)"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <template #fallback>
+                <div class="h-[20px]" />
+              </template>
+            </ClientOnly>
 
             <!-- The Forma rule this Pattern applies — the only thing on this page the browser
                  composes and the server runs. Under the same condition as the filters above, and

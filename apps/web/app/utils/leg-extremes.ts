@@ -1,4 +1,6 @@
-import type { LegPoint } from '~/types/pattern'
+import type { UTCTimestamp } from 'lightweight-charts'
+import type { LegExtremes, LegPoint } from '~/types/pattern'
+import type { LevelSegment } from '~/utils/level-segments'
 
 /**
  * The hue each of a leg's three levels is drawn in — violet, cyan, lime.
@@ -29,4 +31,77 @@ export const EXTREME_LABELS: Record<LegPoint['type'], string> = {
   reach: 'extremo',
   close: 'fechamento',
   hold: 'sustentado',
+}
+
+/**
+ * A drawn level, plus the two facts about it that a picture states in colour and a list has to
+ * state in words. The primitive ignores both; the sidebar is why they are here.
+ */
+export interface ExtremeSegment extends LevelSegment {
+  type: LegPoint['type']
+  direction: LegExtremes['direction']
+}
+
+/**
+ * What a drawn level is called, for the whole app: the leg it belongs to, and which of the three
+ * it is.
+ *
+ * The anchor is the `LegExtremes` Point's own `time` — the leg — and not the level's bar. A leg's
+ * three points can share one `at`, so the bar alone names nothing, and `at` moves with the window
+ * while the anchor does not. That is what makes an id survive a pipeline re-run: the same leg
+ * produces the same three ids even when the level's price moved.
+ */
+export function extremeSegmentId(anchor: number, type: LegPoint['type']): string {
+  return `${anchor}:${type}`
+}
+
+/**
+ * One segment per point, for the legs `directions` keeps, with the ones in `pinned` run out to the
+ * current bar.
+ *
+ * Here rather than in the overlay because the sidebar draws the same list in words — a pinned
+ * segment's colour, role and price — and reading those off a second traversal of `found` would be
+ * two places deciding what a level is.
+ *
+ * The filter is applied here rather than by the caller for the reason the markers overlay gives:
+ * the sidebar can ask for "bull only" without knowing what a leg's direction means to the drawing.
+ *
+ * **Not deduplicated**, unlike the markers. Consecutive legs overlap, so the same bar genuinely
+ * arrives twice under two anchors and the same segment is emitted twice — which is identical
+ * opaque pixels drawn in the same place, and invisible. A marker at a repeated key was worth
+ * collapsing because the library keeps a list of them; a canvas fill is idempotent.
+ *
+ * Unsorted, for the other half of that: the chart requires markers to ascend by time and has no
+ * such demand of a primitive, which draws in whatever order it is handed.
+ */
+export function extremeSegments(
+  points: LegExtremes[],
+  directions: LegExtremes['direction'][],
+  pinned: ReadonlySet<string> = new Set(),
+): ExtremeSegment[] {
+  const segments: ExtremeSegment[] = []
+
+  for (const point of points) {
+    if (!directions.includes(point.direction)) continue
+
+    for (const found of point.found) {
+      const id = extremeSegmentId(point.time, found.type)
+      segments.push({
+        id,
+        type: found.type,
+        direction: point.direction,
+        time: found.time as UTCTimestamp,
+        // The value that won, already picked for the leg's direction by the Pattern — which is
+        // what that field is carried for. Reading `high`/`low` off the bar here would mean
+        // re-deriving from `direction` what the server already decided.
+        price: found.price,
+        color: EXTREME_HUES[found.type],
+        // What a pin does to the drawing, decided here because this is the module that knows what
+        // a pin is: the line keeps its weight and its colour, and only its length changes.
+        extend: pinned.has(id),
+      })
+    }
+  }
+
+  return segments
 }
