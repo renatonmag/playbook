@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Timeframe } from '~/types/candle'
-import { producerName, type LegExtremes, type PatternPoint } from '~/types/pattern'
+import { producerName, type BarGap, type LegExtremes, type PatternPoint } from '~/types/pattern'
 import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import LegReversalsOverlay from '~/components/LegReversalsOverlay.vue'
 import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
+import BarGapOverlay from '~/components/BarGapOverlay.vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -37,12 +38,18 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * The fourth settles it: `leg-extremes` is a canvas **series primitive**, because a level with a
  * length is neither a marker nor a line series. It shares no drawing code with the other three at
  * all, so the "one data-driven component" the bet was hedging against is now off the table.
+ *
+ * The fifth, `bar-gap`, is a primitive too — a filled region, which is not a level either — and it
+ * is the first to share a drawing with an existing entry: `LevelBoxes` takes its time-axis
+ * arithmetic from `LevelSegments`. That sharing happens between the two utils, not here, which is
+ * the shape this map was hoping for.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
   'simple-leg': SimpleLegOverlay,
   'leg-reversals': LegReversalsOverlay,
   'leg-extremes': LegExtremesOverlay,
+  'bar-gap': BarGapOverlay,
 }
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
@@ -283,7 +290,56 @@ type Direction = typeof DIRECTIONS[number]['value']
  * spread, the checkboxes, the colour key. Those fell out of step the moment a second Pattern
  * qualified, and the failure is quiet: filter checkboxes that render while nothing reads them.
  */
-const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes'])
+const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes', 'bar-gap'])
+
+/**
+ * The Patterns whose overlay draws clickable things, and so get the pin machinery: the auto-hide
+ * switch, the `pinned`/`onlyPinned` props, and the list of what survives the timer.
+ *
+ * A set for the same reason `DIRECTIONAL` is one — the condition is asked in four places, and they
+ * fell out of step the moment a second Pattern qualified. What each entry pins is its own business:
+ * `leg-extremes` pins one of a leg's three levels, `bar-gap` pins a whole band.
+ */
+const PINNABLE = new Set(['leg-extremes', 'bar-gap'])
+
+/**
+ * The two states a gap can be in, in the order the filters are listed, with the label each gets.
+ *
+ * `bar-gap`'s second filter axis, and the only Pattern with one — which is why the places that ask
+ * write `overlay.name === 'bar-gap'` out rather than consulting a set. `DIRECTIONAL` and
+ * `PINNABLE` are sets because three and four places ask them and those fell out of step; this is
+ * asked in two. Promote it the moment a second Pattern qualifies.
+ */
+const STATES = [
+  { value: 'open', label: 'aberto' },
+  { value: 'closed', label: 'fechado' },
+] as const
+
+type State = typeof STATES[number]['value']
+
+/**
+ * States the open/closed filters have turned *off*, keyed by producer and state.
+ *
+ * The exception again, as with `hiddenDirections`: a Series you chose to show arrives with both
+ * states drawn, and unchecking is the deliberate act worth storing.
+ */
+const hiddenStates = ref(new Set<string>())
+
+function stateKey(producer: string, state: State) {
+  return `${producer}:${state}`
+}
+
+function statesFor(producer: string): State[] {
+  return STATES.map(item => item.value).filter(
+    value => !hiddenStates.value.has(stateKey(producer, value)),
+  )
+}
+
+function toggleState(producer: string, state: State) {
+  const key = stateKey(producer, state)
+  if (hiddenStates.value.has(key)) hiddenStates.value.delete(key)
+  else hiddenStates.value.add(key)
+}
 
 /**
  * Directions the bull/bear filters have turned *off*, keyed by producer and direction.
@@ -380,6 +436,34 @@ function pinnedSegments(overlay: { producer: string, points: PatternPoint[] }): 
 }
 
 /**
+ * The same thing for `bar-gap`, through `gapBoxes` — its overlay's own shaping function.
+ *
+ * A separate function rather than a branch inside `pinnedSegments`, because the two return
+ * different things: a level has a role and one price, a gap has a direction, a state and two
+ * edges, and the lists in the sidebar say different words about them. What they share is this
+ * page's pin bookkeeping, which is `pinsFor` and `togglePin` and is already shared.
+ *
+ * Both filters are passed, for the reason `pinnedSegments` passes the one it has: a gap hidden by
+ * a checkbox is not on screen, and the list is a legend for what is.
+ */
+function pinnedGaps(overlay: { producer: string, points: PatternPoint[] }): GapBox[] {
+  const ids = new Set(pinsFor(overlay.producer))
+  if (ids.size === 0) return []
+
+  return gapBoxes(
+    overlay.points as BarGap[],
+    directionsFor(overlay.producer),
+    statesFor(overlay.producer),
+    ids,
+  ).filter(box => ids.has(box.id))
+}
+
+/** How many of a Series' pins currently resolve, whichever kind of thing it pins. */
+function pinnedCount(overlay: { name: string, producer: string, points: PatternPoint[] }) {
+  return overlay.name === 'bar-gap' ? pinnedGaps(overlay).length : pinnedSegments(overlay).length
+}
+
+/**
  * One timer for the whole page, not one per producer.
  *
  * Every Series is measured by the same bar clock, so per-producer timers would be several copies of
@@ -434,7 +518,9 @@ const lastBarLabel = computed(() => {
 function extraProps(overlay: { producer: string, name: string }) {
   return {
     ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
-    ...overlay.name === 'leg-extremes'
+    // The second filter axis, and `bar-gap`'s alone — see `STATES`.
+    ...overlay.name === 'bar-gap' ? { states: statesFor(overlay.producer) } : {},
+    ...PINNABLE.has(overlay.name)
       ? {
           pinned: pinsFor(overlay.producer),
           // The timer no longer decides whether the Series draws, only how much of it: a Series
@@ -652,6 +738,45 @@ function isVisible(overlay: { producer: string }) {
               </label>
             </div>
 
+            <!-- `bar-gap`'s second axis. Same shape as the row above and deliberately not folded
+                 into it: bull/bear is a property of the move that made the gap, open/closed is a
+                 property of everything that happened since, and one row of four checkboxes would
+                 read as one question with four answers. -->
+            <div
+              v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
+              class="mt-1 ml-6 flex gap-3"
+            >
+              <label
+                v-for="state in STATES"
+                :key="state.value"
+                class="flex items-center gap-1 text-xs text-gray-500"
+              >
+                <input
+                  type="checkbox"
+                  :checked="!hiddenStates.has(`${overlay.producer}:${state.value}`)"
+                  @change="toggleState(overlay.producer, state.value)"
+                >
+                {{ state.label }}
+              </label>
+            </div>
+
+            <!-- Red and blue are now a claim about what the picture means, so the key that the
+                 three levels needed this one needs too. The swatch is a filled square because the
+                 thing it stands for is a filled region, not a line. -->
+            <div
+              v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
+              class="mt-1 ml-6 flex flex-wrap gap-x-3 gap-y-1"
+            >
+              <span
+                v-for="(hue, state) in GAP_HUES"
+                :key="state"
+                class="flex items-center gap-1 text-xs text-gray-500"
+              >
+                <span class="inline-block h-2 w-3 border" :style="{ borderColor: hue, backgroundColor: hue + '40' }" />
+                {{ GAP_STATE_LABELS[state] }}
+              </span>
+            </div>
+
             <!-- The three levels are told apart by colour alone, and the swatch on the checkbox
                  above is the *Series'* palette colour, which this overlay ignores. Without a key
                  the picture cannot be read at all. `leg-reversals` colours its dots the same way
@@ -677,7 +802,7 @@ function isVisible(overlay: { producer: string }) {
                  `ClientOnly` because the state word is decided by a timer, which only exists in
                  the browser — the same reason the feed's status above is wrapped. -->
             <div
-              v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
+              v-if="PINNABLE.has(overlay.name) && shown.has(overlay.producer)"
               class="mt-1 ml-6"
             >
               <ClientOnly>
@@ -693,8 +818,8 @@ function isVisible(overlay: { producer: string }) {
                        pin held, the Series is hidden *except* for it. -->
                   <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
                     · {{ hideTimer.hidden.value ? 'oculto' : 'visível' }}
-                    <template v-if="hideTimer.hidden.value && pinnedSegments(overlay).length">
-                      ({{ pinnedSegments(overlay).length }} fixados)
+                    <template v-if="hideTimer.hidden.value && pinnedCount(overlay)">
+                      ({{ pinnedCount(overlay) }} fixados)
                     </template>
                   </span>
                 </button>
@@ -738,6 +863,51 @@ function isVisible(overlay: { producer: string }) {
                       class="ml-auto text-gray-400 hover:text-gray-600"
                       :aria-label="`desafixar ${EXTREME_LABELS[segment.type]}`"
                       @click="togglePin(overlay.producer, segment.id)"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- The same list for `bar-gap`, written out rather than folded into the one above:
+                   a gap is named by its direction and read as two prices, where a level is named
+                   by its role and read as one. Sharing the markup would mean a row of conditional
+                   cells saying nothing about either. -->
+              <div
+                v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
+                class="mt-1 ml-6 text-xs"
+              >
+                <div v-if="pinnedGaps(overlay).length" class="flex items-baseline justify-between gap-2">
+                  <span class="text-gray-500">Fixados</span>
+                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
+                    limpar
+                  </button>
+                </div>
+                <p v-else class="text-gray-400">
+                  Clique num gap do gráfico para mantê-lo visível.
+                </p>
+
+                <ul class="mt-1 space-y-0.5">
+                  <li
+                    v-for="box in pinnedGaps(overlay)"
+                    :key="box.id"
+                    class="flex items-center gap-1.5 text-gray-500"
+                  >
+                    <span class="inline-block h-2 w-3 shrink-0 border" :style="{ borderColor: box.color, backgroundColor: box.color + '40' }" />
+                    <span>{{ GAP_LABELS[box.direction] }}</span>
+                    <span class="font-mono">{{ box.bottom }}–{{ box.top }}</span>
+                    <span class="text-gray-400">{{ barLabel(box.time) }}</span>
+                    <!-- The state in words as well as in colour, and for a closed gap the bar that
+                         closed it: on the chart that bar is nowhere, since the box does not reach
+                         it. -->
+                    <span class="text-gray-400">
+                      {{ GAP_STATE_LABELS[box.state] }}<template v-if="box.closedAt"> {{ barLabel(box.closedAt) }}</template>
+                    </span>
+                    <button
+                      class="ml-auto text-gray-400 hover:text-gray-600"
+                      :aria-label="`desafixar ${GAP_LABELS[box.direction]}`"
+                      @click="togglePin(overlay.producer, box.id)"
                     >
                       ✕
                     </button>

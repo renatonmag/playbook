@@ -41,8 +41,10 @@ import type {
  * re-exports nothing of. pnpm does not hoist a transitive dependency, so naming the module here
  * would not resolve without adding a direct dependency on somebody else's implementation detail.
  * Reading it off `draw` costs nothing and cannot drift from the signature it has to match.
+ *
+ * Exported for `level-boxes.ts`, which implements the same interface and needs the same handle.
  */
-type RenderTarget = Parameters<IPrimitivePaneRenderer['draw']>[0]
+export type RenderTarget = Parameters<IPrimitivePaneRenderer['draw']>[0]
 
 export interface LevelSegment {
   /**
@@ -91,8 +93,11 @@ interface SegmentBounds {
  * distance *by definition*, whatever the option means under zoom or conflation, and it is one call
  * per frame instead of one per segment. Both ends of the pair are off-screen at most zoom levels,
  * which is fine — the mapping is linear and defined outside the viewport.
+ *
+ * Exported because `level-boxes.ts` needs exactly this number, and a second copy of the scale
+ * arithmetic is the drift `boundsOf` below is written against.
  */
-function barSpacing(timeScale: ITimeScaleApi<Time>): number | null {
+export function barSpacing(timeScale: ITimeScaleApi<Time>): number | null {
   const first = timeScale.logicalToCoordinate(0 as Logical)
   const second = timeScale.logicalToCoordinate(1 as Logical)
   if (first === null || second === null) return null
@@ -108,8 +113,11 @@ function barSpacing(timeScale: ITimeScaleApi<Time>): number | null {
  * prop to say so: the candlestick series carries every bar including the one still open, and the
  * live feed's `update` is what moves it. Recomputed per frame beside `barSpacing`, so an extended
  * line grows with the feed on its own.
+ *
+ * Exported alongside `barSpacing`, and for the same reason: an extended *box* means the same
+ * thing an extended segment does, and it must mean it to the same pixel.
  */
-function lastBarEdge(
+export function lastBarEdge(
   timeScale: ITimeScaleApi<Time>,
   series: ISeriesApi<SeriesType, Time>,
   spacing: number,

@@ -24,6 +24,7 @@ from pattern_engine.patterns import (
     DEFAULT_EXPANSION,
     DEFAULT_K,
     DEFAULT_SIMILARITY,
+    BarGapPattern,
     LegExtremesPattern,
     LegPattern,
     LegReversalsPattern,
@@ -80,6 +81,11 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
     return (
         zigzag,
         simple_leg,
+        # No source and no ordering constraint: a gap is a property of three adjacent bars, not of
+        # a leg somebody cut, so this one reads `ctx["bars"]` and could sit anywhere in the tuple.
+        # It is here because it answers about the raw bars, like the two detectors above it, and
+        # everything below reads a Series rather than the bars.
+        BarGapPattern(reads=("5m",), emits="5m"),
         # One slicer per detector, so the comparison the two detectors exist for survives the
         # step from vertices to bars. Both must come after their source: declaration order is
         # run order, and a slicer ahead of its detector reads a key that is not in `ctx` yet.

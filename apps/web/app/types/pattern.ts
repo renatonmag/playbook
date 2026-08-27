@@ -162,6 +162,41 @@ export interface LegExtremes extends PatternPoint {
   direction: 'bullish' | 'bearish'
 }
 
+/**
+ * The untraded band three bars left behind, anchored on the **first** bar of the triple.
+ *
+ * A gap up is `bar_1.high < bar_3.low`, a gap down its mirror; the comparison is strict, so two
+ * ranges that merely touch leave no band. The middle bar is never read — it is the bar that made
+ * the gap, and constraining it would be a second opinion about what a gap is.
+ *
+ * `bottom` is always the lower edge and `top` the higher, whichever way the gap runs, so nothing
+ * here branches on `direction` to find out which number is which.
+ *
+ * Note the inherited OHLCV is the **first bar's** and says nothing about the gap — the gap is the
+ * two price fields. Overlapping triples are all reported, so consecutive Points can sit one bar
+ * apart.
+ */
+export interface BarGap extends PatternPoint {
+  bottom: number
+  top: number
+  /** `bullish` for a gap up, `bearish` for a gap down — which way price was going when it left. */
+  direction: 'bullish' | 'bearish'
+  /**
+   * The first bar after the triple to trade through the **whole** band, or `null` while the gap
+   * stands: `low <= bottom` on a bull gap, `high >= top` on a bear one.
+   *
+   * A full traversal, not a touch — `bottom` is the *far* edge of a bull gap, so a bar that dips
+   * halfway in leaves it open. Note the asymmetry with the rule that *creates* a gap, which is
+   * strict: two ranges that touch leave no band, but price arriving exactly at an existing band's
+   * far edge has crossed it.
+   *
+   * `null` means "not closed **in this window**" and never "will never close": the server scans to
+   * the last bar it loaded, so the same gap can read open on a short window and closed on a longer
+   * one.
+   */
+  closed_by: PatternPoint | null
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   identity: SeriesIdentity
   points: TPoint[]

@@ -1,5 +1,6 @@
 """The Patterns themselves. The engine imports none of these — a pipeline names them."""
 
+from .bar_gap import BarGap, BarGapPattern, bar_gaps
 from .leg_extremes import (
     ExtremeType,
     LegExtremes,
@@ -31,6 +32,8 @@ from .zigzag import ZigZagIndidicator, ZigZagPattern, ZigZagPivot
 
 __all__ = [
     "AVERAGE_WINDOW",
+    "BarGap",
+    "BarGapPattern",
     "DEFAULT_EXPANSION",
     "DEFAULT_K",
     "DEFAULT_SIMILARITY",
@@ -54,6 +57,7 @@ __all__ = [
     "ZigZagPivot",
     "adjacent",
     "alike",
+    "bar_gaps",
     "bar_positions",
     "dominates",
     "expands",
