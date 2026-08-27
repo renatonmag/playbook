@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
+import { isTimeframe, SECONDS, TIMEFRAMES, type Timeframe } from '~/types/candle'
 import { producerName, type PatternPoint } from '~/types/pattern'
 import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
@@ -117,7 +117,8 @@ const { rule, update: updateRule, reset: resetRule } = useStoredRule()
 /** Whether the numbers differ from what the pipeline runs unattended. */
 const adjusted = computed(() => !sameRule(rule.value, PIPELINE_RULE))
 
-// One window, both requests. See `useWindow` for why that matters.
+// The window the chart opens with, and the only one `/candles` ever asks for: after this fetch
+// the socket owns the right-hand edge. See `useWindow` for why there are now two of these.
 const window = useWindow(timeframe, at)
 
 const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe, window, windowKey)
@@ -129,6 +130,19 @@ const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe,
  * `setData` and each live bar with `update`.
  */
 const live = useLiveCandles(symbol, timeframe)
+
+/**
+ * How many bars the feed has opened since the page loaded, seeded from the loaded window's last
+ * bar so the socket's first frame is a baseline rather than news.
+ */
+const bar = useBarClock(live.bars, () => candles.value?.at(-1)?.time ?? null)
+
+/**
+ * A bar time is only comparable within one Instrument and Timeframe. Switching either leaves a
+ * high-water mark set by the old feed, and `5m` bars arriving under an `1h` mark would each read
+ * as old news — the pipeline would quietly stop re-running. The seed moves with the refetch.
+ */
+watch([symbol, timeframe], () => bar.reset())
 
 /**
  * A pinned window and a live feed contradict each other — one says "these bars, frozen", the
@@ -145,13 +159,22 @@ function goLive() {
   live.toggle()
 }
 
+/**
+ * The window the pipeline runs over, which advances as bars open while the chart's does not.
+ *
+ * `windowKey` is deliberately not given the epoch: its job is to name the request identically on
+ * the server and the client (see `usePatterns`), and what re-runs the fetch is the changed query,
+ * not a changed key. A bump landing mid-run is handled by `useFetch`'s default `dedupe: 'cancel'`.
+ */
+const runWindow = useWindow(timeframe, at, bar.epoch)
+
 const {
   data: patterns,
   error: patternsError,
   // Named, unlike on `/candles`, because a rule edit now starts a pipeline run: without this the
   // sidebar shows the previous rule's counts with nothing saying they are about to change.
   pending: patternsPending,
-} = usePatterns(window, windowKey, rule)
+} = usePatterns(runWindow, windowKey, rule)
 
 /**
  * The rules committed to `docs/forma/rules.json`, so the ones already worth comparing against are
@@ -286,6 +309,35 @@ function toggleDirection(producer: string, direction: Direction) {
   if (hiddenDirections.value.has(key)) hiddenDirections.value.delete(key)
   else hiddenDirections.value.add(key)
 }
+
+/**
+ * The bar the last pipeline run reached — one behind `bar.last`, always.
+ *
+ * `/patterns` withholds the newest bar the feed has written, because that is the one still being
+ * rewritten. `bar.last` *is* that bar, so the run reached the one before it. Naming `bar.last`
+ * here would claim a run over a bar the server explicitly refused, and make the one-bar gap at
+ * the right edge read as a stall.
+ *
+ * No clock is consulted, deliberately, and none can be: the server's rule is "a later bar
+ * exists", and a wall-clock test here would be worse than useless because bar times are not on
+ * the wall clock's scale — see the `timeZone` note below.
+ *
+ * `timeZone: 'UTC'` is what makes the hour come out right in São Paulo, and is *not* a decision
+ * to display UTC: the stored epoch encodes São Paulo wall time labelled as UTC. The docblock on
+ * `pages/record-bars.vue` sets this out in full; without it this label reads three hours early.
+ *
+ * Unix seconds, so `* 1000`. Client-only by where it is rendered — `bar.last` is seeded from the
+ * fetch and moved by the socket, and the server has neither.
+ */
+const lastBarLabel = computed(() => {
+  if (bar.last.value === null) return null
+  const closed = bar.last.value - SECONDS[timeframe.value]
+  return new Date(closed * 1000).toLocaleTimeString('pt-BR', {
+    timeZone: 'UTC',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+})
 
 /**
  * The props only one overlay takes, spread into the `component` so the others never see them —
@@ -427,11 +479,11 @@ function extraProps(overlay: { producer: string, name: string }) {
           <span v-if="patternsPending" class="text-xs font-normal text-gray-400">rodando…</span>
         </h2>
 
-        <!-- The feed moves the candles and nothing else. Without this, motionless overlays over
-             a moving chart read as a bug rather than as the deliberate trade it is. -->
+        <!-- The run is now unattended, so the page has to say when it last happened: overlays
+             that stop moving because the feed died look exactly like ones with nothing to draw. -->
         <ClientOnly>
-          <p v-if="live.status.value === 'open'" class="mt-1 text-xs text-amber-600">
-            Padrões congelados na janela carregada — o feed atualiza só os candles.
+          <p v-if="live.status.value === 'open'" class="mt-1 text-xs text-gray-500">
+            Recalculados a cada candle fechado<span v-if="lastBarLabel"> · último: {{ lastBarLabel }}</span>
           </p>
         </ClientOnly>
 

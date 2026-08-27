@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from pattern_engine import Ctx, Pattern
+from pattern_engine import BaseSeries, Ctx, Pattern, SeriesIdentity
 from pattern_engine.patterns import LegExtremesPattern, LegReversalsPattern
 
 from playbook_api.db import get_session
@@ -20,12 +20,15 @@ from playbook_api.models.candle import Candle
 from playbook_api.pipeline import PIPELINE, RULE_K, build_pipeline
 from playbook_api.routers import patterns as patterns_router
 from playbook_api.schemas.pattern import _seconds
-from playbook_api.store.candles import CandleWindowTooLarge, as_series
+from playbook_api.store.candles import CandleWindowTooLarge, as_series, closed_candles
 
 from test_candles_route import FakeSession
 
 WINDOW = {"from": "2026-08-11T00:00:00Z", "to": "2026-08-12T00:00:00Z"}
 OPEN = datetime(2026, 8, 11, 13, 0, tzinfo=UTC)
+
+#: When the last bar of `wave()` opens — the bar the live edge sits on, and the one withheld.
+LAST_OPEN = OPEN + timedelta(minutes=5 * 59)
 
 #: Read from the pipeline rather than written out: retuning a Pattern's parameters changes the
 #: producer key, and these tests are about the wiring, not about the tuning.
@@ -102,6 +105,21 @@ class Boom(Pattern):
         raise RuntimeError("boom")
 
 
+class Spy(Pattern):
+    """Records the Candles the run was handed, and produces nothing.
+
+    Which bars reached the engine is the question the trim is about, and asking it through a
+    detector's output would answer a different one — a zigzag that ignores the newest bar and a
+    zigzag that never saw it look the same from outside.
+    """
+
+    seen: list[datetime] = []
+
+    def run(self, ctx: Ctx):
+        self.seen = [bar.time for bar in ctx["bars"]["5m"]]
+        return BaseSeries(SeriesIdentity(self.producer, ctx["instrument"], self.emits), [])
+
+
 # --- the store's conversion to a Series ----------------------------------------------------
 
 
@@ -119,6 +137,29 @@ def test_null_volume_becomes_zero():
     rows = wave(1)
     rows[0].volume = None
     assert as_series(rows, symbol="WIN@N", timeframe="5m")[0].volume == 0.0
+
+
+# --- the trim to closed bars ---------------------------------------------------------------
+
+
+def test_the_bar_at_the_live_edge_is_withheld():
+    """The newest row is the one the Ingestor is still writing, so it is not a bar to read."""
+    rows = wave(3)
+    kept = closed_candles(rows, edge=rows[-1].time)
+    assert [row.time for row in kept] == [OPEN, OPEN + timedelta(minutes=5)]
+
+
+def test_a_window_that_stops_short_of_the_live_edge_keeps_every_bar():
+    """A pinned window: every row in it is strictly older than the bar being written."""
+    rows = wave(3)
+    kept = closed_candles(rows, edge=rows[-1].time + timedelta(days=1))
+    assert [row.time for row in kept] == [row.time for row in rows]
+
+
+def test_no_live_edge_withholds_nothing():
+    """`None` means the table holds no Candle at all, which makes `rows` empty anyway."""
+    assert closed_candles([], edge=None) == []
+    assert len(closed_candles(wave(2), edge=None)) == 2
 
 
 # --- serialization -------------------------------------------------------------------------
@@ -186,10 +227,36 @@ def test_an_overflowing_window_is_refused_not_truncated(client, monkeypatch):
     def overflow(*args, **kwargs):
         raise CandleWindowTooLarge(1000)
 
-    monkeypatch.setattr(patterns_router, "load_candles", overflow)
+    monkeypatch.setattr(patterns_router, "load_closed_candles", overflow)
     response = client.get("/patterns", params=WINDOW)
     assert response.status_code == 400
     assert "1000" in response.json()["detail"]
+
+
+def test_the_bar_at_the_live_edge_is_not_handed_to_the_pipeline(client, monkeypatch):
+    """The run stops one bar short of the feed, whatever the window's `to` says.
+
+    The fake answers every query with the same rows, so the window's newest bar and the table's
+    newest bar are the one bar — which is the case this is about.
+    """
+    spy = Spy(reads=("5m",), emits="5m")
+    monkeypatch.setattr(patterns_router, "PIPELINE", (spy,))
+
+    client.get("/patterns", params=WINDOW)
+
+    assert spy.seen[-1] == LAST_OPEN - timedelta(minutes=5)
+    assert LAST_OPEN not in spy.seen
+
+
+def test_a_window_holding_no_bar_is_answered_not_refused(client):
+    """Empty Series, not failures: a Pattern handed no Candles must produce nothing quietly."""
+    client.session.rows = []  # type: ignore[attr-defined]
+
+    response = client.get("/patterns", params=WINDOW)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["failed"] == []
+    assert all(series["points"] == [] for series in body["series"].values())
 
 
 # --- the rule override ---------------------------------------------------------------------

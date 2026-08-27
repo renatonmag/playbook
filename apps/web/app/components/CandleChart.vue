@@ -85,7 +85,12 @@ onMounted(() => {
     // what lets a level be read off anywhere in the pane — between two bars, or above the wick —
     // which is the whole point of having one on a chart that draws levels.
     crosshair: { mode: CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#e2e8f0' },
+    rightPriceScale: {
+      borderColor: '#e2e8f0',
+      // The library reserves 20% of the pane above the highest high and 10% below the lowest low
+      // by default, which squeezes the candles into the middle. Just enough for a wick to breathe.
+      scaleMargins: { top: 0.1, bottom: 0.1 },
+    },
     timeScale: {
       borderColor: '#e2e8f0',
       // Intraday timeframes are meaningless without the clock on the axis.

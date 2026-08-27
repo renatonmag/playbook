@@ -75,6 +75,70 @@ def load_candles(
     return rows
 
 
+def closed_candles(rows: Sequence[Candle], *, edge: datetime | None) -> Sequence[Candle]:
+    """The rows strictly older than `edge` — everything but the bar the feed is still writing.
+
+    The Ingestor writes the bar that is still forming and rewrites it as it fills, so its `high`,
+    `low` and `close` are whatever the last write said. A Pattern reading it produces a vertex, a
+    leg or a mark that moves and then disappears — an answer about a bar the market has not given
+    yet. `edge` is where that bar starts: see `newest_candle_time`.
+
+    `edge` of `None` means the table holds no Candle at all for this Instrument and Timeframe, in
+    which case `rows` is empty too and the branch is a formality rather than a policy.
+    """
+    return [row for row in rows if edge is None or row.time < edge]
+
+
+def newest_candle_time(
+    session: Session, *, symbol: str, timeframe: Timeframe
+) -> datetime | None:
+    """When the newest stored Candle of `symbol` at `timeframe` opened — the feed's live edge.
+
+    This is the closed-bar test's whole reference, and it is drawn from the data rather than from
+    a clock. It has to be: the table's `time` values are the exchange's wall clock stamped as UTC
+    (see the docblock on `apps/web/app/pages/record-bars.vue`), so a `datetime.now()` here — or a
+    window end sent by a browser — sits hours away from every row and would find every bar long
+    closed, including the one being written. Two timestamps from the same table cannot disagree
+    that way.
+
+    What makes it correct is the Ingestor's behaviour: it rewrites the forming bar in place, so
+    the newest row *is* that bar whenever the feed is running. The cost is the other side of the
+    same fact — when the feed stops, the last bar it wrote stays the newest row, so the final bar
+    of a session is not read until the next session opens one past it.
+
+    `max` over what came back rather than the first row: with `count=1` those are the same, and
+    this does not quietly depend on the ordering surviving every driver.
+    """
+    rows = load_recent_candles(session, symbol=symbol, timeframe=timeframe, count=1)
+    return max((row.time for row in rows), default=None)
+
+
+def load_closed_candles(
+    session: Session,
+    *,
+    symbol: str,
+    timeframe: Timeframe,
+    start: datetime,
+    end: datetime,
+    limit: int,
+) -> Sequence[Candle]:
+    """The window's Candles, minus the one the Ingestor has not finished writing.
+
+    `load_candles` with the forming bar withheld — the same arguments, the same errors, one fewer
+    bar at the live edge. A window that ends before that edge loses nothing: every row in it is
+    strictly older, which is what makes a pinned window and a live one the same request here.
+    """
+    rows = load_candles(
+        session, symbol=symbol, timeframe=timeframe, start=start, end=end, limit=limit
+    )
+    # The window first, the edge second. A bar opening between the two costs this run one bar of
+    # lag — it withholds a bar that closed a moment ago. The other order fails the other way: a
+    # stale edge admits the forming bar, which is the whole thing this exists to prevent.
+    if not rows:
+        return rows
+    return closed_candles(rows, edge=newest_candle_time(session, symbol=symbol, timeframe=timeframe))
+
+
 def as_series(
     rows: Sequence[Candle], *, symbol: str, timeframe: Timeframe
 ) -> BaseSeries[Bar]:

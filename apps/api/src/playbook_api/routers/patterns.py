@@ -35,6 +35,22 @@ Three things keep this from becoming "the browser authors the pipeline":
 With no rule parameters at all, this route runs the very tuple a tick worker would import — the
 same object, not an equal one — and answers exactly what it answered before any of this existed.
 
+**A run reads closed bars only.** The Ingestor writes the forming bar and keeps rewriting it, so
+the newest row in any window is normally a bar still filling, and a Pattern reading it answers
+about a bar the market has not given yet. It is withheld here, per Timeframe, before the engine
+sees them — see `load_closed_candles`.
+
+What counts as closed is decided by the data and not by a clock: **a bar is closed when a later
+bar exists.** No instant is compared to anything, so the answer cannot depend on the caller's
+clock, this server's, or the timescale the table happens to stamp its rows in — and that last one
+is not hypothetical here, the `time` column carries exchange wall clock labelled as UTC. The cost
+is stated plainly: when the feed stops, the last bar it wrote stays the newest row, so a session's
+final bar is not read until the next session opens one past it.
+
+`/candles` does not do this, deliberately — the chart draws the forming bar — so the monitor's
+overlays end one bar behind its candles, and that gap is this paragraph rather than a defect. A
+window that ends before the live edge loses nothing, so a pinned window is unaffected.
+
 `symbol` and `timeframe` remain absent for the original reason: the pipeline names the Instrument
 and each Pattern declares the Timeframes it reads. The caller chooses the window, and now the one
 rule the browser cannot evaluate for itself.
@@ -55,7 +71,7 @@ from ..db import get_session
 from ..pipeline import PIPELINE, SYMBOL, build_pipeline, timeframes
 from ..rule_query import rule_override
 from ..schemas.pattern import PatternsOut, SeriesOut
-from ..store.candles import CandleWindowTooLarge, as_series, load_candles
+from ..store.candles import CandleWindowTooLarge, as_series, load_closed_candles
 from ..window import validate_window
 
 router = APIRouter()
@@ -83,6 +99,9 @@ def read_patterns(
     marks nothing, so a bad rule produces an *empty* Series and not a failed one. Which is why
     `rule_query` refuses out-of-range thresholds up front — nothing downstream ever will.
 
+    The bars handed over are the window's *closed* ones — the newest row of each Timeframe is the
+    bar the Ingestor is still writing, and it is withheld. See the module docstring.
+
     Without an override this runs `PIPELINE` itself rather than rebuilding an equal tuple, so
     "no rule parameters" and "as before" are the same statement and not two that have to agree.
     `timeframes` is asked about the pipeline actually being run, so the bars loaded and the
@@ -95,7 +114,10 @@ def read_patterns(
     try:
         bars = {
             timeframe: as_series(
-                load_candles(
+                # `load_candles` with the forming bar withheld. `limit` still describes the
+                # window that was asked for: an overflowing window is an error about what the
+                # caller requested, not about what survived the trim.
+                load_closed_candles(
                     session,
                     symbol=SYMBOL,
                     timeframe=timeframe,
