@@ -19,7 +19,17 @@ import type { Candle } from '~/types/candle'
  * so this component never learns what a zigzag is — adding a Pattern costs an overlay component
  * and a line in the page's registry, and nothing here.
  */
-const props = defineProps<{ candles: Candle[] }>()
+const props = defineProps<{
+  candles: Candle[]
+  /**
+   * The bars from the live socket's latest frame, oldest first. Empty when nothing is streaming.
+   *
+   * A prop rather than a method on an exposed ref, because the chart lives inside `<ClientOnly>`
+   * on every page that uses it and a template ref through that boundary is null on the first
+   * render — exactly when the first bar would arrive.
+   */
+  liveBars?: Candle[]
+}>()
 
 const container = ref<HTMLDivElement | null>(null)
 
@@ -35,6 +45,22 @@ provide(CANDLE_SERIES, series)
  */
 function asBars(candles: Candle[]): CandlestickData<UTCTimestamp>[] {
   return candles as unknown as CandlestickData<UTCTimestamp>[]
+}
+
+/**
+ * The time of the last bar the series holds, so a live bar older than it can be dropped.
+ *
+ * `update()` throws on a bar that predates the series rather than ignoring it, and the socket
+ * can legitimately deliver one: reconnecting re-sends the recent bars, and a window pinned into
+ * the past has a last bar far ahead of the live edge.
+ */
+const lastTime = ref<number | null>(null)
+
+function draw(candles: Candle[]) {
+  if (!series.value || !chart.value) return
+  series.value.setData(asBars(candles))
+  chart.value.timeScale().fitContent()
+  lastTime.value = candles.at(-1)?.time ?? null
 }
 
 onMounted(() => {
@@ -77,16 +103,28 @@ onMounted(() => {
     wickDownColor: '#dc2626',
   })
 
-  series.value.setData(asBars(props.candles))
-  chart.value.timeScale().fitContent()
+  draw(props.candles)
 })
 
+watch(() => props.candles, draw)
+
+/**
+ * A frame in, its bars drawn. Note what this deliberately does *not* do: `fitContent()`. The
+ * watcher above calls it because a new window is a new picture, but doing it on every tick would
+ * snap the viewport back from wherever the user had panned to.
+ *
+ * `continue` and not `return` on the guard: a frame that re-sends a bar the chart is already past
+ * still has newer bars after it, and dropping the whole frame would lose them.
+ */
 watch(
-  () => props.candles,
-  (candles) => {
-    if (!series.value || !chart.value) return
-    series.value.setData(asBars(candles))
-    chart.value.timeScale().fitContent()
+  () => props.liveBars,
+  (bars) => {
+    if (!bars?.length || !series.value) return
+    for (const bar of bars) {
+      if (lastTime.value !== null && bar.time < lastTime.value) continue
+      series.value.update(asBars([bar])[0]!)
+      lastTime.value = bar.time
+    }
   },
 )
 

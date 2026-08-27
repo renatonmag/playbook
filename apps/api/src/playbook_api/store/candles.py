@@ -99,3 +99,31 @@ def as_series(
             for row in rows
         ],
     )
+
+
+def load_recent_candles(
+    session: Session,
+    *,
+    symbol: str,
+    timeframe: Timeframe,
+    count: int,
+) -> Sequence[Candle]:
+    """The `count` most recent Candles of `symbol` at `timeframe`, oldest first.
+
+    The live edge, asked for without a window: a poller wants "whatever is newest now", and
+    computing a window for that would put a second notion of "now" in the system — the thing
+    `load_candles`' docstring exists to prevent.
+
+    Descending in the query, ascending in the answer. The ordering contract is the same one
+    `load_candles` documents, and the chart's `update()` depends on it: a bar handed over out of
+    order is refused by the library, not merely drawn wrong.
+    """
+    statement = (
+        select(Candle)
+        .where(Candle.symbol == symbol.upper())
+        .where(Candle.timeframe == _TIMEFRAME_CODES[timeframe])
+        .order_by(Candle.time.desc())  # type: ignore[attr-defined]
+        .limit(count)
+    )
+
+    return list(reversed(session.exec(statement).all()))

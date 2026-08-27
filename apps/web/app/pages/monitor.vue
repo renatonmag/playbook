@@ -121,6 +121,30 @@ const adjusted = computed(() => !sameRule(rule.value, PIPELINE_RULE))
 const window = useWindow(timeframe, at)
 
 const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe, window, windowKey)
+/**
+ * The live edge, held open only while "Agora" is on.
+ *
+ * Separate from `useCandles` on purpose: that fetch owns the window the chart opens with, and
+ * this socket owns everything after it. The two meet at the chart, which draws the window with
+ * `setData` and each live bar with `update`.
+ */
+const live = useLiveCandles(symbol, timeframe)
+
+/**
+ * A pinned window and a live feed contradict each other — one says "these bars, frozen", the
+ * other keeps appending. Pinning wins, because it is the more specific request.
+ */
+watch(at, (value) => {
+  if (value) live.disconnect()
+})
+
+/** "Agora" does both jobs: back to the live window, and on/off for the feed. */
+function goLive() {
+  // Unpinning first, so the refetch and the socket agree about which bars are on screen.
+  if (at.value) select({ to: undefined })
+  live.toggle()
+}
+
 const {
   data: patterns,
   error: patternsError,
@@ -283,6 +307,13 @@ function extraProps(overlay: { producer: string, name: string }) {
           {{ symbol }} · {{ timeframe }} ·
           <span v-if="at" class="text-amber-600">janela fixada</span>
           <span v-else>ao vivo</span>
+          <!-- The socket exists only in the browser, so its state must not be rendered on the
+               server — same reason the timepicker below is wrapped. -->
+          <ClientOnly>
+            <span v-if="live.status.value === 'open'" class="text-green-600">&nbsp;· conectado</span>
+            <span v-else-if="live.status.value === 'connecting'" class="text-gray-400">&nbsp;· conectando…</span>
+            <span v-else-if="live.status.value === 'error'" class="text-red-600">&nbsp;· {{ live.error.value }}</span>
+          </ClientOnly>
         </p>
       </div>
 
@@ -326,13 +357,23 @@ function extraProps(overlay: { producer: string, name: string }) {
           </template>
         </ClientOnly>
 
-        <button
-          v-if="at"
-          class="rounded border border-gray-300 px-3 py-1 text-sm"
-          @click="select({ to: undefined })"
-        >
-          Agora
-        </button>
+        <!-- Always present now, because it is a switch rather than an escape hatch: with
+             `v-if="at"` there was no way back to a live feed once you were already unpinned. -->
+        <ClientOnly>
+          <button
+            class="rounded border px-3 py-1 text-sm"
+            :class="live.connected.value
+              ? 'border-green-600 bg-green-50 text-green-700'
+              : 'border-gray-300'"
+            @click="goLive()"
+          >
+            Agora
+            <span v-if="live.connected.value" class="ml-1 text-xs">■</span>
+          </button>
+          <template #fallback>
+            <div class="h-[34px] w-20" />
+          </template>
+        </ClientOnly>
       </div>
     </header>
 
@@ -362,7 +403,7 @@ function extraProps(overlay: { producer: string, name: string }) {
         </p>
 
         <ClientOnly v-else>
-          <CandleChart :candles="candles">
+          <CandleChart :candles="candles" :live-bars="live.bars.value">
             <component
               :is="overlay.component"
               v-for="overlay in overlays"
@@ -385,6 +426,14 @@ function extraProps(overlay: { producer: string, name: string }) {
           <!-- The run is now started by editing a field, so it needs to say it is running. -->
           <span v-if="patternsPending" class="text-xs font-normal text-gray-400">rodando…</span>
         </h2>
+
+        <!-- The feed moves the candles and nothing else. Without this, motionless overlays over
+             a moving chart read as a bug rather than as the deliberate trade it is. -->
+        <ClientOnly>
+          <p v-if="live.status.value === 'open'" class="mt-1 text-xs text-amber-600">
+            Padrões congelados na janela carregada — o feed atualiza só os candles.
+          </p>
+        </ClientOnly>
 
         <p v-if="patternsError" class="mt-3 text-xs text-red-600">
           Não foi possível rodar o pipeline.
