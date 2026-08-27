@@ -30,13 +30,26 @@ The rules:
 - **No mirror**, unlike `leg_reversals.py`, which filters a leg for the *opposite* direction to
   its own. Here the leg's own direction is both what is measured and what is reported, and there
   is no second value to confuse it with.
+- **The last leg is not measured.** It closes on the newest zigzag vertex, and that vertex is
+  provisional: `_cleanup_extremes` moves it as soon as price makes a further extreme, taking the
+  leg's direction and all three of its levels with it. Its window is the wrong shape too — the
+  last one swallows every remaining bar as its tail rather than `ahead` of them, so its `reach`
+  is drawn from an unbounded stretch of the leg still forming and is not comparable with any
+  other leg's. A leg is measured here once it is over, and the last one is not.
 
 What it costs, stated rather than hidden:
 
 - **The reach can sit past the close.** Scanning the tail means a leg whose successor opened
   beyond it reports a `reach` with `at > end`. Read that as "the level was exceeded after the
   turn" — it is information, and it is why `reach` must never be read as "the closing vertex".
-  The vertex is `bars[end]`, and `LegWindow` already says so.
+  The vertex is `bars[end]`, and `LegWindow` already says so. The tail it can sit in is now
+  always a bounded one, `ahead` bars long, since the leg with the unbounded tail is the one
+  skipped.
+- **One fewer Point than `leg-windows`**, and the two Series no longer line up index for index.
+  The legs here are a *prefix* of that one's, so anything reading both must join on the anchor
+  `time` — which is the same on both, both anchoring on the leg's opening vertex — and never by
+  position. `as_of` is unaffected and still answers "which leg is running now", except that the
+  answer goes quiet for the newest leg until the one after it opens.
 - **Consecutive legs overlap** by `ahead + 1` bars, so one bar can be a defining point of two
   legs. A property of `LegWindow`, restated here rather than fixed — the question is what each
   leg reached, and a bar can be in two legs.
@@ -210,10 +223,11 @@ class LegExtremesPattern(Pattern):
         self.pivots = pivots
 
     def run(self, ctx: Ctx) -> BaseSeries[LegExtremes]:
-        """One Point per leg, anchored where the leg is, holding its three defining bars.
+        """One Point per *closed* leg, anchored where the leg is, holding its three defining bars.
 
         Anchors are the legs' own, untouched, so they are ordered exactly as `LegWindowPattern`
-        left them and `BaseSeries` has nothing to object to.
+        left them and `BaseSeries` has nothing to object to — a prefix of them, since the last
+        leg is dropped.
 
         The Candles of `emits` are never read: a leg carries its own bars, and every measurement
         here is inside them. That is why this `run` has no `bar_positions` call — there is no
@@ -225,7 +239,11 @@ class LegExtremesPattern(Pattern):
         turns = {pivot.time: pivot.direction for pivot in pivots.points}
 
         points = []
-        for window in windows.points:
+        # `[:-1]` drops the leg that is still running. No guard: an empty or single-leg list
+        # slices to nothing, which is the right answer for both — one leg means that leg is the
+        # last one. It also means a `source`/`pivots` mismatch confined to the final leg no
+        # longer raises below, because that leg is never asked about; every other one still does.
+        for window in windows.points[:-1]:
             close = window.bars[window.end]
             side = turns.get(close.time)
             if side is None:

@@ -113,6 +113,8 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # closed at, and the level it held throughout — which are usually three different bars.
         # Two sources for the same reason `leg-reversals` needs two, and no dials of its own: an
         # extreme is an extreme, and how far past the close to look is `ahead`, set once above.
+        # Reports **closed legs only** — the newest leg's vertex is still provisional, so it is
+        # skipped, and this Series runs one Point behind `leg-windows`. Not a dial either.
         LegExtremesPattern(source=leg_windows, pivots=zigzag, reads=("5m",), emits="5m"),
     )
 

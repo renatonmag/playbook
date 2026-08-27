@@ -48,6 +48,20 @@ RISING = (
 )
 
 
+#: Two bars appended after `RISING` so that a leg over `RISING` is no longer the **last** leg,
+#: which is the one this Pattern refuses to measure. They carry a third vertex and nothing else:
+#: every test using them cuts its leg at bar 6 with `ahead=0`, so the window under test is still
+#: exactly `RISING` and the expected points are unchanged by their presence.
+#:
+#: They fall hard, on purpose — a `low` of 88 that no reading of a bull leg over `RISING` could
+#: ever pick up, so a bar of the skipped leg leaking into a measured one would show as a wrong
+#: number rather than as a coincidence.
+AFTER = (
+    (126.0, 128.0, 90.0, 92.0),
+    (92.0, 94.0, 88.0, 90.0),
+)
+
+
 def flipped(
     specs: tuple[tuple[float, float, float, float], ...],
 ) -> tuple[tuple[float, float, float, float], ...]:
@@ -230,11 +244,12 @@ def test_no_bars_is_no_points_rather_than_an_error():
 
 
 def test_the_same_bars_read_as_a_bull_leg_and_as_a_bear_leg_give_different_points():
-    bars = series(*RISING)
+    bars = series(*RISING, *AFTER)
 
-    # Bar 0 to bar 6, with no tail to reach into, so the two runs differ only in direction.
-    bull = run(bars, (0, None, "low"), (6, 2, "high"), ahead=0)
-    bear = run(bars, (0, None, "high"), (6, 2, "low"), ahead=0)
+    # Bar 0 to bar 6, with no tail to reach into, so the two runs differ only in direction. The
+    # third vertex is what makes that leg a measured one — the leg after it is the unclosed one.
+    bull = run(bars, (0, None, "low"), (6, 2, "high"), (8, 7, "low"), ahead=0)
+    bear = run(bars, (0, None, "high"), (6, 2, "low"), (8, 7, "high"), ahead=0)
 
     assert listed(bull[0]) == [("reach", 4, 140.0), ("close", 2, 128.0), ("hold", 6, 120.0)]
     assert listed(bear[0]) == [("reach", 0, 98.0), ("close", 0, 105.0), ("hold", 0, 110.0)]
@@ -244,10 +259,14 @@ def test_the_direction_is_the_legs_own_and_is_not_mirrored_into_the_turn_it_invi
     # A leg closing on a high is a rise, and a rise is `bullish` here — even though the bar that
     # would *turn* it is a bearish one. `LegReversalsPattern` reports the opposite value from the
     # same input, on purpose, and the two must not be reconciled.
-    bars = series(*RISING)
+    bars = series(*RISING, *AFTER)
 
-    assert run(bars, (0, None, "low"), (6, 2, "high"), ahead=0)[0].direction == "bullish"
-    assert run(bars, (0, None, "high"), (6, 2, "low"), ahead=0)[0].direction == "bearish"
+    assert run(bars, (0, None, "low"), (6, 2, "high"), (8, 7, "low"), ahead=0)[0].direction == (
+        "bullish"
+    )
+    assert run(bars, (0, None, "high"), (6, 2, "low"), (8, 7, "high"), ahead=0)[0].direction == (
+        "bearish"
+    )
 
 
 def test_the_reach_can_land_in_the_tail_past_the_legs_closing_vertex():
@@ -270,15 +289,74 @@ def test_the_reach_can_land_in_the_tail_past_the_legs_closing_vertex():
     assert reach.at > window_end
 
 
-def test_one_point_per_leg_anchored_where_its_leg_window_is():
+def test_one_point_per_leg_anchored_where_its_leg_window_is_bar_the_last():
+    """The anchors are a *prefix* of `leg-windows`', never the whole of it.
+
+    The relationship the two Series now stand in, stated once: same anchors, same order, one
+    fewer — so a reader joining them must join on `time` and not by position.
+    """
     bars = series(*RISING)
     placed = ((0, None, "low"), (3, 1, "high"), (6, 4, "low"))
 
     legs = run(bars, *placed, ahead=1)
     windows = split_leg_windows(bars.points, vertices(bars, *placed), 1)
 
-    assert len(legs) == len(windows) == 2
-    assert [leg.time for leg in legs] == [window.time for window in windows]
+    assert len(windows) == 2
+    assert len(legs) == len(windows) - 1
+    assert [leg.time for leg in legs] == [window.time for window in windows[:-1]]
+    assert windows[-1].time not in {leg.time for leg in legs}
+
+
+# --- the leg that is still running -----------------------------------------------------------
+
+
+def test_the_last_leg_is_not_measured_because_its_closing_vertex_can_still_move():
+    """The newest vertex is provisional, so the leg it closes has not finished happening.
+
+    Stated on the anchors rather than on a count alone: it is the *last* leg that goes missing,
+    not an arbitrary one.
+    """
+    bars = series(*RISING, *AFTER)
+    placed = ((0, None, "low"), (6, 2, "high"), (8, 7, "low"))
+
+    legs = run(bars, *placed, ahead=0)
+    windows = split_leg_windows(bars.points, vertices(bars, *placed), 0)
+
+    assert [window.time for window in windows] == [bars[0].time, bars[6].time]
+    assert [leg.time for leg in legs] == [bars[0].time]
+
+
+def test_two_vertices_is_one_leg_and_that_leg_is_the_last_one_so_nothing_is_measured():
+    """The `[:-1]` needs no guard, and this is the case that would have needed it."""
+    bars = series(*RISING)
+
+    assert list(run(bars, (0, None, "low"), (6, 2, "high"), ahead=0)) == []
+
+
+def test_a_bar_beyond_the_measured_legs_tail_cannot_win_a_reading():
+    """The defect this skip exists for, in the direction it actually bit.
+
+    The last `LegWindow` swallows *every* remaining bar rather than `ahead` of them, so its
+    `reach` used to be drawn from an unbounded stretch of the leg still forming. Bar 8 here
+    trades far above anything in the leg; nothing in the output may mention it.
+    """
+    bars = series(
+        (100.0, 110.0, 98.0, 108.0),
+        (108.0, 118.0, 106.0, 116.0),
+        (116.0, 124.0, 114.0, 122.0),
+        (122.0, 130.0, 120.0, 128.0),  # the closing vertex of the measured leg
+        (128.0, 129.0, 118.0, 122.0),
+        (122.0, 124.0, 114.0, 118.0),
+        (118.0, 120.0, 100.0, 104.0),  # the vertex the unclosed leg turns on
+        (104.0, 112.0, 102.0, 110.0),
+        (110.0, 999.0, 108.0, 998.0),  # only reachable through the unbounded tail
+    )
+
+    legs = run(bars, (0, None, "low"), (3, 1, "high"), (6, 4, "low"), ahead=2)
+
+    assert len(legs) == 1
+    assert 999.0 not in {found.price for leg in legs for found in leg.found}
+    assert listed(legs[0])[0] == ("reach", 3, 130.0)
 
 
 def test_every_leg_carries_exactly_three_points():
@@ -306,10 +384,12 @@ def test_fewer_than_two_vertices_is_no_legs_and_so_no_points():
 
 
 def test_pivots_that_do_not_reach_a_legs_close_raise_rather_than_guess_a_direction():
-    bars = series(*RISING)
+    bars = series(*RISING, *AFTER)
 
+    # `pivots_shown=1` hides the vertex at bar 6, which closes the *measured* leg. Hiding only
+    # the last vertex would no longer raise, and deliberately so: that leg is never asked about.
     with pytest.raises(ValueError) as caught:
-        run(bars, (0, None, "low"), (6, 2, "high"), ahead=0, pivots_shown=1)
+        run(bars, (0, None, "low"), (6, 2, "high"), (8, 7, "low"), ahead=0, pivots_shown=1)
 
     message = str(caught.value)
     assert "zig-zag(" in message
