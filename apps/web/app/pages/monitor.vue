@@ -6,6 +6,7 @@ import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/u
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import LegReversalsOverlay from '~/components/LegReversalsOverlay.vue'
+import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -32,11 +33,16 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * The third is the other half of the same test: `leg-reversals` is markers with no line, and its
  * dots are coloured by a field of the Point rather than by this file's palette. Between them the
  * three cover line-only, markers-only, and both — which is the case for keeping the map.
+ *
+ * The fourth settles it: `leg-extremes` is a canvas **series primitive**, because a level with a
+ * length is neither a marker nor a line series. It shares no drawing code with the other three at
+ * all, so the "one data-driven component" the bet was hedging against is now off the table.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
   'simple-leg': SimpleLegOverlay,
   'leg-reversals': LegReversalsOverlay,
+  'leg-extremes': LegExtremesOverlay,
 }
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
@@ -212,9 +218,9 @@ function toggle(producer: string) {
 /**
  * The two ways a leg can run, in the order the filters are listed, with the label each gets.
  *
- * Only `leg-reversals` splits this way, so this is the one place the page knows a Point-level
- * field of a specific Pattern. What it does with it is narrow — pass the kept directions down —
- * and the overlay still owns what a direction *means* for the drawing.
+ * This is the one place the page knows a Point-level field of a specific Pattern. What it does
+ * with it is narrow — pass the kept directions down — and the overlay still owns what a direction
+ * *means* for the drawing: dots above or below the bar on one, which levels to draw on the other.
  */
 const DIRECTIONS = [
   { value: 'bullish', label: 'bull' },
@@ -222,6 +228,15 @@ const DIRECTIONS = [
 ] as const
 
 type Direction = typeof DIRECTIONS[number]['value']
+
+/**
+ * The Patterns whose Points carry a `direction`, and so get the bull/bear filter under them.
+ *
+ * A set rather than the condition written out at each of the three places that ask — the props
+ * spread, the checkboxes, the colour key. Those fell out of step the moment a second Pattern
+ * qualified, and the failure is quiet: filter checkboxes that render while nothing reads them.
+ */
+const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes'])
 
 /**
  * Directions the bull/bear filters have turned *off*, keyed by producer and direction.
@@ -253,7 +268,7 @@ function toggleDirection(producer: string, direction: Direction) {
  * an unknown attribute would fall through onto components that render no root element.
  */
 function extraProps(overlay: { producer: string, name: string }) {
-  return overlay.name === 'leg-reversals' ? { directions: directionsFor(overlay.producer) } : {}
+  return DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {}
 }
 </script>
 
@@ -323,8 +338,13 @@ function extraProps(overlay: { producer: string, name: string }) {
 
     <div class="mt-6 flex flex-col gap-6 lg:flex-row">
       <!-- `overflow-hidden` clips the chart's square canvas to the rounded corners; without it the
-           white canvas pokes out past the radius at each corner. -->
-      <section class="min-w-0 flex-1 overflow-hidden rounded border border-gray-200">
+           white canvas pokes out past the radius at each corner.
+
+           `lg:self-start` opts out of the row's default stretch, so the chart's own fixed height
+           decides where this bottom border lands rather than whatever the sidebar grew to. Only
+           at `lg`: below it the container is a column, where the cross axis is the width and
+           `self-start` would shrink the panel to its content. -->
+      <section class="min-w-0 flex-1 overflow-hidden rounded border border-gray-200 lg:self-start">
         <p v-if="pending" class="p-8 text-center text-sm text-gray-500">
           Carregando candles…
         </p>
@@ -403,7 +423,7 @@ function extraProps(overlay: { producer: string, name: string }) {
             <!-- Only under a Series that is actually drawn: with the checkbox off there is nothing
                  for these to filter, and leaving them visible would suggest otherwise. -->
             <div
-              v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
+              v-if="DIRECTIONAL.has(overlay.name) && shown.has(overlay.producer)"
               class="mt-1 ml-6 flex gap-3"
             >
               <label
@@ -418,6 +438,24 @@ function extraProps(overlay: { producer: string, name: string }) {
                 >
                 {{ direction.label }}
               </label>
+            </div>
+
+            <!-- The three levels are told apart by colour alone, and the swatch on the checkbox
+                 above is the *Series'* palette colour, which this overlay ignores. Without a key
+                 the picture cannot be read at all. `leg-reversals` colours its dots the same way
+                 and has no key either; that is left as it is rather than quietly widened here. -->
+            <div
+              v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
+              class="mt-1 ml-6 flex flex-wrap gap-x-3 gap-y-1"
+            >
+              <span
+                v-for="(hue, type) in EXTREME_HUES"
+                :key="type"
+                class="flex items-center gap-1 text-xs text-gray-500"
+              >
+                <span class="inline-block h-0.5 w-3" :style="{ backgroundColor: hue }" />
+                {{ EXTREME_LABELS[type] }}
+              </span>
             </div>
 
             <!-- The Forma rule this Pattern applies — the only thing on this page the browser

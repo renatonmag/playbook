@@ -105,6 +105,56 @@ export interface LegReversals extends PatternPoint {
   direction: 'bullish' | 'bearish'
 }
 
+/**
+ * One of a leg's three defining bars — how far it reached, where it closed best, what it held.
+ *
+ * Not a Point of any Series — these arrive nested in `LegExtremes.found`, so `time` here is just
+ * the bar's own, and it is the field the whole Pattern exists to produce: the timestamp to look up
+ * on the real chart.
+ */
+export interface LegPoint extends PatternPoint {
+  /** Index into `bars` of the `LegWindow` at the same anchor. Meaningless without it. */
+  at: number
+  /**
+   * Which of the three levels this bar is, named for the role rather than the OHLC field, because
+   * the field flips with the leg's direction and the role does not.
+   *
+   * On a bull leg: `reach` is the highest high, `close` the highest close, `hold` the highest low
+   * — the highest level price never traded back below. On a bear leg each is the mirror: lowest
+   * low, lowest close, lowest high.
+   *
+   * The three are not exclusive as *bars*: a one-bar move, or a bar that both spiked and closed at
+   * the extreme, puts all three on one `at`. Key a point on `at` and `type` together — never on
+   * `at` or `time` alone.
+   */
+  type: 'reach' | 'close' | 'hold'
+  /** The value that won — `high`, `close` or `low`, already picked for the leg's direction. */
+  price: number
+}
+
+/**
+ * One leg's three defining points and which way it ran, anchored where its `LegWindow` is.
+ *
+ * `found` always holds exactly three entries, in the fixed order `reach`, `close`, `hold` — role
+ * order, not `at` order, unlike `LegReversals.found`.
+ *
+ * Ties keep the earliest bar: the first bar to reach a level owns it, and a later bar equalling it
+ * does not take it over. And note `reach` can land in the tail, past `end` of the `LegWindow` at
+ * the same anchor — the whole window is scanned, so a leg exceeded a bar or two *after* its vertex
+ * says so. Read `at > end` as "the level was exceeded after the turn"; the vertex is `bars[end]`.
+ */
+export interface LegExtremes extends PatternPoint {
+  /** An array on the wire: the Python tuple serializes as a list. Always three entries. */
+  found: LegPoint[]
+  /**
+   * The leg's **own** move: `bullish` when it closed on a high, `bearish` on a low.
+   *
+   * The same direction the three points were measured for. There is no mirror here, unlike
+   * `LegReversals`, whose marks are candidates for the opposite turn.
+   */
+  direction: 'bullish' | 'bearish'
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   identity: SeriesIdentity
   points: TPoint[]

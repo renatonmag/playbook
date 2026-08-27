@@ -24,6 +24,7 @@ from pattern_engine.patterns import (
     DEFAULT_EXPANSION,
     DEFAULT_K,
     DEFAULT_SIMILARITY,
+    LegExtremesPattern,
     LegPattern,
     LegReversalsPattern,
     LegWindowPattern,
@@ -107,6 +108,12 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
             reads=("5m",),
             emits="5m",
         ),
+        # And the other question about those same bars: not which of them could be the turn, but
+        # how far the leg got. Three answers per leg — the extreme it reached, the extreme it
+        # closed at, and the level it held throughout — which are usually three different bars.
+        # Two sources for the same reason `leg-reversals` needs two, and no dials of its own: an
+        # extreme is an extreme, and how far past the close to look is `ahead`, set once above.
+        LegExtremesPattern(source=leg_windows, pivots=zigzag, reads=("5m",), emits="5m"),
     )
 
 

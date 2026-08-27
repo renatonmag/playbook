@@ -1,0 +1,316 @@
+"""Tests for a leg's three defining points, and the Pattern that finds them.
+
+Two layers, tested apart, the same way `test_leg_reversals.py` does it.
+
+`extreme_points` is handed Candles built by hand, and every fixture below is built so that the
+three answers land on **three different bars**. That is the whole difficulty of this Pattern: a
+fixture where the highest high, the highest close and the highest low happen to coincide would
+pass whatever the code did with the other two readings.
+
+The Pattern is then driven with pivots placed by hand rather than by a detector, which is what
+lets the *same bars* close on a low or on a high — the one thing the direction rule has to be
+tested against.
+"""
+
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from pattern_engine import BaseSeries, Candle, SeriesIdentity
+from pattern_engine.engine import BARS, INSTRUMENT
+from pattern_engine.patterns.leg_extremes import (
+    LegExtremes,
+    LegExtremesPattern,
+    extreme_points,
+)
+from pattern_engine.patterns.leg_window import LegWindowPattern, split_leg_windows
+from pattern_engine.patterns.zigzag import ZigZagPattern, ZigZagPivot
+from pattern_engine.series import CANDLES
+
+OPEN = datetime(2026, 8, 12, 13, 0, tzinfo=UTC)
+
+#: `(open, high, low, close)` per bar. Read down the `high`, `close` and `low` columns: the top
+#: of each is on a different row, which is what makes the fixture worth anything.
+#:
+#: high  peaks at bar 4 (140), close peaks at bar 2 (128), low peaks at bar 6 (120).
+#:
+#: Bar 4 is a spike — it reaches furthest and closes back down. Bar 2 closes highest but never
+#: traded as high. Bar 6 is the quiet one that never gave anything back, so it holds the highest
+#: floor. Exactly the three-way disagreement the Pattern exists to report.
+RISING = (
+    (100.0, 110.0, 98.0, 105.0),
+    (105.0, 118.0, 104.0, 112.0),
+    (112.0, 130.0, 110.0, 128.0),  # highest close
+    (128.0, 132.0, 115.0, 118.0),
+    (118.0, 140.0, 112.0, 120.0),  # highest high
+    (120.0, 126.0, 118.0, 124.0),
+    (124.0, 129.0, 120.0, 126.0),  # highest low
+)
+
+
+def flipped(
+    specs: tuple[tuple[float, float, float, float], ...],
+) -> tuple[tuple[float, float, float, float], ...]:
+    """`specs` mirrored about zero — `high` and `low` swap, and every price negates.
+
+    Written as a transform rather than a second hand-typed table so the bear fixture cannot
+    drift from the bull one. A bear leg's three points are the vertical mirror of a bull leg's,
+    which is the claim these tests make, and a mirrored fixture is how it gets made honestly.
+    """
+    return tuple((-o, -low, -high, -c) for o, high, low, c in specs)
+
+
+def series(*specs: tuple[float, float, float, float], start: datetime = OPEN) -> BaseSeries[Candle]:
+    """Candles at five-minute spacing from `start`, one per `(open, high, low, close)`."""
+    bars = [
+        Candle(
+            time=start + timedelta(minutes=5 * i),
+            open=spec[0],
+            high=spec[1],
+            low=spec[2],
+            close=spec[3],
+            volume=100.0,
+        )
+        for i, spec in enumerate(specs)
+    ]
+    return BaseSeries(SeriesIdentity(CANDLES, "WIN@N", "5m"), bars)
+
+
+def vertices(bars: BaseSeries[Candle], *placed: tuple[int, int | None, str]) -> list[ZigZagPivot]:
+    """Vertices placed by hand as `(vertex index, turn index, which extreme)`.
+
+    `direction` is written out rather than alternated, because it is the input the Pattern reads
+    to decide which way a leg ran — the one thing these tests exist to vary.
+    """
+    return [
+        ZigZagPivot.anchored(
+            bars[at],
+            price=bars[at].close,
+            direction=direction,
+            since=bars[turn] if turn is not None else None,
+        )
+        for at, turn, direction in placed
+    ]
+
+
+def run(
+    bars: BaseSeries[Candle],
+    *placed: tuple[int, int | None, str],
+    ahead: int = 5,
+    pivots_shown: int | None = None,
+) -> BaseSeries[LegExtremes]:
+    """Build the two source Series by hand and run the Pattern over them, as a pipeline would.
+
+    The legs are cut from *all* the vertices; `pivots_shown` truncates only the Series the Pattern
+    reads for directions, which is how a mismatched pipeline is simulated without building one.
+    """
+    zigzag = ZigZagPattern(depth=8, reads=("5m",), emits="5m")
+    windows = LegWindowPattern(source=zigzag, ahead=ahead, reads=("5m",), emits="5m")
+    placed_pivots = vertices(bars, *placed)
+
+    ctx = {BARS: {"5m": bars}, INSTRUMENT: "WIN@N"}
+    ctx[zigzag.producer] = BaseSeries(
+        SeriesIdentity(zigzag.producer, "WIN@N", "5m"), placed_pivots[:pivots_shown]
+    )
+    ctx[windows.producer] = BaseSeries(
+        SeriesIdentity(windows.producer, "WIN@N", "5m"),
+        split_leg_windows(bars.points, placed_pivots, ahead),
+    )
+
+    return LegExtremesPattern(
+        source=windows, pivots=zigzag, reads=("5m",), emits="5m"
+    ).run(ctx)
+
+
+def listed(point: LegExtremes) -> list[tuple[str, int, float]]:
+    """A leg's findings as `(type, at, price)`, which is what every assertion here is about."""
+    return [(found.type, found.at, found.price) for found in point.found]
+
+
+# --- the three readings -------------------------------------------------------------------
+
+
+def test_the_three_points_of_a_bull_leg_are_the_high_the_close_and_the_low():
+    bars = series(*RISING).points
+
+    assert [
+        (found.type, found.at, found.price) for found in extreme_points(bars, "bullish")
+    ] == [("reach", 4, 140.0), ("close", 2, 128.0), ("hold", 6, 120.0)]
+
+
+def test_a_bear_leg_reads_the_mirror_of_a_bull_legs_three_fields():
+    bars = series(*flipped(RISING)).points
+
+    assert [
+        (found.type, found.at, found.price) for found in extreme_points(bars, "bearish")
+    ] == [("reach", 4, -140.0), ("close", 2, -128.0), ("hold", 6, -120.0)]
+
+
+def test_a_point_carries_the_whole_bar_it_landed_on_not_only_its_winning_price():
+    bars = series(*RISING).points
+
+    reach = extreme_points(bars, "bullish")[0]
+
+    assert reach.time == bars[4].time
+    assert (reach.open, reach.high, reach.low, reach.close) == (118.0, 140.0, 112.0, 120.0)
+
+
+def test_the_order_is_reach_close_hold_and_not_the_order_the_bars_fell_in():
+    # `at` runs 4, 2, 6 here — deliberately not ascending, so a Pattern that quietly sorted by
+    # bar would be caught. The three are asked for by name, so the name decides the order.
+    assert [found.type for found in extreme_points(series(*RISING).points, "bullish")] == [
+        "reach",
+        "close",
+        "hold",
+    ]
+
+
+def test_a_tie_keeps_the_earliest_bar_that_reached_the_level():
+    # Bars 1 and 3 both top out at 130. Bar 3 also carries the highest close, so a tie rule that
+    # leaned on the later bar would make `reach` and `close` agree and hide itself.
+    bars = series(
+        (100.0, 120.0, 98.0, 110.0),
+        (110.0, 130.0, 108.0, 115.0),
+        (115.0, 122.0, 112.0, 118.0),
+        (118.0, 130.0, 116.0, 129.0),
+    ).points
+
+    assert [(found.type, found.at) for found in extreme_points(bars, "bullish")] == [
+        ("reach", 1),
+        ("close", 3),
+        ("hold", 3),
+    ]
+
+
+def test_a_bear_leg_breaks_a_tie_the_same_way_towards_the_earlier_bar():
+    bars = series(*flipped(
+        (
+            (100.0, 120.0, 98.0, 110.0),
+            (110.0, 130.0, 108.0, 115.0),
+            (115.0, 122.0, 112.0, 118.0),
+            (118.0, 130.0, 116.0, 129.0),
+        )
+    )).points
+
+    assert [(found.type, found.at) for found in extreme_points(bars, "bearish")] == [
+        ("reach", 1),
+        ("close", 3),
+        ("hold", 3),
+    ]
+
+
+def test_a_tie_is_broken_per_reading_and_not_once_for_the_leg():
+    # `high` ties across bars 0 and 2, `close` and `low` do not. Each reading answers on its own.
+    bars = series(
+        (100.0, 130.0, 90.0, 105.0),
+        (105.0, 120.0, 100.0, 118.0),
+        (118.0, 130.0, 95.0, 120.0),
+    ).points
+
+    assert [(found.type, found.at) for found in extreme_points(bars, "bullish")] == [
+        ("reach", 0),
+        ("close", 2),
+        ("hold", 1),
+    ]
+
+
+def test_one_bar_answers_all_three_readings_at_once():
+    bars = series((100.0, 110.0, 95.0, 105.0)).points
+
+    assert [
+        (found.type, found.at, found.price) for found in extreme_points(bars, "bullish")
+    ] == [("reach", 0, 110.0), ("close", 0, 105.0), ("hold", 0, 95.0)]
+
+
+def test_no_bars_is_no_points_rather_than_an_error():
+    assert extreme_points([], "bullish") == []
+
+
+# --- the Pattern --------------------------------------------------------------------------
+
+
+def test_the_same_bars_read_as_a_bull_leg_and_as_a_bear_leg_give_different_points():
+    bars = series(*RISING)
+
+    # Bar 0 to bar 6, with no tail to reach into, so the two runs differ only in direction.
+    bull = run(bars, (0, None, "low"), (6, 2, "high"), ahead=0)
+    bear = run(bars, (0, None, "high"), (6, 2, "low"), ahead=0)
+
+    assert listed(bull[0]) == [("reach", 4, 140.0), ("close", 2, 128.0), ("hold", 6, 120.0)]
+    assert listed(bear[0]) == [("reach", 0, 98.0), ("close", 0, 105.0), ("hold", 0, 110.0)]
+
+
+def test_the_direction_is_the_legs_own_and_is_not_mirrored_into_the_turn_it_invites():
+    # A leg closing on a high is a rise, and a rise is `bullish` here — even though the bar that
+    # would *turn* it is a bearish one. `LegReversalsPattern` reports the opposite value from the
+    # same input, on purpose, and the two must not be reconciled.
+    bars = series(*RISING)
+
+    assert run(bars, (0, None, "low"), (6, 2, "high"), ahead=0)[0].direction == "bullish"
+    assert run(bars, (0, None, "high"), (6, 2, "low"), ahead=0)[0].direction == "bearish"
+
+
+def test_the_reach_can_land_in_the_tail_past_the_legs_closing_vertex():
+    # The leg closes at bar 3; bar 5 is in its tail and trades higher than anything inside it.
+    bars = series(
+        (100.0, 110.0, 98.0, 108.0),
+        (108.0, 118.0, 106.0, 116.0),
+        (116.0, 124.0, 114.0, 122.0),
+        (122.0, 130.0, 120.0, 128.0),
+        (128.0, 134.0, 126.0, 132.0),
+        (132.0, 150.0, 130.0, 148.0),
+        (148.0, 152.0, 100.0, 105.0),
+    )
+
+    leg = run(bars, (0, None, "low"), (3, 1, "high"), (6, 4, "low"), ahead=2)[0]
+    window_end = 3
+
+    reach = leg.found[0]
+    assert (reach.at, reach.price) == (5, 150.0)
+    assert reach.at > window_end
+
+
+def test_one_point_per_leg_anchored_where_its_leg_window_is():
+    bars = series(*RISING)
+    placed = ((0, None, "low"), (3, 1, "high"), (6, 4, "low"))
+
+    legs = run(bars, *placed, ahead=1)
+    windows = split_leg_windows(bars.points, vertices(bars, *placed), 1)
+
+    assert len(legs) == len(windows) == 2
+    assert [leg.time for leg in legs] == [window.time for window in windows]
+
+
+def test_every_leg_carries_exactly_three_points():
+    bars = series(*RISING)
+
+    legs = run(bars, (0, None, "low"), (3, 1, "high"), (6, 4, "low"), ahead=1)
+
+    assert all(len(leg.found) == 3 for leg in legs)
+
+
+def test_the_series_identity_names_this_pattern_and_the_ctx_instrument():
+    bars = series(*RISING)
+
+    legs = run(bars, (0, None, "low"), (6, 2, "high"), ahead=0)
+
+    assert legs.identity.producer.startswith("leg-extremes(")
+    assert legs.identity.instrument == "WIN@N"
+    assert legs.identity.timeframe == "5m"
+
+
+def test_fewer_than_two_vertices_is_no_legs_and_so_no_points():
+    bars = series(*RISING)
+
+    assert list(run(bars, (0, None, "low"), ahead=0)) == []
+
+
+def test_pivots_that_do_not_reach_a_legs_close_raise_rather_than_guess_a_direction():
+    bars = series(*RISING)
+
+    with pytest.raises(ValueError) as caught:
+        run(bars, (0, None, "low"), (6, 2, "high"), ahead=0, pivots_shown=1)
+
+    message = str(caught.value)
+    assert "zig-zag(" in message
+    assert "leg-window(" in message

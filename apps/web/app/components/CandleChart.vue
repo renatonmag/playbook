@@ -2,6 +2,7 @@
 import {
   CandlestickSeries,
   createChart,
+  CrosshairMode,
   type CandlestickData,
   type IChartApi,
   type ISeriesApi,
@@ -54,6 +55,10 @@ onMounted(() => {
       vertLines: { color: '#f1f5f9' },
       horzLines: { color: '#f1f5f9' },
     },
+    // The library snaps the crosshair to the nearest bar's price by default. Free movement is
+    // what lets a level be read off anywhere in the pane — between two bars, or above the wick —
+    // which is the whole point of having one on a chart that draws levels.
+    crosshair: { mode: CrosshairMode.Normal },
     rightPriceScale: { borderColor: '#e2e8f0' },
     timeScale: {
       borderColor: '#e2e8f0',

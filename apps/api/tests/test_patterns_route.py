@@ -12,6 +12,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from pattern_engine import Ctx, Pattern
+from pattern_engine.patterns import LegExtremesPattern, LegReversalsPattern
 
 from playbook_api.db import get_session
 from playbook_api.main import app
@@ -35,7 +36,20 @@ PRODUCERS = [pattern.producer for pattern in PIPELINE]
 ZIGZAG = PIPELINE[0].producer
 
 #: The one Pattern a rule override reaches. Derived, like `PRODUCERS`, and for the same reason.
-LEG_REVERSALS = PIPELINE[-1].producer
+#:
+#: Found by **class**, not by position. `PIPELINE[-1]` said the same thing only for as long as
+#: `leg-reversals` happened to be declared last, and the first Pattern appended after it — one
+#: that also has a `found` list — pointed this constant at an unrelated Series, where the counts
+#: below simply stopped responding to the rule. A retuned parameter still cannot break this.
+LEG_REVERSALS = next(
+    pattern.producer for pattern in PIPELINE if isinstance(pattern, LegReversalsPattern)
+)
+
+#: The other Series with a `found` list. Named so that the counts below can be shown to come
+#: from `leg-reversals` and not from this one — the failure the constant above now guards.
+LEG_EXTREMES = next(
+    pattern.producer for pattern in PIPELINE if isinstance(pattern, LegExtremesPattern)
+)
 
 #: A full override that marks everything, spelled in the short keys `toQuery` emits — so the wire
 #: format is under test and not only the parsing. Chosen to be far looser than `RULE_K`, which on
@@ -214,6 +228,26 @@ def test_an_override_reaches_the_pattern_and_changes_what_it_marks(client):
     # Not `!=`: which way it moves is the claim. A loosened rule that marked *fewer* bars would
     # pass an inequality and mean the parameters landed in the wrong fields.
     assert found(loose) > found(strict)
+
+
+def test_the_counts_come_from_leg_reversals_and_not_the_other_series_with_a_found_list(client):
+    """`leg-extremes` also serialises `found`, and a rule does not reach it.
+
+    Written after `LEG_REVERSALS` was derived as `PIPELINE[-1]` and a Pattern was appended behind
+    it: the constant moved, every count came from a Series no rule can change, and the two tests
+    above went from proving the override to proving nothing. A Series that ignores the rule is
+    exactly what a mis-aimed constant looks like, so it is worth stating that this one does.
+    """
+    strict = client.get("/patterns", params=WINDOW).json()
+    loose = client.get("/patterns", params={**WINDOW, **LOOSE_RULE}).json()
+
+    def extremes(body):
+        return [point["found"] for point in body["series"][LEG_EXTREMES]["points"]]
+
+    assert extremes(strict), "the wave should produce legs"
+    # Unmoved by the rule, and three points per leg however the rule is set.
+    assert extremes(loose) == extremes(strict)
+    assert all(len(leg) == 3 for leg in extremes(loose))
 
 
 def test_a_binding_ratio_is_applied(client):

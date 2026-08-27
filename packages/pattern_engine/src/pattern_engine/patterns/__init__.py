@@ -1,5 +1,12 @@
 """The Patterns themselves. The engine imports none of these — a pipeline names them."""
 
+from .leg_extremes import (
+    ExtremeType,
+    LegExtremes,
+    LegExtremesPattern,
+    LegPoint,
+    extreme_points,
+)
 from .leg_processor import Leg, LegPattern, bar_positions, position_of, split_legs
 from .leg_reversals import (
     AVERAGE_WINDOW,
@@ -27,10 +34,14 @@ __all__ = [
     "DEFAULT_EXPANSION",
     "DEFAULT_K",
     "DEFAULT_SIMILARITY",
+    "ExtremeType",
     "Leg",
     "LegBar",
+    "LegExtremes",
+    "LegExtremesPattern",
     "LegMark",
     "LegPattern",
+    "LegPoint",
     "LegReversals",
     "LegReversalsPattern",
     "LegWindow",
@@ -46,6 +57,7 @@ __all__ = [
     "bar_positions",
     "dominates",
     "expands",
+    "extreme_points",
     "implied_body_min",
     "marked_bars",
     "position_of",
