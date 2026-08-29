@@ -23,15 +23,22 @@ class SeriesOut(BaseModel):
 
     `points` is untyped on purpose — each Pattern declares its own Point, and enumerating them
     here would mean this schema changing every time a Pattern is added.
+
+    `name` is the Pattern's own label and does not come from the Series: it is a property of the
+    thing that produced it, not of what it produced, which is why it arrives as an argument rather
+    than out of `to_dict()`. It is beside `identity.producer` and not instead of it — the producer
+    is the key, unique and total, and the name is the one-liner a person reads.
     """
 
+    name: str
     identity: dict[str, str]
     points: list[dict[str, Any]]
 
     @classmethod
-    def from_series(cls, series: BaseSeries) -> Self:
+    def from_series(cls, series: BaseSeries, name: str) -> Self:
         payload = series.to_dict()
         return cls(
+            name=name,
             identity=payload["identity"],
             points=[_seconds(point) for point in payload["points"]],
         )

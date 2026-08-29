@@ -391,6 +391,8 @@ class LegReversalsPattern(Pattern):
     from `ctx` with the reason only in the log.
     """
 
+    name = "Reversal bars"
+
     def __init__(
         self,
         *,

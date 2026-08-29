@@ -147,6 +147,8 @@ class NestedLegsPattern(Pattern):
     key absent from `ctx` with the reason only in the log.
     """
 
+    name = "Nested legs"
+
     def __init__(
         self,
         *,

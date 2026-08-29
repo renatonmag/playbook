@@ -244,6 +244,10 @@ const overlays = computed(() =>
     // The class part, kept alongside the component: the sidebar needs to name the Pattern to know
     // whether it has extra controls, and re-splitting the key in the template would hide that.
     name: producerName(producer),
+    // What the *Pattern* calls itself, which is what the sidebar shows. Deliberately a second
+    // field rather than a better `name`: the one above is a lookup key into `OVERLAYS` and the
+    // three sets below it, and a label that reads well would break every one of them.
+    label: series.name,
     component: OVERLAYS[producerName(producer)],
     // Left as the base Point: each Pattern declares its own, and this list holds all of them.
     // The overlay a producer maps to is the thing that knows which one it is getting, and it
@@ -712,8 +716,16 @@ function isVisible(overlay: { producer: string }) {
                 @change="toggle(overlay.producer)"
               >
               <span class="min-w-0">
-                <span class="font-mono break-all" :style="{ color: overlay.color }">
-                  {{ overlay.producer }}
+                <!-- The name the Pattern gives itself, on one line. `truncate` rather than
+                     `break-all`: a label that wraps to three lines is the thing this replaced.
+                     The producer key is not gone — it is the tooltip, which is where a total,
+                     unique, unreadable string belongs. -->
+                <span
+                  class="block truncate font-medium"
+                  :style="{ color: overlay.color }"
+                  :title="overlay.producer"
+                >
+                  {{ overlay.label }}
                 </span>
                 <span class="block text-gray-500">
                   {{ overlay.points.length }} pontos

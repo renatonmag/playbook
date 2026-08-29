@@ -140,7 +140,11 @@ def read_patterns(
 
     return PatternsOut(
         series={
-            pattern.producer: SeriesOut.from_series(ctx[pattern.producer])
+            # Falling back to the key, so a Pattern added without a `name` shows *something*
+            # readable rather than an empty label the screen cannot explain.
+            pattern.producer: SeriesOut.from_series(
+                ctx[pattern.producer], pattern.name or pattern.producer
+            )
             for pattern in engine.patterns
             if pattern.producer in ctx
         },

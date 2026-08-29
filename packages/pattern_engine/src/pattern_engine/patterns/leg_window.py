@@ -168,6 +168,10 @@ class LegWindowPattern(Pattern):
         super().__init__(reads=reads, emits=emits)
         self.source = source
         self.ahead = ahead
+        # An instance attribute for the same reason `LegPattern`'s is, in advance of the same
+        # collision: the tail length is the only thing that would separate two of these, and it
+        # is the one thing worth reading off the label.
+        self.name = f"Legs +{ahead} bars"
 
     def run(self, ctx: Ctx) -> BaseSeries[LegWindow]:
         """Slice `emits`' Candles at `source`'s vertices, extend each leg, pack one Point per leg.

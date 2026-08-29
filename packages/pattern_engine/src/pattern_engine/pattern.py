@@ -38,6 +38,17 @@ class Pattern(ABC):
 
     _params: dict[str, Any]
 
+    #: A short label for this Pattern, one line, for a person reading a list of them.
+    #:
+    #: Written rather than derived, which is the whole difference from `producer`: that key is
+    #: total — every parameter, and every parameter of every source — because a dict key has to
+    #: be unique, and this is exactly not that. Empty means "not named yet", and a caller shows
+    #: the key instead; a Pattern added without a name is a missing label, not a broken response.
+    #:
+    #: A class attribute, except where one class is instantiated twice in a pipeline and the two
+    #: would collide — see `LegPattern`.
+    name: str = ""
+
     def __init__(self, *, reads: tuple[Timeframe, ...], emits: Timeframe):
         #: The Timeframes whose Candles this Pattern looks at. Carries no minimum bar count:
         #: nothing verifies the Candles handed in are enough.

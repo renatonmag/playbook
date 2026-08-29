@@ -233,6 +233,8 @@ class ZigZagPattern(Pattern):
     joining consecutive Points.
     """
 
+    name = "Zig-zag"
+
     def __init__(self, *, depth: int, reads: tuple[Timeframe, ...], emits: Timeframe) -> None:
         super().__init__(reads=reads, emits=emits)
         self.depth = depth

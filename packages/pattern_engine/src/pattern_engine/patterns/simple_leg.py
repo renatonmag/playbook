@@ -253,6 +253,8 @@ class SimpleLegPattern(Pattern):
       no direction was ever seeded, which is what an empty or motionless window gives.
     """
 
+    name = "Simple leg"
+
     def __init__(self, *, reads: tuple[Timeframe, ...], emits: Timeframe) -> None:
         super().__init__(reads=reads, emits=emits)
 

@@ -245,6 +245,13 @@ export interface BarGap extends PatternPoint {
 }
 
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
+  /**
+   * What the Pattern calls itself — one line, written on the class, for a person reading a list.
+   *
+   * Not to be confused with `producerName` below, which is the class part of the key and is what
+   * picks the overlay component. Both survive: one is read by a person, the other by a `Record`.
+   */
+  name: string
   identity: SeriesIdentity
   points: TPoint[]
 }

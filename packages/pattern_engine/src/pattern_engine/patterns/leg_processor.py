@@ -138,6 +138,10 @@ class LegPattern(Pattern):
     ) -> None:
         super().__init__(reads=reads, emits=emits)
         self.source = source
+        # An instance attribute where every other Pattern uses a class one, because the pipeline
+        # holds two of these — one per detector — and a fixed string would label both Series the
+        # same. What tells them apart is exactly what tells the two runs apart: the source.
+        self.name = f"Legs · {source.name}"
 
     def run(self, ctx: Ctx) -> BaseSeries[Leg]:
         """Slice `emits`' Candles at `source`'s vertices and pack one Point per leg.

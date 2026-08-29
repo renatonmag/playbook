@@ -189,6 +189,8 @@ class BarGapPattern(Pattern):
     Output is **sparse**: one Point per gap, none for the bars between them.
     """
 
+    name = "Bar gaps"
+
     def __init__(self, *, reads: tuple[Timeframe, ...], emits: Timeframe) -> None:
         super().__init__(reads=reads, emits=emits)
 

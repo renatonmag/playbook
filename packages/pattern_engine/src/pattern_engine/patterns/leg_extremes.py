@@ -210,6 +210,8 @@ class LegExtremesPattern(Pattern):
     key absent from `ctx` with the reason only in the log.
     """
 
+    name = "Leg extremes"
+
     def __init__(
         self,
         *,
