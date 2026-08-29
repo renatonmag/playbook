@@ -103,21 +103,25 @@ def test_a_leg_starting_inside_the_zigzag_leg_is_in_its_group():
     assert starts(grouped[1]) == [bars[12].time]
 
 
-def test_a_leg_starting_on_the_opening_vertex_belongs_to_the_previous_group():
+def test_a_leg_starting_on_the_opening_vertex_is_this_groups_first():
     bars = wave()
-    # Bar 10 closes the first leg and opens the second. The interval is left-exclusive, so the
-    # leg starting there is the first group's — the boundary bar is where the first leg ended.
+    # Bar 10 closes the first leg and opens the second. A vertex is where one move ends and the
+    # next begins, and a leg *starting* there has started the next one — so it opens the second
+    # group rather than closing the first.
     grouped = nested_legs(windows(bars, 0, 10, 20), legs(bars, (10, 14)))
 
-    assert starts(grouped[0]) == [bars[10].time]
-    assert grouped[1].inside == ()
+    assert grouped[0].inside == ()
+    assert starts(grouped[1]) == [bars[10].time]
 
 
-def test_a_leg_starting_on_the_closing_vertex_is_in_this_group():
+def test_a_leg_starting_on_the_closing_vertex_is_in_the_next_group():
     bars = wave()
-    grouped = nested_legs(windows(bars, 0, 10, 20), legs(bars, (20, 24)))
+    # The same rule from the other side, and the one this boundary was got wrong on: bar 20 closes
+    # the second leg, and the leg opening there is the third group's first, not the second's last.
+    grouped = nested_legs(windows(bars, 0, 10, 20, 30), legs(bars, (20, 24)))
 
-    assert starts(grouped[1]) == [bars[20].time]
+    assert grouped[1].inside == ()
+    assert starts(grouped[2]) == [bars[20].time]
 
 
 def test_the_limit_is_the_closing_vertex_not_the_end_of_the_window():
@@ -156,13 +160,66 @@ def test_legs_before_the_first_vertex_and_after_the_last_are_dropped():
     assert [starts(group) for group in grouped] == [[bars[12].time], []]
 
 
-def test_a_leg_starting_on_the_very_first_vertex_is_in_no_group():
+def test_a_leg_starting_before_the_very_first_vertex_is_in_no_group():
     bars = wave()
-    # `split_legs` folds the window's head into its first leg, so that leg starts on bar 0 —
-    # before every vertex, and in no group. The rule that drops it is the left-exclusive one.
-    grouped = nested_legs(windows(bars, 0, 10, 20), legs(bars, (0, 4)))
+    # `split_legs` folds the window's head into its first leg, so that leg starts on bar 0. With
+    # the first vertex at bar 5 it is before every group and belongs to none.
+    grouped = nested_legs(windows(bars, 5, 15, 25), legs(bars, (0, 4)))
 
     assert all(group.inside == () for group in grouped)
+
+
+def test_a_leg_starting_on_the_last_vertex_is_in_no_group():
+    bars = wave()
+    # The other end, and it is a real loss rather than a rounding: the group that vertex *opens*
+    # is the one this leg belongs to, and it does not exist yet.
+    grouped = nested_legs(windows(bars, 0, 10, 20), legs(bars, (20, 24)))
+
+    assert all(group.inside == () for group in grouped)
+
+
+def test_every_group_opens_with_a_leg_and_they_do_not_share_one():
+    """The property the boundary exists for, on hand-placed legs.
+
+    Each vertex carries a leg starting exactly on it. Every group takes the one at its own opening
+    vertex and no other, so the three legs land one per group rather than sliding back a group each
+    — which is what the old right-inclusive boundary did.
+    """
+    bars = wave()
+    grouped = nested_legs(windows(bars, 0, 10, 20, 30), legs(bars, (0, 9), (10, 19), (20, 29)))
+
+    assert [starts(group) for group in grouped] == [
+        [bars[0].time],
+        [bars[10].time],
+        [bars[20].time],
+    ]
+
+
+def test_a_real_run_opens_every_group_with_an_impulse():
+    """What says the boundary is right, on legs two real detectors placed.
+
+    Simple legs alternate, so a correctly cut group runs impulse, pullback, impulse, …, impulse:
+    it opens with a leg going the zigzag leg's own way, and holds an odd number of legs. Under the
+    old boundary each group started one leg late and neither held.
+    """
+    bars = wave(count=120)
+    series = run(bars)
+
+    zigzag = ZigZagPattern(depth=4, reads=("5m",), emits="5m")
+    simple_leg = SimpleLegPattern(reads=("5m",), emits="5m")
+    ctx = {BARS: {"5m": bars}, INSTRUMENT: "WIN@N"}
+    ctx[zigzag.producer] = zigzag.run(ctx)
+    marks = {mark.time: mark.direction for mark in simple_leg.run(ctx)}
+    turns = {pivot.time: pivot.direction for pivot in ctx[zigzag.producer]}
+
+    filled = [group for group in series if group.inside]
+    assert filled, "the wave fills groups at this depth"
+    for group in filled:
+        way = turns[group.leg.bars[group.leg.end].time]
+        # Leaving a `low` is going up: the leg's own way, in the vertex vocabulary the zigzag uses.
+        opens = "high" if marks[group.inside[0].time] == "low" else "low"
+        assert opens == way, "the group opens with an impulse"
+        assert len(group.inside) % 2 == 1, "impulse, pullback, …, impulse"
 
 
 def test_a_group_can_hold_a_leg_that_runs_past_the_close():
@@ -246,7 +303,7 @@ def test_a_real_run_groups_every_simple_leg_that_starts_inside_a_zigzag_leg():
         opened = group.time
         closes = group.leg.bars[group.leg.end].time
         for leg in group.inside:
-            assert opened < leg.time <= closes
+            assert opened <= leg.time < closes
     # And the groups are still a partition once real detectors place the legs.
     seen = [leg.time for group in series for leg in group.inside]
     assert len(seen) == len(set(seen))

@@ -13,33 +13,44 @@ Both halves already exist as Series, so nothing here is measured and no new geom
 The rule is one comparison. A simple leg belongs to the zigzag leg it **starts inside**:
 
 ```
-window.bars[0].time  <  leg.time  <=  window.bars[window.end].time
+window.bars[0].time  <=  leg.time  <  window.bars[window.end].time
 ```
 
 `Leg` anchors on its first bar, so `leg.time` *is* where the simple leg starts. The interval is
-left-exclusive and right-inclusive, and both ends are deliberate:
+left-inclusive and right-exclusive, and one argument settles both ends:
 
-- **Left-exclusive** — a simple leg starting on the opening vertex started *on* the boundary bar,
-  which closes the previous zigzag leg. It goes there, not here.
-- **Right-inclusive, at the closing vertex** — not at the end of `bars`. A `LegWindow` carries
-  `ahead` further bars past its close, and those bars belong to the leg that follows. Grouping by
-  them would put one simple leg in two groups.
+**A vertex is where one move ends and the next begins, and a simple leg *starting* on it has
+started the next one.** So a zigzag leg owns `[vertex_i, vertex_i+1)`: the leg opening on its own
+opening vertex is its **first** leg, and the leg opening on its closing vertex is the *next*
+group's first leg, not this group's last. Both ends of the interval say the same thing, once, from
+the two sides.
 
-Together those make the zigzag legs a **partition**: leg `i` owns `(vertex_i, vertex_i+1]`, leg
-`i + 1` owns `(vertex_i+1, vertex_i+2]`, and no simple leg is in two groups even though the
-`LegWindow`s themselves overlap by `ahead + 1` bars.
+That the right end is the closing vertex and not the end of `bars` is a separate point and still
+true: a `LegWindow` carries `ahead` further bars past its close, and those bars belong to the leg
+that follows. Grouping by them would put one simple leg in two groups.
+
+Together those make the zigzag legs a **partition**: leg `i` owns `[vertex_i, vertex_i+1)`, leg
+`i + 1` owns `[vertex_i+1, vertex_i+2)`, consecutive intervals are disjoint and adjacent, and no
+simple leg is in two groups even though the `LegWindow`s themselves overlap by `ahead + 1` bars.
+
+One consequence worth expecting, because it is what says the boundary is right: simple legs
+alternate, so a group runs impulse, pullback, impulse, …, impulse. Every group **opens with an
+impulse** — a leg running the zigzag leg's own way — and non-empty groups hold an **odd** number of
+legs. Under the old right-inclusive boundary neither held.
 
 What it costs, stated rather than hidden:
 
-- **Simple legs outside every zigzag leg are dropped.** Those starting at or before the first
-  vertex, and those starting after the last one, are in no group. Nothing reports them; read this
-  Series as "per zigzag leg", never as "every simple leg".
+- **Simple legs outside every zigzag leg are dropped.** Those starting before the first vertex,
+  and those starting at or after the last one, are in no group. Note the second end: the leg
+  opening exactly on the final vertex has no group to belong to, since the group that vertex opens
+  does not exist yet. Nothing reports any of them; read this Series as "per zigzag leg", never as
+  "every simple leg".
 - **The first and last `Leg` of the source are not vertex-to-vertex.** `split_legs` folds the
   window's head into its first leg and its tail into its last. The first is dropped by the rule
-  above, since it starts on the window's very first bar. The last is kept whenever it starts
-  inside a zigzag leg — and then it runs *past* that leg's close, since it swallows the
-  remainder of the window. It is the only member whose bars can leave its group; the grouping is
-  by where a leg starts, and that stays true of it.
+  above whenever the window opens before the first vertex, which is the ordinary case. The last is
+  kept whenever it starts inside a zigzag leg — and then it runs *past* that leg's close, since it
+  swallows the remainder of the window. It is the only member whose bars can leave its group; the
+  grouping is by where a leg starts, and that stays true of it.
 - **The last group is still open.** Unlike `LegExtremesPattern`, which drops the newest leg
   because its vertex is provisional, every leg is grouped here. Nothing is measured, so a
   provisional vertex costs nothing but a group that will still grow — and dropping it would drop
@@ -81,8 +92,10 @@ class NestedLegs(Candle):
     #: between two Series, and a Point that names only one side of it cannot be read on its own.
     #: The cost is the leg's bars on the wire a second time, and it is a real one.
     leg: LegWindow
-    #: The simple legs that start inside `leg`, in order, ending at its closing vertex. Empty is
-    #: ordinary: it means the simple detector marked no turn inside this leg.
+    #: The simple legs that start inside `leg`, in order — from its opening vertex inclusive to
+    #: its closing vertex exclusive. So `inside[0]` opens where the zigzag leg opens and runs its
+    #: way, and the leg opening on the closing vertex is the *next* group's, not this one's. Empty
+    #: is ordinary: it means the simple detector marked no turn inside this leg.
     inside: tuple[Leg, ...]
 
 
@@ -106,13 +119,15 @@ def nested_legs(windows: Sequence[LegWindow], legs: Sequence[Leg]) -> list[Neste
         opened = window.time
         closes = window.bars[window.end].time
 
-        # Legs that start at or before this window's opening vertex belong to an earlier window,
-        # or to no window at all. Either way they are behind us: the windows only move forward.
-        while at < len(legs) and legs[at].time <= opened:
+        # Legs that start strictly before this window's opening vertex belong to an earlier
+        # window, or to no window at all. Either way they are behind us: the windows only move
+        # forward. A leg starting *on* the vertex is this window's first, not the last of the one
+        # before — see the module docstring.
+        while at < len(legs) and legs[at].time < opened:
             at += 1
 
         first = at
-        while at < len(legs) and legs[at].time <= closes:
+        while at < len(legs) and legs[at].time < closes:
             at += 1
 
         grouped.append(NestedLegs.anchored(window, leg=window, inside=tuple(legs[first:at])))
