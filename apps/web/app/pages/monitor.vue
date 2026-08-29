@@ -251,7 +251,16 @@ const overlays = computed(() =>
     points: series.points as PatternPoint[],
     timeframe: series.identity.timeframe,
     color: COLORS[index % COLORS.length]!,
-  })),
+  }))
+    // Series with no entry in `OVERLAYS` sort last: their checkbox toggles nothing, and letting one
+    // sit between two drawable Patterns pushes the useful controls down the sidebar. Keep this when
+    // adding a Pattern — a producer the pipeline emits before this page has an overlay for it is the
+    // normal order of work, not an error, and it belongs at the bottom until the overlay lands.
+    //
+    // After the `map`, so the palette is still handed out in the response's order: a Series keeps
+    // its colour whether or not an undrawable one is listed above it. Stable, so everything else
+    // about the order is left as the pipeline gave it.
+    .sort((a, b) => Number(!a.component) - Number(!b.component)),
 )
 
 /**
