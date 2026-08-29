@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LegWindow } from '~/types/pattern'
+import { barMoment } from '~/utils/bar-time'
 
 /**
  * `LegWindow` as a table, because it is not a shape on the chart.
@@ -30,10 +31,12 @@ const rows = computed(() =>
   })),
 )
 
-/** Same format as the other pages: short date and time, in local wall time. */
+/**
+ * Short date and time, on the trading clock. `barMoment` carries the reason it is not the
+ * reader's clock; `bars` is a wire shape, so an absent bar renders as `—` rather than crashing.
+ */
 function when(bar: { time: number } | undefined) {
-  if (!bar) return '—'
-  return new Date(bar.time * 1000).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
+  return bar ? barMoment(bar.time) : '—'
 }
 </script>
 

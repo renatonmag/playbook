@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LegBar, LegReversals } from '~/types/pattern'
+import { barMoment } from '~/utils/bar-time'
 
 /**
  * `LegReversals` as a table, for the same reason `LegWindowVerify` is one: this is not a shape on
@@ -23,10 +24,11 @@ const rows = computed(() =>
 /** How many bars were marked in all, so the header says something without scrolling. */
 const total = computed(() => props.points.reduce((sum, point) => sum + point.found.length, 0))
 
-/** Same format as the other pages: short date and time, in local wall time. */
-function when(time: number) {
-  return new Date(time * 1000).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
-}
+/**
+ * Short date and time, on the trading clock. Aliased rather than wrapped: this component always
+ * holds the seconds, unlike the two that read a bar off the wire. See `barMoment` for the zone.
+ */
+const when = barMoment
 
 /** Price to the instrument's own precision — five digits on `WIN@N`, decimals elsewhere. */
 function price(value: number) {

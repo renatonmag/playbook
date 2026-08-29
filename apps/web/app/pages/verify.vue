@@ -193,14 +193,10 @@ const current = computed(() =>
           <span class="mt-1 block">ainda não tem uma leitura em texto.</span>
         </p>
 
-        <!-- The rows carry local wall time, which the server may not share. Same reason the date
-             field above is client-only: it would render as a hydration mismatch. -->
-        <ClientOnly v-else>
-          <component :is="current.component" :points="current.points" />
-          <template #fallback>
-            <div class="h-64 w-full" />
-          </template>
-        </ClientOnly>
+        <!-- Not client-only, unlike the date field above. The rows are formatted on the trading
+             clock rather than the reader's — see `barMoment` — so the server and the browser
+             render the same string and the table arrives with the page. -->
+        <component :is="current.component" v-else :points="current.points" />
       </section>
 
       <aside class="w-full shrink-0 rounded border border-gray-200 p-4 lg:w-80">
