@@ -210,6 +210,40 @@ export interface NestedLegs extends PatternPoint {
 }
 
 /**
+ * One simple leg that survived the `advancing-legs` filter, anchored on its first bar.
+ *
+ * `nested-legs` groups every simple leg into the zigzag leg it started in; this is that grouping
+ * with the pushes that got nowhere taken out, flattened into one list. Inside a bullish zigzag leg
+ * a simple leg survives when it is a **pullback** (bearish — always kept) or an **advance**
+ * (bullish, and it made a new high). Bearish zigzag legs are the mirror. A push that made no new
+ * extreme is the only thing ever dropped.
+ *
+ * Four things to know before reading a row:
+ *
+ * - **A new extreme is read off the leg's last bar**, not its highest one, so a leg that spiked
+ *   above the running high mid-way and gave it back did not make a new high. `LegExtremes` is what
+ *   answers the other question.
+ * - **`direction` is the leg's own move and `group` is the zigzag leg's.** Comparing them is what
+ *   says which role the leg played: `direction === group` is an advance, `direction !== group` a
+ *   kept pullback. Neither field alone can say it, which is why both are here.
+ * - **The first advance of a group is kept unconditionally** — there is no earlier push in the
+ *   group to clear, and the group's opening vertex is the wrong barrier (on a bullish leg it is a
+ *   low).
+ * - **The comparison is strict**, so an advance that exactly equals the running extreme is dropped.
+ *
+ * Legs outside every zigzag leg were already dropped upstream by `nested-legs`, so read this Series
+ * as "per zigzag leg", never as "every simple leg".
+ */
+export interface AdvancingLeg extends PatternPoint {
+  /** An array on the wire: the Python tuple serializes as a list. The `Leg`'s bars, untouched. */
+  bars: PatternPoint[]
+  /** The leg's **own** move, from the `simple-leg` mark it opens on. */
+  direction: 'bullish' | 'bearish'
+  /** The move of the zigzag leg it survived inside, from that leg's closing vertex. */
+  group: 'bullish' | 'bearish'
+}
+
+/**
  * The untraded band three bars left behind, anchored on the **first** bar of the triple.
  *
  * A gap up is `bar_1.high < bar_3.low`, a gap down its mirror; the comparison is strict, so two

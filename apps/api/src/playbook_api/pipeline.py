@@ -24,6 +24,7 @@ from pattern_engine.patterns import (
     DEFAULT_EXPANSION,
     DEFAULT_K,
     DEFAULT_SIMILARITY,
+    AdvancingLegsPattern,
     BarGapPattern,
     LegExtremesPattern,
     LegPattern,
@@ -81,6 +82,9 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
     # Bound to a local for the same reason the detectors above are: the grouper at the bottom
     # takes this slicer's *instance*, not its producer key.
     simple_legs = LegPattern(source=simple_leg, reads=("5m",), emits="5m")
+    # Bound for the same reason again: the filter at the very bottom takes this grouper's
+    # instance, not its producer key.
+    nested = NestedLegsPattern(source=leg_windows, legs=simple_legs, reads=("5m",), emits="5m")
 
     return (
         zigzag,
@@ -131,7 +135,19 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # simple leg starts, and bounded by the closing vertex rather than by the end of the
         # window — the `ahead` tail belongs to the leg that follows. No dials: the grouping is one
         # comparison, and both sources are already tuned above.
-        NestedLegsPattern(source=leg_windows, legs=simple_legs, reads=("5m",), emits="5m"),
+        nested,
+        # And the filter over that grouping: inside each zigzag leg, every pullback, plus the
+        # pushes that actually made a new extreme. A push that got nowhere is the only thing
+        # dropped, and the output is flat — one list of legs, not a list of groups.
+        #
+        # Three sources, because the two directions the rule needs come from two different
+        # detectors: the *group's* is the zigzag's closing vertex, and each *leg's own* is the
+        # simple-leg mark it opens on. A `Leg` records neither. No dials — what counts as a new
+        # extreme (the leg's last bar), how strict the comparison is, and what the running extreme
+        # starts at are all settled in the module, not tuned here.
+        AdvancingLegsPattern(
+            source=nested, pivots=zigzag, marks=simple_leg, reads=("5m",), emits="5m"
+        ),
     )
 
 

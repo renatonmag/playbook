@@ -2,6 +2,7 @@
 import type { Component } from 'vue'
 import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
 import { producerName, type PatternPoint } from '~/types/pattern'
+import AdvancingLegsVerify from '~/components/AdvancingLegsVerify.vue'
 import LegReversalsVerify from '~/components/LegReversalsVerify.vue'
 import LegWindowVerify from '~/components/LegWindowVerify.vue'
 import NestedLegsVerify from '~/components/NestedLegsVerify.vue'
@@ -25,11 +26,16 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * on a chart at all, since what it produces is a *grouping* of two Series the monitor already
  * draws separately. Reading which simple leg landed in which zigzag leg is the only way to check
  * it.
+ *
+ * `advancing-legs` is the same case one step on: it is that grouping with the pushes that got
+ * nowhere taken out, so every leg it keeps is already drawn by `simple-leg` and what it produces
+ * is a *decision*. Which legs are here and which are not is read, never seen.
  */
 const VERIFIERS: Record<string, Component> = {
   'leg-window': LegWindowVerify,
   'leg-reversals': LegReversalsVerify,
   'nested-legs': NestedLegsVerify,
+  'advancing-legs': AdvancingLegsVerify,
 }
 
 const route = useRoute()
