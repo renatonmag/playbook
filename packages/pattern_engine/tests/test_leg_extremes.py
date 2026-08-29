@@ -23,7 +23,11 @@ from pattern_engine.patterns.leg_extremes import (
     LegExtremesPattern,
     extreme_points,
 )
+from pattern_engine.patterns.advancing_legs import AdvancingLeg, AdvancingLegsPattern
+from pattern_engine.patterns.leg_processor import LegPattern
 from pattern_engine.patterns.leg_window import LegWindowPattern, split_leg_windows
+from pattern_engine.patterns.nested_legs import NestedLegsPattern
+from pattern_engine.patterns.simple_leg import SimpleLegPattern
 from pattern_engine.patterns.zigzag import ZigZagPattern, ZigZagPivot
 from pattern_engine.series import CANDLES
 
@@ -134,6 +138,45 @@ def run(
     return LegExtremesPattern(
         source=windows, pivots=zigzag, reads=("5m",), emits="5m"
     ).run(ctx)
+
+
+def advancing() -> AdvancingLegsPattern:
+    """An `AdvancingLegsPattern` built the way the pipeline builds it.
+
+    Never run — only its `producer` and its `name` are wanted, which are exactly what a second
+    source has to offer this Pattern. Built out of the real chain rather than a stand-in, so that
+    the key these tests seed `ctx` under is the key a pipeline would.
+    """
+    zigzag = ZigZagPattern(depth=8, reads=("5m",), emits="5m")
+    simple_leg = SimpleLegPattern(reads=("5m",), emits="5m")
+    windows = LegWindowPattern(source=zigzag, ahead=5, reads=("5m",), emits="5m")
+    legs = LegPattern(source=simple_leg, reads=("5m",), emits="5m")
+    nested = NestedLegsPattern(source=windows, legs=legs, reads=("5m",), emits="5m")
+    return AdvancingLegsPattern(
+        source=nested, pivots=zigzag, marks=simple_leg, reads=("5m",), emits="5m"
+    )
+
+
+def run_advancing(*legs: tuple[BaseSeries[Candle], str]) -> BaseSeries[LegExtremes]:
+    """Run the Pattern over legs that name their own direction, with **no pivots anywhere**.
+
+    Each argument is one leg's bars and the direction that leg says it ran. `ctx` holds the source
+    Series and nothing else — no zigzag key, so a run that reached for one would raise `KeyError`
+    rather than quietly pass. That absence is the assertion, and it is why this helper does not
+    share `run`'s body.
+    """
+    source = advancing()
+    points = [
+        AdvancingLeg.anchored(
+            bars[0], bars=tuple(bars.points), direction=direction, group=direction
+        )
+        for bars, direction in legs
+    ]
+
+    ctx = {INSTRUMENT: "WIN@N"}
+    ctx[source.producer] = BaseSeries(SeriesIdentity(source.producer, "WIN@N", "5m"), points)
+
+    return LegExtremesPattern(source=source, reads=("5m",), emits="5m").run(ctx)
 
 
 def listed(point: LegExtremes) -> list[tuple[str, int, float]]:
@@ -394,3 +437,94 @@ def test_pivots_that_do_not_reach_a_legs_close_raise_rather_than_guess_a_directi
     message = str(caught.value)
     assert "zig-zag(" in message
     assert "leg-window(" in message
+
+
+# --- a source that names its own direction ----------------------------------------------------
+
+
+def test_a_leg_that_carries_its_direction_is_measured_without_any_pivots():
+    """The whole of what the optional second source buys: `ctx` here holds no vertices at all."""
+    legs = run_advancing(
+        (series(*RISING), "bullish"),
+        (series(*AFTER, start=OPEN + timedelta(minutes=35)), "bearish"),
+    )
+
+    assert len(legs) == 1
+    assert legs[0].direction == "bullish"
+    assert listed(legs[0]) == [("reach", 4, 140.0), ("close", 2, 128.0), ("hold", 6, 120.0)]
+
+
+def test_the_direction_read_off_the_point_is_the_one_the_readings_are_taken_for():
+    """The mirror of the test above, on the mirrored bars, to pin that nothing is re-derived."""
+    legs = run_advancing(
+        (series(*flipped(RISING)), "bearish"),
+        (series(*AFTER, start=OPEN + timedelta(minutes=35)), "bullish"),
+    )
+
+    assert legs[0].direction == "bearish"
+    assert listed(legs[0]) == [("reach", 4, -140.0), ("close", 2, -128.0), ("hold", 6, -120.0)]
+
+
+def test_at_indexes_the_legs_own_bars_and_not_the_history_they_came_from():
+    """A leg starting well into the day still reports `at` from its own first bar.
+
+    The same claim `extreme_points` makes for a `LegWindow`, restated on the source that has no
+    window: `at` is leg-relative, and there is no offset to add back.
+    """
+    legs = run_advancing(
+        (series(*RISING, start=OPEN + timedelta(hours=3)), "bullish"),
+        (series(*AFTER, start=OPEN + timedelta(hours=3, minutes=35)), "bearish"),
+    )
+
+    assert [found.at for found in legs[0].found] == [4, 2, 6]
+
+
+def test_the_last_leg_is_not_measured_on_a_flat_source_either():
+    """The `[:-1]` is unconditional, and on `advancing-legs` it takes the newest leg of all.
+
+    Flat across groups, so "the last leg" is one leg for the whole Series rather than one per
+    group — see the module docstring for what that costs.
+    """
+    first = series(*RISING)
+    second = series(*RISING, start=OPEN + timedelta(hours=1))
+    third = series(*RISING, start=OPEN + timedelta(hours=2))
+
+    legs = run_advancing((first, "bullish"), (second, "bearish"), (third, "bullish"))
+
+    assert [leg.time for leg in legs] == [first[0].time, second[0].time]
+
+
+def test_one_leg_is_the_last_leg_so_a_flat_source_of_one_measures_nothing():
+    assert list(run_advancing((series(*RISING), "bullish"))) == []
+
+
+# --- two instances of one Pattern ---------------------------------------------------------------
+
+
+def test_the_windowed_instance_keeps_the_producer_key_it_had_before_pivots_became_optional():
+    """A default filled in by `_bound_params` must not move a key that names a `ctx` entry."""
+    zigzag = ZigZagPattern(depth=8, reads=("5m",), emits="5m")
+    windows = LegWindowPattern(source=zigzag, ahead=5, reads=("5m",), emits="5m")
+
+    pattern = LegExtremesPattern(source=windows, pivots=zigzag, reads=("5m",), emits="5m")
+
+    assert pattern.producer == (
+        "leg-extremes("
+        "source=<leg-window(source=<zig-zag(depth=8,reads=5m,emits=5m)>,ahead=5,reads=5m,emits=5m)>,"
+        "pivots=<zig-zag(depth=8,reads=5m,emits=5m)>,"
+        "reads=5m,emits=5m)"
+    )
+
+
+def test_the_two_instances_share_neither_a_key_nor_a_label():
+    """Both are needed, and for different readers: `ctx` is keyed on one, the sidebar shows the other."""
+    zigzag = ZigZagPattern(depth=8, reads=("5m",), emits="5m")
+    windows = LegWindowPattern(source=zigzag, ahead=5, reads=("5m",), emits="5m")
+
+    over_windows = LegExtremesPattern(source=windows, pivots=zigzag, reads=("5m",), emits="5m")
+    over_legs = LegExtremesPattern(source=advancing(), reads=("5m",), emits="5m")
+
+    assert over_windows.producer != over_legs.producer
+    assert over_windows.name != over_legs.name
+    assert over_windows.name == "Leg extremes · Legs +5 bars"
+    assert over_legs.name == "Leg extremes · Advancing legs"

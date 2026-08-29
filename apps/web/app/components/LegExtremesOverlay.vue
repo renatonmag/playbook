@@ -24,6 +24,13 @@ const props = withDefaults(
   defineProps<{
     points: LegExtremes[]
     visible: boolean
+    /**
+     * This Series' producer key, which is what its segment ids are named after.
+     *
+     * Required, and not defaulted: the pipeline runs `leg-extremes` twice, and two Series naming
+     * their segments the same way is exactly the failure `onClick` below cannot see.
+     */
+    namespace: string
     color?: string
     directions?: LegExtremes['direction'][]
     /** Ids of the segments to keep once `onlyPinned` is on, and to draw thicker at all times. */
@@ -76,7 +83,7 @@ const SPAN = 4
  */
 function segmentsToDraw(): LevelSegment[] {
   const pinned = new Set(props.pinned)
-  const segments = extremeSegments(props.points, props.directions, pinned)
+  const segments = extremeSegments(props.namespace, props.points, props.directions, pinned)
   return props.onlyPinned ? segments.filter(segment => pinned.has(segment.id)) : segments
 }
 
@@ -88,8 +95,9 @@ function segmentsToDraw(): LevelSegment[] {
  * is pinned. Acceptable — the whole feature is "click the line you care about".
  *
  * The id check is not a formality. Every primitive on the chart reports into the same field, and
- * two `leg-extremes` Series on different timeframes both subscribe here; without it each would
- * claim the other's clicks.
+ * the two `leg-extremes` Series the pipeline produces both subscribe here; without it each would
+ * claim the other's clicks. It only works because an id names its Series — see `extremeSegmentId`,
+ * and `namespace` above, which is the half of that this component supplies.
  */
 function onClick(param: MouseEventParams<Time>) {
   const id = param.hoveredInfo?.objectId

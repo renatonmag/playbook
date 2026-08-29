@@ -43,16 +43,26 @@ export interface ExtremeSegment extends LevelSegment {
 }
 
 /**
- * What a drawn level is called, for the whole app: the leg it belongs to, and which of the three
- * it is.
+ * What a drawn level is called, for the whole app: the Series it came from, the leg it belongs to,
+ * and which of the three it is.
  *
  * The anchor is the `LegExtremes` Point's own `time` — the leg — and not the level's bar. A leg's
  * three points can share one `at`, so the bar alone names nothing, and `at` moves with the window
  * while the anchor does not. That is what makes an id survive a pipeline re-run: the same leg
  * produces the same three ids even when the level's price moved.
+ *
+ * `namespace` is the producer key, and it is what keeps two `leg-extremes` Series apart. The
+ * pipeline now runs this Pattern twice — over the zigzag's leg windows and over the advancing
+ * legs — and a zigzag vertex that is also a simple-leg mark would otherwise give both Series a
+ * segment with the same name. The overlay admits a click by asking whether the id is one of the
+ * ones it drew, so two identical names mean one click pinning in both.
  */
-export function extremeSegmentId(anchor: number, type: LegPoint['type']): string {
-  return `${anchor}:${type}`
+export function extremeSegmentId(
+  namespace: string,
+  anchor: number,
+  type: LegPoint['type'],
+): string {
+  return `${namespace}:${anchor}:${type}`
 }
 
 /**
@@ -73,8 +83,13 @@ export function extremeSegmentId(anchor: number, type: LegPoint['type']): string
  *
  * Unsorted, for the other half of that: the chart requires markers to ascend by time and has no
  * such demand of a primitive, which draws in whatever order it is handed.
+ *
+ * `namespace` is the Series these points came from — see `extremeSegmentId` for why an id has to
+ * name it. First rather than last because it is the least optional thing here: a caller may leave
+ * `pinned` out, and no caller may leave this out.
  */
 export function extremeSegments(
+  namespace: string,
   points: LegExtremes[],
   directions: LegExtremes['direction'][],
   pinned: ReadonlySet<string> = new Set(),
@@ -85,7 +100,7 @@ export function extremeSegments(
     if (!directions.includes(point.direction)) continue
 
     for (const found of point.found) {
-      const id = extremeSegmentId(point.time, found.type)
+      const id = extremeSegmentId(namespace, point.time, found.type)
       segments.push({
         id,
         type: found.type,

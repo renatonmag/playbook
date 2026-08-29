@@ -85,6 +85,11 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
     # Bound for the same reason again: the filter at the very bottom takes this grouper's
     # instance, not its producer key.
     nested = NestedLegsPattern(source=leg_windows, legs=simple_legs, reads=("5m",), emits="5m")
+    # Bound for the same reason once more: the second `leg-extremes` at the bottom measures these
+    # legs, and takes this filter's instance.
+    advancing = AdvancingLegsPattern(
+        source=nested, pivots=zigzag, marks=simple_leg, reads=("5m",), emits="5m"
+    )
 
     return (
         zigzag,
@@ -145,9 +150,17 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # simple-leg mark it opens on. A `Leg` records neither. No dials — what counts as a new
         # extreme (the leg's last bar), how strict the comparison is, and what the running extreme
         # starts at are all settled in the module, not tuned here.
-        AdvancingLegsPattern(
-            source=nested, pivots=zigzag, marks=simple_leg, reads=("5m",), emits="5m"
-        ),
+        advancing,
+        # And the same three questions asked of *those* legs: how far each one reached, closed and
+        # held. The same Pattern that measures the zigzag's legs further up, over a different
+        # source — which is the whole of why a producer key carries its sources whole, and why the
+        # two Series are told apart on screen by the name each instance gives itself.
+        #
+        # No `pivots`, and that is not an omission: an `AdvancingLeg` already carries its own
+        # direction, read upstream off the mark it opens on. The second source exists only for a
+        # `LegWindow`, which anchors on its opening vertex and cannot say which extreme its close
+        # is. Last in the tuple because declaration order is run order.
+        LegExtremesPattern(source=advancing, reads=("5m",), emits="5m"),
     )
 
 

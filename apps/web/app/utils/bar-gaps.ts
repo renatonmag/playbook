@@ -78,10 +78,11 @@ export interface GapBox extends PriceBox {
 /**
  * What a drawn gap is called, for the whole app: the bar its triple opens on.
  *
- * One gap per anchor bar — a triple either gaps or it does not, and there is no second kind — so
- * unlike `extremeSegmentId` this needs no second part. The anchor is the Point's own `time`, which
- * is what makes an id survive a pipeline re-run: the same triple mints the same id even when the
- * window it was found in has moved.
+ * One gap per anchor bar — a triple either gaps or it does not, and there is no second kind — and
+ * one `bar-gap` Series in the pipeline, so unlike `extremeSegmentId` this needs neither a role nor
+ * a producer to tell one id from another. The anchor is the Point's own `time`, which is what makes
+ * an id survive a pipeline re-run: the same triple mints the same id even when the window it was
+ * found in has moved. Give it the producer the moment a second such Series is declared.
  */
 export function gapBoxId(anchor: number): string {
   return `${anchor}`

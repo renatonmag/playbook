@@ -404,6 +404,10 @@ function toggleAutoHide(producer: string) {
  * through a pipeline re-run rather than being frozen to a price. A leg that leaves the window
  * takes its pins off the list with it, and that is the honest reading: there is no such level any
  * more.
+ *
+ * A `leg-extremes` segment now names its producer inside its id as well, so its key here repeats
+ * it. Left alone rather than special-cased: the prefix is what makes this key uniform across every
+ * pinnable Pattern, and `bar-gap`'s ids carry no producer at all.
  */
 const pinned = ref(new Set<string>())
 
@@ -442,6 +446,9 @@ function pinnedSegments(overlay: { producer: string, points: PatternPoint[] }): 
   if (ids.size === 0) return []
 
   return extremeSegments(
+    // The same namespace the overlay draws under, so the list and the chart name one level the
+    // same thing. `extraProps` is where the other half of that is passed.
+    overlay.producer,
     overlay.points as LegExtremes[],
     directionsFor(overlay.producer),
     ids,
@@ -533,6 +540,10 @@ function extraProps(overlay: { producer: string, name: string }) {
     ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
     // The second filter axis, and `bar-gap`'s alone — see `STATES`.
     ...overlay.name === 'bar-gap' ? { states: statesFor(overlay.producer) } : {},
+    // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
+    // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and
+    // two Series minting one id would have each pinning the other's levels.
+    ...overlay.name === 'leg-extremes' ? { namespace: overlay.producer } : {},
     ...PINNABLE.has(overlay.name)
       ? {
           pinned: pinsFor(overlay.producer),
