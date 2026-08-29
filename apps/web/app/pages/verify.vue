@@ -4,6 +4,7 @@ import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
 import { producerName, type PatternPoint } from '~/types/pattern'
 import LegReversalsVerify from '~/components/LegReversalsVerify.vue'
 import LegWindowVerify from '~/components/LegWindowVerify.vue'
+import NestedLegsVerify from '~/components/NestedLegsVerify.vue'
 
 /** The monitor's picker, for the same reason: instruments are not a table yet. */
 const SYMBOLS = ['WIN@N'] as const
@@ -19,10 +20,16 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * of the second kind — a slice of bars with two indices into it, which is checked by reading.
  *
  * A Pattern may end up in both maps. Nothing here assumes it is in only one.
+ *
+ * `nested-legs` is the third of that second kind, and the clearest case for it: it draws nothing
+ * on a chart at all, since what it produces is a *grouping* of two Series the monitor already
+ * draws separately. Reading which simple leg landed in which zigzag leg is the only way to check
+ * it.
  */
 const VERIFIERS: Record<string, Component> = {
   'leg-window': LegWindowVerify,
   'leg-reversals': LegReversalsVerify,
+  'nested-legs': NestedLegsVerify,
 }
 
 const route = useRoute()

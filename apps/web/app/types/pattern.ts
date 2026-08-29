@@ -70,6 +70,19 @@ export interface LegWindow extends PatternPoint {
 }
 
 /**
+ * One leg's bars, anchored on the first of them — what a detector's vertices carve the window into.
+ *
+ * `bars[0]` and `bars[bars.length - 1]` are the two vertices the leg runs between, inclusive, so
+ * consecutive legs share their boundary bar. Two exceptions, both from the slicer folding the
+ * window's edges in: the **first** leg also carries every bar before the first vertex, and the
+ * **last** every bar after the last one. Neither of those two ends is a vertex.
+ */
+export interface Leg extends PatternPoint {
+  /** An array on the wire: the Python tuple serializes as a list. */
+  bars: PatternPoint[]
+}
+
+/**
  * One bar inside a leg that a reversal filter marked.
  *
  * Not a Point of any Series — these arrive nested in `LegReversals.found`, so `time` here is just
@@ -160,6 +173,40 @@ export interface LegExtremes extends PatternPoint {
    * `LegReversals`, whose marks are candidates for the opposite turn.
    */
   direction: 'bullish' | 'bearish'
+}
+
+/**
+ * One zigzag leg and the simple legs that ran inside it, anchored where its `LegWindow` is.
+ *
+ * The join between the two detectors. A simple leg is in this group when it **starts** inside the
+ * zigzag leg — after its opening vertex, and at or before its closing one:
+ *
+ * ```
+ * leg.bars[0].time  <  inside[i].time  <=  leg.bars[leg.end].time
+ * ```
+ *
+ * Left-exclusive because a leg starting on the opening vertex started on the bar that *closes* the
+ * previous zigzag leg, and belongs there. Right-inclusive at `end` and not at the end of `bars`,
+ * because the `ahead` tail belongs to the leg that follows — grouping by it would put one simple
+ * leg in two groups. Together those make the groups a partition of the simple legs, minus the ones
+ * outside every zigzag leg, which are dropped: read this Series as "per zigzag leg", never as
+ * "every simple leg".
+ */
+export interface NestedLegs extends PatternPoint {
+  /**
+   * The zigzag leg itself, whole. Carried rather than left to a join on the anchor — unlike
+   * `LegExtremes`, which refuses to restate `since`/`end` — because this Point is *about* a
+   * relationship between two Series and naming one side of it would not be readable alone.
+   */
+  leg: LegWindow
+  /**
+   * The simple legs that start inside `leg`, in order. An array on the wire.
+   *
+   * Empty is ordinary and is a fact: the simple detector marked no turn inside that leg. And the
+   * last entry can run *past* `leg.bars[leg.end]` — the slicer gives its final leg the whole
+   * remainder of the window, and the grouping is by where a leg starts.
+   */
+  inside: Leg[]
 }
 
 /**

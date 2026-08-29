@@ -29,6 +29,7 @@ from pattern_engine.patterns import (
     LegPattern,
     LegReversalsPattern,
     LegWindowPattern,
+    NestedLegsPattern,
     SimpleLegPattern,
     ZigZagPattern,
 )
@@ -77,6 +78,9 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
     # difference. Expect this one to mark several times more often — it has no smoothing.
     simple_leg = SimpleLegPattern(reads=("5m",), emits="5m")
     leg_windows = LegWindowPattern(source=zigzag, ahead=5, reads=("5m",), emits="5m")
+    # Bound to a local for the same reason the detectors above are: the grouper at the bottom
+    # takes this slicer's *instance*, not its producer key.
+    simple_legs = LegPattern(source=simple_leg, reads=("5m",), emits="5m")
 
     return (
         zigzag,
@@ -90,7 +94,7 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # step from vertices to bars. Both must come after their source: declaration order is
         # run order, and a slicer ahead of its detector reads a key that is not in `ctx` yet.
         LegPattern(source=zigzag, reads=("5m",), emits="5m"),
-        LegPattern(source=simple_leg, reads=("5m",), emits="5m"),
+        simple_legs,
         # The same legs again, each carrying the five bars that follow its close. A record bar or
         # a reversal pair can land just *past* the turn, in the opening bars of the next leg,
         # where a `LegPattern` leg cannot see it. Only the zigzag gets one: this is the smoothed
@@ -122,6 +126,12 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # Reports **closed legs only** — the newest leg's vertex is still provisional, so it is
         # skipped, and this Series runs one Point behind `leg-windows`. Not a dial either.
         LegExtremesPattern(source=leg_windows, pivots=zigzag, reads=("5m",), emits="5m"),
+        # And the first Pattern that *joins* the two detectors rather than running them side by
+        # side: for each zigzag leg, the simple legs that started inside it. Grouped by where a
+        # simple leg starts, and bounded by the closing vertex rather than by the end of the
+        # window — the `ahead` tail belongs to the leg that follows. No dials: the grouping is one
+        # comparison, and both sources are already tuned above.
+        NestedLegsPattern(source=leg_windows, legs=simple_legs, reads=("5m",), emits="5m"),
     )
 
 
