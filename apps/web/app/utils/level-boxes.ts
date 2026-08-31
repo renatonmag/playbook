@@ -179,6 +179,9 @@ class LevelBoxesPaneView implements IPrimitivePaneView {
    * Beneath the candles — the opposite of `LevelSegments`, and for the same reason it chose 'top'.
    * A level hidden behind a body is unreadable, but a filled region *over* the bodies buries the
    * very bars the band is measured from, which is what somebody looking at a gap wants to see.
+   *
+   * This is about **paint only**. It is not what decides which click belongs to the box; `hitTest`
+   * answers that question separately, and deliberately answers it differently. See the note there.
    */
   zOrder(): PrimitivePaneViewZOrder {
     return 'bottom'
@@ -271,9 +274,18 @@ export class LevelBoxes implements ISeriesPrimitive<Time> {
 
     return {
       externalId: hit.id,
-      // Matches the pane view above, so what the library was told about z-order in one place is
-      // what it is told in the other.
-      zOrder: 'bottom',
+      // 'normal', where the pane view above says 'bottom' — the one place in this file where the
+      // two disagree, and on purpose. The library reads them as answers to different questions:
+      // the pane view's orders the *painting*, this one orders the *arbitration* between everything
+      // the cursor is over. On the bottom layer a hit is only returned when nothing else in the
+      // pane matched at all, and the candlestick series matches anywhere inside a bar's whole
+      // high-to-low span — which is most of a gap box, because the middle bar of the triple is the
+      // one whose range crosses the untraded band. Reporting 'bottom' here therefore gave away
+      // every click over that bar's column and left the square clickable only at its ends.
+      //
+      // Not `isBackground`, which sounds right and is not: it moves the library's test to the
+      // branch that runs *after* the series' own views and hands the click straight back.
+      zOrder: 'normal',
       cursorStyle: 'pointer',
       // Containment has no distance to report, and the field is how the library ranks *within* one
       // primitive — which `smallest` above has already decided. Zero on every hit, deliberately.
