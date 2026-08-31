@@ -143,7 +143,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="h-[520px] w-full">
+  <!-- No height of its own, deliberately: `autoSize` means the caller's box decides how tall the
+       chart is and the library's ResizeObserver follows it, so the caller must pass one — see the
+       `h-[520px] lg:h-full` on the tag in `pages/monitor.vue`. -->
+  <div class="w-full">
     <!-- The library owns this node's children, so overlays — which render nothing — stay
          outside it. They draw through the chart API, not through the DOM. -->
     <div ref="container" class="h-full w-full" />

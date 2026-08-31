@@ -387,9 +387,23 @@ function toggleDirection(producer: string, direction: Direction) {
  */
 const autoHide = ref(new Set<string>())
 
+/**
+ * One timer for the whole page, not one per producer.
+ *
+ * Every Series is measured by the same bar clock, so per-producer timers would be several copies of
+ * one countdown all firing on the same tick. What is per-producer is only whether a Series *listens*
+ * to it, which is `autoHide` above.
+ */
+const hideTimer = useHideTimer(bar.epoch, () => autoHide.value.size > 0)
+
 function toggleAutoHide(producer: string) {
   if (autoHide.value.has(producer)) autoHide.value.delete(producer)
-  else autoHide.value.add(producer)
+  else {
+    autoHide.value.add(producer)
+    // Turning it on means "get out of the way", so it goes now rather than in half a minute. The
+    // timer takes over at the next bar, which is the only moment it was ever measuring.
+    hideTimer.hide()
+  }
 }
 
 /**
@@ -484,15 +498,6 @@ function pinnedCount(overlay: { name: string, producer: string, points: PatternP
 }
 
 /**
- * One timer for the whole page, not one per producer.
- *
- * Every Series is measured by the same bar clock, so per-producer timers would be several copies of
- * one countdown all firing on the same tick. What is per-producer is only whether a Series *listens*
- * to it, which is `autoHide` above.
- */
-const hideTimer = useHideTimer(bar.epoch, () => autoHide.value.size > 0)
-
-/**
  * A bar time as a clock reading.
  *
  * `timeZone: 'UTC'` is what makes the hour come out right in São Paulo, and is *not* a decision to
@@ -570,8 +575,17 @@ function isVisible(overlay: { producer: string }) {
 </script>
 
 <template>
-  <main class="mx-auto max-w-7xl p-8">
-    <header class="flex flex-wrap items-end justify-between gap-4">
+  <!-- A workspace rather than an article, so it takes the whole window instead of the centred
+       column the other pages use: the chart is worth every pixel of width, and a fixed-height one
+       wastes the bottom of a tall screen.
+
+       `lg:h-screen`, not `h-screen`: below that breakpoint the area below is a column with the
+       sidebar stacked under the chart, and pinning both to the viewport would squeeze each into
+       half a screen. There the page scrolls, as it always did. -->
+  <main class="flex flex-col lg:h-screen">
+    <!-- Padded while the area below is not: this is text, and text against the window edge reads
+         as a bug. `shrink-0` so the row below can never compress it. -->
+    <header class="flex shrink-0 flex-wrap items-end justify-between gap-4 p-4">
       <div>
         <h1 class="text-2xl font-bold">Monitor</h1>
         <!-- Says which of the two the view is, so a shared link that is frozen in the past does
@@ -650,15 +664,19 @@ function isVisible(overlay: { producer: string }) {
       </div>
     </header>
 
-    <div class="mt-6 flex flex-col gap-6 lg:flex-row">
-      <!-- `overflow-hidden` clips the chart's square canvas to the rounded corners; without it the
-           white canvas pokes out past the radius at each corner.
+    <!-- The gap and the top margin are gone on purpose: that space *was* the frame around this
+         area, and there is no frame any more. `lg:flex-1` takes everything under the header, and
+         `lg:min-h-0` is the load-bearing half — without it a flex child refuses to shrink below
+         its content and the sidebar's overflow lands on the page instead of inside the panel. -->
+    <div class="flex flex-col lg:min-h-0 lg:flex-1 lg:flex-row">
+      <!-- `border-y` alone: flush with the window, so a left or right border would be drawn on
+           the screen edge and the corner radius has nothing to sit on. The seam between the two
+           panels is the sidebar's `lg:border-l`.
 
-           `lg:self-start` opts out of the row's default stretch, so the chart's own fixed height
-           decides where this bottom border lands rather than whatever the sidebar grew to. Only
-           at `lg`: below it the container is a column, where the cross axis is the width and
-           `self-start` would shrink the panel to its content. -->
-      <section class="min-w-0 flex-1 overflow-hidden rounded border border-gray-200 lg:self-start">
+           No height here: `flex-1` is `flex: 1 1 0%`, and in the column this becomes below `lg`
+           that basis would beat any `h-*` written on this tag. The height goes on the chart
+           inside, where nothing overrides it. -->
+      <section class="min-w-0 flex-1 overflow-hidden border-y border-gray-200">
         <p v-if="pending" class="p-8 text-center text-sm text-gray-500">
           Carregando candles…
         </p>
@@ -676,7 +694,10 @@ function isVisible(overlay: { producer: string }) {
         </p>
 
         <ClientOnly v-else>
-          <CandleChart :candles="candles" :live-bars="live.bars.value">
+          <!-- `CandleChart` has no height of its own — the box is the caller's to state. At `lg`
+               that is whatever the row gives this section; stacked below it, it is the 520px the
+               page has always shown. -->
+          <CandleChart class="h-[520px] lg:h-full" :candles="candles" :live-bars="live.bars.value">
             <component
               :is="overlay.component"
               v-for="overlay in overlays"
@@ -688,12 +709,18 @@ function isVisible(overlay: { producer: string }) {
             />
           </CandleChart>
           <template #fallback>
-            <div class="h-[520px] w-full" />
+            <div class="h-[520px] w-full lg:h-full" />
           </template>
         </ClientOnly>
       </section>
 
-      <aside class="w-full shrink-0 rounded border border-gray-200 p-4 lg:w-80">
+      <!-- A sidebar full of unfolded filters scrolls inside itself rather than pushing the chart
+           off screen. No height is named here any more: the row states one, and this panel takes
+           whatever it gives — which is why `lg:min-h-0` up there is not optional.
+
+           Only at `lg`, for the reason the row is only a row there: stacked under the chart, a
+           nested scroll area is worse than the page scroll it would replace. -->
+      <aside class="w-full shrink-0 border-y border-gray-200 p-4 lg:w-80 lg:overflow-y-auto lg:border-l">
         <h2 class="flex items-baseline justify-between text-sm font-semibold">
           Padrões
           <!-- The run is now started by editing a field, so it needs to say it is running. -->
@@ -828,8 +855,8 @@ function isVisible(overlay: { producer: string }) {
             </div>
 
             <!-- The levels bury the candles a few legs in, and they are worth most right after a
-                 leg closes. This trades them for the price action in between: on, they show for
-                 half a minute after each new candle and then get out of the way.
+                 leg closes. This trades them for the price action in between: on, they clear the
+                 chart at once and come back for half a minute after each new candle.
 
                  `ClientOnly` because the state word is decided by a timer, which only exists in
                  the browser — the same reason the feed's status above is wrapped. -->
@@ -845,7 +872,7 @@ function isVisible(overlay: { producer: string }) {
                     : 'border-gray-300 text-gray-500'"
                   @click="toggleAutoHide(overlay.producer)"
                 >
-                  Ocultar após 30s
+                  Ocultar entre candles
                   <!-- "oculto" stopped being the whole truth once levels could be pinned: with a
                        pin held, the Series is hidden *except* for it. -->
                   <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
