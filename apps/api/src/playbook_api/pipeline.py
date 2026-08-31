@@ -26,6 +26,7 @@ from pattern_engine.patterns import (
     DEFAULT_SIMILARITY,
     AdvancingLegsPattern,
     BarGapPattern,
+    GeneralDirectionPattern,
     LegExtremesPattern,
     LegPattern,
     LegReversalsPattern,
@@ -94,6 +95,10 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
     return (
         zigzag,
         simple_leg,
+        # The first opinion that outlives a leg: the market's general lean, read off the simple
+        # legs' pivots and guarded by the zigzag's. It reads the two Series above, never the
+        # bars, so it must sit after both — declaration order is run order.
+        GeneralDirectionPattern(source=simple_leg, pivots=zigzag, reads=("5m",), emits="5m"),
         # No source and no ordering constraint: a gap is a property of three adjacent bars, not of
         # a leg somebody cut, so this one reads `ctx["bars"]` and could sit anywhere in the tuple.
         # It is here because it answers about the raw bars, like the two detectors above it, and

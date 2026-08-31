@@ -49,6 +49,23 @@ export interface LegMark extends PatternPoint {
 }
 
 /**
+ * One turn of the general direction — the market's lean, read off the simple legs' pivots.
+ *
+ * The Series holds only the turns: the direction at any bar is that of the last Point at or
+ * before it. `kind: 'seed'` appears at most once, as the first Point — the assumption made from
+ * the first agreeing pair of **inflexions**, which is where a leg ends, so the first `simple-leg`
+ * mark of the window does not count as one: it opens the first leg rather than closing one. Every
+ * later Point is a `'flip'`, earned by two breakouts against the trend before it. `price` is the
+ * deciding mark's own.
+ */
+export interface GeneralDirection extends PatternPoint {
+  price: number
+  /** The trend from this bar on — not the trend that just ended. */
+  direction: 'bullish' | 'bearish'
+  kind: 'seed' | 'flip'
+}
+
+/**
  * One leg, where it turned, and the bars that followed it.
  *
  * `bars[0]` is the opening Pivot and `end` indexes the closing one, both inclusive, so the

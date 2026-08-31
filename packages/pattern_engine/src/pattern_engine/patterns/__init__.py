@@ -2,6 +2,7 @@
 
 from .advancing_legs import AdvancingLeg, AdvancingLegsPattern, advancing_legs, trim_tail
 from .bar_gap import BarGap, BarGapPattern, bar_gaps
+from .general_direction import GeneralDirection, GeneralDirectionPattern, general_direction
 from .leg_extremes import (
     ExtremeType,
     LegExtremes,
@@ -42,6 +43,8 @@ __all__ = [
     "DEFAULT_K",
     "DEFAULT_SIMILARITY",
     "ExtremeType",
+    "GeneralDirection",
+    "GeneralDirectionPattern",
     "Leg",
     "LegBar",
     "LegExtremes",
@@ -69,6 +72,7 @@ __all__ = [
     "dominates",
     "expands",
     "extreme_points",
+    "general_direction",
     "implied_body_min",
     "marked_bars",
     "nested_legs",

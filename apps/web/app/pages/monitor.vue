@@ -8,6 +8,7 @@ import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import LegReversalsOverlay from '~/components/LegReversalsOverlay.vue'
 import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 import BarGapOverlay from '~/components/BarGapOverlay.vue'
+import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -50,6 +51,9 @@ const OVERLAYS: Record<string, Component> = {
   'leg-reversals': LegReversalsOverlay,
   'leg-extremes': LegExtremesOverlay,
   'bar-gap': BarGapOverlay,
+  // Markers-only again, like `leg-reversals`, but drawn in the palette colour: a turn of the
+  // general direction carries no per-type hue to protect, only a side.
+  'general-direction': GeneralDirectionOverlay,
 }
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
