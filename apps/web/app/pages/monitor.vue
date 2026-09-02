@@ -10,6 +10,7 @@ import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
+import { Badge } from '~/components/ui/badge'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -208,7 +209,7 @@ const savedRules = computed(() => (saved.value?.rules ?? []).map(parseRule).map(
  * Loads a saved rule's **numbers**. Its name stays behind, and that is not an oversight.
  *
  * `/patterns` names every override `K` so the producer key never moves, which is what lets the
- * checkbox above survive an edit. Carrying `J` into the sidebar would put a name on screen that
+ * chip above survive an edit. Carrying `J` into the sidebar would put a name on screen that
  * nothing in the response agrees with.
  */
 function loadSaved(name: string) {
@@ -268,19 +269,19 @@ const overlays = computed(() =>
     timeframe: series.identity.timeframe,
     color: COLORS[index % COLORS.length]!,
   }))
-    // Series with no entry in `OVERLAYS` sort last: their checkbox toggles nothing, and letting one
-    // sit between two drawable Patterns pushes the useful controls down the sidebar. Keep this when
-    // adding a Pattern — a producer the pipeline emits before this page has an overlay for it is the
-    // normal order of work, not an error, and it belongs at the bottom until the overlay lands.
+    // Series with no entry in `OVERLAYS` are dropped rather than sorted last, which is what the
+    // chips cost: a chip is a control that opens a control, and one that opens an empty panel is
+    // worse than an absent one. The trade is worth stating plainly — a producer the pipeline emits
+    // before this page has an overlay for it is the normal order of work, not an error, and it now
+    // appears nowhere on this page. `failed` below does not cover it, because it did not fail.
     //
     // After the `map`, so the palette is still handed out in the response's order: a Series keeps
-    // its colour whether or not an undrawable one is listed above it. Stable, so everything else
-    // about the order is left as the pipeline gave it.
-    .sort((a, b) => Number(!a.component) - Number(!b.component)),
+    // its colour whether or not an undrawable one came before it.
+    .filter(overlay => overlay.component),
 )
 
 /**
- * Checked producers. Held as the exception rather than the rule so a Series arriving for the
+ * Drawn producers. Held as the exception rather than the rule so a Series arriving for the
  * first time is hidden by default, and the chart opens as candles alone however many Patterns
  * the pipeline gains.
  *
@@ -292,6 +293,22 @@ const shown = ref(new Set<string>())
 function toggle(producer: string) {
   if (shown.value.has(producer)) shown.value.delete(producer)
   else shown.value.add(producer)
+}
+
+/**
+ * Producers whose control block is unfolded under the chips.
+ *
+ * Deliberately not `shown`: a chip opens the controls of a Pattern, and `Mostrar` inside them is
+ * what reaches the chart. One checkbox used to answer both questions, which meant you could not
+ * read a Series' filters without drawing it, or leave it drawn without its controls in the way.
+ *
+ * The exception again, and for the reason `shown` is one: the column opens as chips alone.
+ */
+const open = ref(new Set<string>())
+
+function toggleOpen(producer: string) {
+  if (open.value.has(producer)) open.value.delete(producer)
+  else open.value.add(producer)
 }
 
 /**
@@ -437,8 +454,8 @@ function toggleDirection(producer: string, direction: Direction) {
 /**
  * Producers whose levels should fade out between bars, keyed the same way `shown` is.
  *
- * Off by default and stored as the exception, for the third time on this page: a Series you checked
- * is a Series you want to see, and asking for it to go away again is the deliberate act.
+ * Off by default and stored as the exception, for the third time on this page: a Series you turned
+ * on is a Series you want to see, and asking for it to go away again is the deliberate act.
  */
 const autoHide = ref(new Set<string>())
 
@@ -644,7 +661,7 @@ function extraProps(overlay: { producer: string, name: string }) {
 }
 
 /**
- * Whether a Series is drawn right now, which is now the checkbox and nothing else.
+ * Whether a Series is drawn right now, which is the `Mostrar` button and nothing else.
  *
  * The hide timer used to be the second half of this and is not any more: with pins it decides
  * *which* segments a `leg-extremes` Series draws rather than whether it draws at all, and that is
@@ -823,433 +840,458 @@ function isVisible(overlay: { producer: string }) {
         </p>
 
         <p v-else-if="!overlays.length" class="mt-3 text-xs text-gray-500">
-          Nenhum padrão produzido nesta janela.
+          Nenhum padrão desenhável nesta janela.
         </p>
 
-        <ul v-else class="mt-3 space-y-2">
-          <li v-for="overlay in overlays" :key="overlay.producer">
-            <label class="flex items-start gap-2 text-xs">
-              <input
-                type="checkbox"
-                class="mt-0.5"
-                :checked="shown.has(overlay.producer)"
-                @change="toggle(overlay.producer)"
-              >
-              <span class="min-w-0">
-                <!-- The name the Pattern gives itself, on one line. `truncate` rather than
-                     `break-all`: a label that wraps to three lines is the thing this replaced.
-                     The producer key is not gone — it is the tooltip, which is where a total,
-                     unique, unreadable string belongs. -->
-                <span
-                  class="block truncate font-medium"
-                  :style="{ color: overlay.color }"
-                  :title="overlay.producer"
-                >
+        <!-- A chip per Pattern, and under them the control block of whichever chips are on. The
+             chip itself draws nothing — it opens and closes the control — and `Mostrar` inside the
+             control is what reaches the chart. Those are two facts about one Pattern, and the
+             checkbox this replaced had to stand for both at once. -->
+        <div v-else>
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            <!-- `as="button"` so a chip is focusable and answers the keyboard: it is a control, and
+                 its variant is the only thing on screen saying which controls are open. -->
+            <Badge
+              v-for="overlay in overlays"
+              :key="overlay.producer"
+              as="button"
+              :variant="open.has(overlay.producer) ? 'default' : 'secondary'"
+              :title="overlay.producer"
+              @click="toggleOpen(overlay.producer)"
+            >
+              <!-- Lit in the Series' palette colour while it is drawn and hollow while it is not,
+                   so a folded control still says whether its Pattern is on the chart. Always
+                   rendered: a dot that appeared would resize the chip under the cursor. -->
+              <span
+                class="size-1.5 shrink-0 rounded-full border"
+                :style="shown.has(overlay.producer)
+                  ? { backgroundColor: overlay.color, borderColor: overlay.color }
+                  : { backgroundColor: 'transparent', borderColor: 'currentColor', opacity: 0.4 }"
+              />
+              {{ overlay.label }}
+            </Badge>
+          </div>
+
+          <!-- `v-for` and `v-if` cannot share an element, and the condition is per-Pattern. -->
+          <template v-for="overlay in overlays" :key="overlay.producer">
+            <div v-if="open.has(overlay.producer)" class="mt-3 border-t border-gray-200 pt-3">
+              <div class="flex items-baseline justify-between gap-2 text-xs">
+                <!-- The name the Pattern gives itself. The producer key is not gone — it is the
+                     chip's tooltip, which is where a total, unique, unreadable string belongs. -->
+                <span class="min-w-0 truncate font-medium" :style="{ color: overlay.color }">
                   {{ overlay.label }}
                 </span>
-                <span class="block text-gray-500">
-                  {{ overlay.points.length }} pontos
-                  <span v-if="overlay.timeframe !== timeframe" class="text-amber-600">
-                    · {{ overlay.timeframe }}, fora do timeframe exibido
-                  </span>
-                  <span v-if="!overlay.component" class="text-red-600">
-                    · sem componente de desenho
-                  </span>
-                </span>
-              </span>
-            </label>
-
-            <!-- Only under a Series that is actually drawn: with the checkbox off there is nothing
-                 for these to filter, and leaving them visible would suggest otherwise. -->
-            <div
-              v-if="DIRECTIONAL.has(overlay.name) && shown.has(overlay.producer)"
-              class="mt-1 ml-6 flex gap-3"
-            >
-              <label
-                v-for="direction in DIRECTIONS"
-                :key="direction.value"
-                class="flex items-center gap-1 text-xs text-gray-500"
-              >
-                <input
-                  type="checkbox"
-                  :checked="!hiddenDirections.has(`${overlay.producer}:${direction.value}`)"
-                  @change="toggleDirection(overlay.producer, direction.value)"
-                >
-                {{ direction.label }}
-              </label>
-            </div>
-
-            <!-- `bar-gap`'s second axis. Same shape as the row above and deliberately not folded
-                 into it: bull/bear is a property of the move that made the gap, open/closed is a
-                 property of everything that happened since, and one row of four checkboxes would
-                 read as one question with four answers. -->
-            <div
-              v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
-              class="mt-1 ml-6 flex gap-3"
-            >
-              <label
-                v-for="state in STATES"
-                :key="state.value"
-                class="flex items-center gap-1 text-xs text-gray-500"
-              >
-                <input
-                  type="checkbox"
-                  :checked="!hiddenStates.has(`${overlay.producer}:${state.value}`)"
-                  @change="toggleState(overlay.producer, state.value)"
-                >
-                {{ state.label }}
-              </label>
-            </div>
-
-            <!-- `trend-lines`' only filter. Same shape as the two rows above and a different
-                 question again: not which way the move ran, but which extreme the line is drawn
-                 along. It is the one control this Series needs — there is no colour key, because
-                 every line it draws is the Series' own colour, which the swatch above already
-                 shows. -->
-            <div
-              v-if="overlay.name === 'trend-lines' && shown.has(overlay.producer)"
-              class="mt-1 ml-6 flex gap-3"
-            >
-              <label
-                v-for="side in SIDES"
-                :key="side.value"
-                class="flex items-center gap-1 text-xs text-gray-500"
-              >
-                <input
-                  type="checkbox"
-                  :checked="!hiddenSides.has(`${overlay.producer}:${side.value}`)"
-                  @change="toggleSide(overlay.producer, side.value)"
-                >
-                {{ side.label }}
-              </label>
-            </div>
-
-            <!-- Red and blue are now a claim about what the picture means, so the key that the
-                 three levels needed this one needs too. The swatch is a filled square because the
-                 thing it stands for is a filled region, not a line. -->
-            <div
-              v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
-              class="mt-1 ml-6 flex flex-wrap gap-x-3 gap-y-1"
-            >
-              <span
-                v-for="(hue, state) in GAP_HUES"
-                :key="state"
-                class="flex items-center gap-1 text-xs text-gray-500"
-              >
-                <span class="inline-block h-2 w-3 border" :style="{ borderColor: hue, backgroundColor: hue + '40' }" />
-                {{ GAP_STATE_LABELS[state] }}
-              </span>
-            </div>
-
-            <!-- The three levels are told apart by colour alone, and the swatch on the checkbox
-                 above is the *Series'* palette colour, which this overlay ignores. Without a key
-                 the picture cannot be read at all. `leg-reversals` colours its dots the same way
-                 and has no key either; that is left as it is rather than quietly widened here. -->
-            <div
-              v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
-              class="mt-1 ml-6 flex flex-wrap gap-x-3 gap-y-1"
-            >
-              <span
-                v-for="(hue, type) in EXTREME_HUES"
-                :key="type"
-                class="flex items-center gap-1 text-xs text-gray-500"
-              >
-                <span class="inline-block h-0.5 w-3" :style="{ backgroundColor: hue }" />
-                {{ EXTREME_LABELS[type] }}
-              </span>
-            </div>
-
-            <!-- The levels bury the candles a few legs in, and they are worth most right after a
-                 leg closes. This trades them for the price action in between: on, they clear the
-                 chart at once and come back for half a minute after each new candle.
-
-                 `ClientOnly` because the state word is decided by a timer, which only exists in
-                 the browser — the same reason the feed's status above is wrapped. -->
-            <div
-              v-if="PINNABLE.has(overlay.name) && shown.has(overlay.producer)"
-              class="mt-1 ml-6"
-            >
-              <ClientOnly>
-                <button
-                  class="rounded border px-2 py-0.5 text-xs"
-                  :class="autoHide.has(overlay.producer)
-                    ? 'border-green-600 bg-green-50 text-green-700'
-                    : 'border-gray-300 text-gray-500'"
-                  @click="toggleAutoHide(overlay.producer)"
-                >
-                  Ocultar entre candles
-                  <!-- "oculto" stopped being the whole truth once levels could be pinned: with a
-                       pin held, the Series is hidden *except* for it. -->
-                  <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
-                    · {{ hideTimer.hidden.value ? 'oculto' : 'visível' }}
-                    <template v-if="hideTimer.hidden.value && pinnedCount(overlay)">
-                      ({{ pinnedCount(overlay) }} fixados)
-                    </template>
-                  </span>
-                </button>
-                <template #fallback>
-                  <div class="h-[24px] w-32" />
-                </template>
-              </ClientOnly>
-            </div>
-
-            <!-- What survives the timer, and the only place a pinned level can be read as words:
-                 on the chart it is a slightly thicker line among many.
-
-                 `ClientOnly` because a pin only exists after a click, and because the count beside
-                 the switch above is decided by a timer the server does not have. -->
-            <ClientOnly>
-              <div
-                v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
-                class="mt-1 ml-6 text-xs"
-              >
-                <div v-if="pinnedSegments(overlay).length" class="flex items-baseline justify-between gap-2">
-                  <span class="text-gray-500">Fixados</span>
-                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
-                    limpar
-                  </button>
-                </div>
-                <p v-else class="text-gray-400">
-                  Clique numa linha do gráfico para mantê-la visível.
-                </p>
-
-                <ul class="mt-1 space-y-0.5">
-                  <li
-                    v-for="segment in pinnedSegments(overlay)"
-                    :key="segment.id"
-                    class="flex items-center gap-1.5 text-gray-500"
-                  >
-                    <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: segment.color }" />
-                    <span>{{ EXTREME_LABELS[segment.type] }}</span>
-                    <span class="font-mono">{{ segment.price }}</span>
-                    <span class="text-gray-400">{{ barLabel(segment.time) }}</span>
-                    <button
-                      class="ml-auto text-gray-400 hover:text-gray-600"
-                      :aria-label="`desafixar ${EXTREME_LABELS[segment.type]}`"
-                      @click="togglePin(overlay.producer, segment.id)"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                </ul>
+                <span class="shrink-0 text-gray-500">{{ overlay.points.length }} pontos</span>
               </div>
 
-              <!-- The same list for `bar-gap`, written out rather than folded into the one above:
-                   a gap is named by its direction and read as two prices, where a level is named
-                   by its role and read as one. Sharing the markup would mean a row of conditional
-                   cells saying nothing about either. -->
-              <div
-                v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
-                class="mt-1 ml-6 text-xs"
+              <p v-if="overlay.timeframe !== timeframe" class="mt-0.5 text-xs text-amber-600">
+                {{ overlay.timeframe }}, fora do timeframe exibido
+              </p>
+
+              <!-- What the checkbox used to be, and the only control here that reaches the chart. -->
+              <button
+                class="mt-1.5 rounded border px-2 py-0.5 text-xs"
+                :class="shown.has(overlay.producer)
+                  ? 'border-green-600 bg-green-50 text-green-700'
+                  : 'border-gray-300 text-gray-500'"
+                @click="toggle(overlay.producer)"
               >
-                <div v-if="pinnedGaps(overlay).length" class="flex items-baseline justify-between gap-2">
-                  <span class="text-gray-500">Fixados</span>
-                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
-                    limpar
-                  </button>
-                </div>
-                <p v-else class="text-gray-400">
-                  Clique num gap do gráfico para mantê-lo visível.
-                </p>
+                {{ shown.has(overlay.producer) ? 'Ocultar' : 'Mostrar' }}
+              </button>
 
-                <ul class="mt-1 space-y-0.5">
-                  <li
-                    v-for="box in pinnedGaps(overlay)"
-                    :key="box.id"
-                    class="flex items-center gap-1.5 text-gray-500"
-                  >
-                    <span class="inline-block h-2 w-3 shrink-0 border" :style="{ borderColor: box.color, backgroundColor: box.color + '40' }" />
-                    <span>{{ GAP_LABELS[box.direction] }}</span>
-                    <span class="font-mono">{{ box.bottom }}–{{ box.top }}</span>
-                    <span class="text-gray-400">{{ barLabel(box.time) }}</span>
-                    <!-- The state in words as well as in colour, and for a closed gap the bar that
-                         closed it: on the chart that bar is nowhere, since the box does not reach
-                         it. -->
-                    <span class="text-gray-400">
-                      {{ GAP_STATE_LABELS[box.state] }}<template v-if="box.closedAt"> {{ barLabel(box.closedAt) }}</template>
-                    </span>
-                    <button
-                      class="ml-auto text-gray-400 hover:text-gray-600"
-                      :aria-label="`desafixar ${GAP_LABELS[box.direction]}`"
-                      @click="togglePin(overlay.producer, box.id)"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                </ul>
-              </div>
-              <!-- And the same list once more for `trend-lines`, written out for the reason the
-                   one above it is: a line is named by its side and read as two prices at two
-                   times, which is a third row shape rather than a variant of either. The swatch
-                   is a short diagonal stroke — the only one of the three lists whose swatch is the
-                   colour actually on the chart, since this Pattern draws in the Series' hue. -->
+              <!-- Only under a Series that is actually drawn: with `Mostrar` off there is nothing
+                   for these to filter, and leaving them visible would suggest otherwise. -->
               <div
-                v-if="overlay.name === 'trend-lines' && shown.has(overlay.producer)"
-                class="mt-1 ml-6 text-xs"
+                v-if="DIRECTIONAL.has(overlay.name) && shown.has(overlay.producer)"
+                class="mt-1 flex gap-3"
               >
-                <div v-if="pinnedTrends(overlay).length" class="flex items-baseline justify-between gap-2">
-                  <span class="text-gray-500">Selecionadas</span>
-                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
-                    limpar
-                  </button>
-                </div>
-                <p v-else class="text-gray-400">
-                  Clique numa linha do gráfico para estendê-la até o candle atual.
-                </p>
-
-                <ul class="mt-1 space-y-0.5">
-                  <li
-                    v-for="segment in pinnedTrends(overlay)"
-                    :key="segment.id"
-                    class="flex items-center gap-1.5 text-gray-500"
-                  >
-                    <span
-                      class="inline-block h-2 w-3 shrink-0 border-b"
-                      :style="{ borderColor: segment.color, transform: 'skewY(-20deg)' }"
-                    />
-                    <span>{{ TREND_LABELS[segment.side] }}</span>
-                    <span class="font-mono">{{ segment.fromPrice }}→{{ segment.toPrice }}</span>
-                    <span class="text-gray-400">
-                      {{ barLabel(segment.from.time) }}–{{ barLabel(segment.to.time) }}
-                    </span>
-                    <!-- The one thing the drawing cannot say: this line ends on the leg still
-                         running, so it moves with every candle and may not be there tomorrow. -->
-                    <span v-if="segment.provisional" class="text-amber-600">provisória</span>
-                    <button
-                      class="ml-auto text-gray-400 hover:text-gray-600"
-                      :aria-label="`desselecionar ${TREND_LABELS[segment.side]}`"
-                      @click="togglePin(overlay.producer, segment.id)"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                </ul>
-              </div>
-              <template #fallback>
-                <div class="h-[20px]" />
-              </template>
-            </ClientOnly>
-
-            <!-- The Forma rule this Pattern applies — the only thing on this page the browser
-                 composes and the server runs. Under the same condition as the filters above, and
-                 for a sharper version of the same reason: every committed field is a pipeline
-                 run, and offering them under an unchecked box would spend one on nothing.
-
-                 Inside `ClientOnly` because the stored rule arrives after mount: the server
-                 renders `PIPELINE_RULE` and the client may replace it, which is a hydration
-                 mismatch anywhere it is rendered on both. Same guard as the timepicker above. -->
-            <ClientOnly>
-              <div
-                v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
-                class="mt-2 ml-6 space-y-2 border-l border-gray-100 pl-3 text-xs"
-              >
-                <div class="flex items-baseline justify-between gap-2">
-                  <span class="font-semibold text-gray-500">Regra Forma</span>
-                  <!-- The producer key is identical whichever rule ran — see `/patterns`. This
-                       badge is the only thing on screen that tells an adjusted run from the
-                       declared one, so it is not decoration. -->
-                  <button
-                    v-if="adjusted"
-                    class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100"
-                    @click="resetRule()"
-                  >
-                    ajustada · voltar ao padrão
-                  </button>
-                  <span v-else class="text-[10px] text-gray-400">a do pipeline</span>
-                </div>
-
-                <label v-if="savedRules.length" class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500">Carregar</span>
-                  <select
-                    class="w-28 rounded border border-gray-300 px-1 py-0.5 text-xs"
-                    value=""
-                    @change="loadSaved(($event.target as HTMLSelectElement).value)"
-                  >
-                    <!-- Only the numbers are copied, so the list is a starting point and never a
-                         claim about what the Series is called. -->
-                    <option value="" disabled>só os números…</option>
-                    <option v-for="entry in savedRules" :key="entry.name" :value="entry.name">
-                      {{ entry.name }}
-                    </option>
-                  </select>
-                </label>
-
-                <label class="flex items-center gap-2">
+                <label
+                  v-for="direction in DIRECTIONS"
+                  :key="direction.value"
+                  class="flex items-center gap-1 text-xs text-gray-500"
+                >
                   <input
                     type="checkbox"
-                    :checked="rule.requireWfOverWc"
-                    @change="updateRule({ requireWfOverWc: ($event.target as HTMLInputElement).checked })"
+                    :checked="!hiddenDirections.has(`${overlay.producer}:${direction.value}`)"
+                    @change="toggleDirection(overlay.producer, direction.value)"
                   >
-                  <span>exigir <code class="font-mono">wf &gt; wc</code></span>
-                </label>
-
-                <!-- `@change`, not `@input`: each committed value is a full pipeline run on the
-                     server, and `@change` fires on blur or Enter. That is the debounce. -->
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500"><code class="font-mono">wf ≥</code></span>
-                  <input
-                    type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wfMin"
-                    @change="updateRule({ wfMin: Number(($event.target as HTMLInputElement).value) })"
-                  >
-                </label>
-
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500"><code class="font-mono">wc ≤</code></span>
-                  <input
-                    type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wcMax"
-                    @change="updateRule({ wcMax: Number(($event.target as HTMLInputElement).value) })"
-                  >
-                </label>
-
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500"><code class="font-mono">wc ≤ k·wf</code></span>
-                  <input
-                    type="number" step="0.01" min="0" max="10" :class="ruleField" placeholder="sem k"
-                    :value="rule.wcMaxRatio ?? ''"
-                    @change="setRatio(($event.target as HTMLInputElement).value)"
-                  >
-                </label>
-
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500"><code class="font-mono">b</code> entre</span>
-                  <span class="flex gap-1">
-                    <input
-                      type="number" step="0.05" min="0" :max="rule.bodyMax"
-                      class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
-                      :value="rule.bodyMin"
-                      @change="setBody('bodyMin', ($event.target as HTMLInputElement).value)"
-                    >
-                    <input
-                      type="number" step="0.05" :min="rule.bodyMin" max="1"
-                      class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
-                      :value="rule.bodyMax"
-                      @change="setBody('bodyMax', ($event.target as HTMLInputElement).value)"
-                    >
-                  </span>
-                </div>
-
-                <label class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500">Cor</span>
-                  <select
-                    class="rounded border border-gray-300 px-1 py-0.5 text-xs"
-                    :value="rule.colour"
-                    @change="updateRule({ colour: ($event.target as HTMLSelectElement).value as Rule['colour'] })"
-                  >
-                    <option v-for="option in COLOUR_MODES" :key="option" :value="option">{{ option }}</option>
-                  </select>
-                </label>
-
-                <label v-if="rule.colour === 'acima-de'" class="flex items-center justify-between gap-2">
-                  <span class="text-gray-500">cor se <code class="font-mono">b &gt;</code></span>
-                  <input
-                    type="number" step="0.05" min="0" max="1" :class="ruleField" :value="rule.colourBodyMin"
-                    @change="updateRule({ colourBodyMin: Number(($event.target as HTMLInputElement).value) })"
-                  >
+                  {{ direction.label }}
                 </label>
               </div>
-            </ClientOnly>
-          </li>
-        </ul>
+
+              <!-- `bar-gap`'s second axis. Same shape as the row above and deliberately not folded
+                   into it: bull/bear is a property of the move that made the gap, open/closed is a
+                   property of everything that happened since, and one row of four checkboxes would
+                   read as one question with four answers. -->
+              <div
+                v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
+                class="mt-1 flex gap-3"
+              >
+                <label
+                  v-for="state in STATES"
+                  :key="state.value"
+                  class="flex items-center gap-1 text-xs text-gray-500"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="!hiddenStates.has(`${overlay.producer}:${state.value}`)"
+                    @change="toggleState(overlay.producer, state.value)"
+                  >
+                  {{ state.label }}
+                </label>
+              </div>
+
+              <!-- `trend-lines`' only filter. Same shape as the two rows above and a different
+                   question again: not which way the move ran, but which extreme the line is drawn
+                   along. It is the one control this Series needs — there is no colour key, because
+                   every line it draws is the Series' own colour, which the chip's dot
+                   already shows. -->
+              <div
+                v-if="overlay.name === 'trend-lines' && shown.has(overlay.producer)"
+                class="mt-1 flex gap-3"
+              >
+                <label
+                  v-for="side in SIDES"
+                  :key="side.value"
+                  class="flex items-center gap-1 text-xs text-gray-500"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="!hiddenSides.has(`${overlay.producer}:${side.value}`)"
+                    @change="toggleSide(overlay.producer, side.value)"
+                  >
+                  {{ side.label }}
+                </label>
+              </div>
+
+              <!-- Red and blue are now a claim about what the picture means, so the key that the
+                   three levels needed this one needs too. The swatch is a filled square because the
+                   thing it stands for is a filled region, not a line. -->
+              <div
+                v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
+                class="mt-1 flex flex-wrap gap-x-3 gap-y-1"
+              >
+                <span
+                  v-for="(hue, state) in GAP_HUES"
+                  :key="state"
+                  class="flex items-center gap-1 text-xs text-gray-500"
+                >
+                  <span class="inline-block h-2 w-3 border" :style="{ borderColor: hue, backgroundColor: hue + '40' }" />
+                  {{ GAP_STATE_LABELS[state] }}
+                </span>
+              </div>
+
+              <!-- The three levels are told apart by colour alone, and the dot on the chip above is
+                   the *Series'* palette colour, which this overlay ignores. Without a key
+                   the picture cannot be read at all. `leg-reversals` colours its dots the same way
+                   and has no key either; that is left as it is rather than quietly widened here. -->
+              <div
+                v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
+                class="mt-1 flex flex-wrap gap-x-3 gap-y-1"
+              >
+                <span
+                  v-for="(hue, type) in EXTREME_HUES"
+                  :key="type"
+                  class="flex items-center gap-1 text-xs text-gray-500"
+                >
+                  <span class="inline-block h-0.5 w-3" :style="{ backgroundColor: hue }" />
+                  {{ EXTREME_LABELS[type] }}
+                </span>
+              </div>
+
+              <!-- The levels bury the candles a few legs in, and they are worth most right after a
+                   leg closes. This trades them for the price action in between: on, they clear the
+                   chart at once and come back for half a minute after each new candle.
+
+                   `ClientOnly` because the state word is decided by a timer, which only exists in
+                   the browser — the same reason the feed's status above is wrapped. -->
+              <div
+                v-if="PINNABLE.has(overlay.name) && shown.has(overlay.producer)"
+                class="mt-1"
+              >
+                <ClientOnly>
+                  <button
+                    class="rounded border px-2 py-0.5 text-xs"
+                    :class="autoHide.has(overlay.producer)
+                      ? 'border-green-600 bg-green-50 text-green-700'
+                      : 'border-gray-300 text-gray-500'"
+                    @click="toggleAutoHide(overlay.producer)"
+                  >
+                    Ocultar entre candles
+                    <!-- "oculto" stopped being the whole truth once levels could be pinned: with a
+                         pin held, the Series is hidden *except* for it. -->
+                    <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
+                      · {{ hideTimer.hidden.value ? 'oculto' : 'visível' }}
+                      <template v-if="hideTimer.hidden.value && pinnedCount(overlay)">
+                        ({{ pinnedCount(overlay) }} fixados)
+                      </template>
+                    </span>
+                  </button>
+                  <template #fallback>
+                    <div class="h-[24px] w-32" />
+                  </template>
+                </ClientOnly>
+              </div>
+
+              <!-- What survives the timer, and the only place a pinned level can be read as words:
+                   on the chart it is a slightly thicker line among many.
+
+                   `ClientOnly` because a pin only exists after a click, and because the count beside
+                   the switch above is decided by a timer the server does not have. -->
+              <ClientOnly>
+                <div
+                  v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
+                  class="mt-1 text-xs"
+                >
+                  <div v-if="pinnedSegments(overlay).length" class="flex items-baseline justify-between gap-2">
+                    <span class="text-gray-500">Fixados</span>
+                    <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
+                      limpar
+                    </button>
+                  </div>
+                  <p v-else class="text-gray-400">
+                    Clique numa linha do gráfico para mantê-la visível.
+                  </p>
+
+                  <ul class="mt-1 space-y-0.5">
+                    <li
+                      v-for="segment in pinnedSegments(overlay)"
+                      :key="segment.id"
+                      class="flex items-center gap-1.5 text-gray-500"
+                    >
+                      <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: segment.color }" />
+                      <span>{{ EXTREME_LABELS[segment.type] }}</span>
+                      <span class="font-mono">{{ segment.price }}</span>
+                      <span class="text-gray-400">{{ barLabel(segment.time) }}</span>
+                      <button
+                        class="ml-auto text-gray-400 hover:text-gray-600"
+                        :aria-label="`desafixar ${EXTREME_LABELS[segment.type]}`"
+                        @click="togglePin(overlay.producer, segment.id)"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- The same list for `bar-gap`, written out rather than folded into the one above:
+                     a gap is named by its direction and read as two prices, where a level is named
+                     by its role and read as one. Sharing the markup would mean a row of conditional
+                     cells saying nothing about either. -->
+                <div
+                  v-if="overlay.name === 'bar-gap' && shown.has(overlay.producer)"
+                  class="mt-1 text-xs"
+                >
+                  <div v-if="pinnedGaps(overlay).length" class="flex items-baseline justify-between gap-2">
+                    <span class="text-gray-500">Fixados</span>
+                    <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
+                      limpar
+                    </button>
+                  </div>
+                  <p v-else class="text-gray-400">
+                    Clique num gap do gráfico para mantê-lo visível.
+                  </p>
+
+                  <ul class="mt-1 space-y-0.5">
+                    <li
+                      v-for="box in pinnedGaps(overlay)"
+                      :key="box.id"
+                      class="flex items-center gap-1.5 text-gray-500"
+                    >
+                      <span class="inline-block h-2 w-3 shrink-0 border" :style="{ borderColor: box.color, backgroundColor: box.color + '40' }" />
+                      <span>{{ GAP_LABELS[box.direction] }}</span>
+                      <span class="font-mono">{{ box.bottom }}–{{ box.top }}</span>
+                      <span class="text-gray-400">{{ barLabel(box.time) }}</span>
+                      <!-- The state in words as well as in colour, and for a closed gap the bar that
+                           closed it: on the chart that bar is nowhere, since the box does not reach
+                           it. -->
+                      <span class="text-gray-400">
+                        {{ GAP_STATE_LABELS[box.state] }}<template v-if="box.closedAt"> {{ barLabel(box.closedAt) }}</template>
+                      </span>
+                      <button
+                        class="ml-auto text-gray-400 hover:text-gray-600"
+                        :aria-label="`desafixar ${GAP_LABELS[box.direction]}`"
+                        @click="togglePin(overlay.producer, box.id)"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+                <!-- And the same list once more for `trend-lines`, written out for the reason the
+                     one above it is: a line is named by its side and read as two prices at two
+                     times, which is a third row shape rather than a variant of either. The swatch
+                     is a short diagonal stroke — the only one of the three lists whose swatch is the
+                     colour actually on the chart, since this Pattern draws in the Series' hue. -->
+                <div
+                  v-if="overlay.name === 'trend-lines' && shown.has(overlay.producer)"
+                  class="mt-1 text-xs"
+                >
+                  <div v-if="pinnedTrends(overlay).length" class="flex items-baseline justify-between gap-2">
+                    <span class="text-gray-500">Selecionadas</span>
+                    <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
+                      limpar
+                    </button>
+                  </div>
+                  <p v-else class="text-gray-400">
+                    Clique numa linha do gráfico para estendê-la até o candle atual.
+                  </p>
+
+                  <ul class="mt-1 space-y-0.5">
+                    <li
+                      v-for="segment in pinnedTrends(overlay)"
+                      :key="segment.id"
+                      class="flex items-center gap-1.5 text-gray-500"
+                    >
+                      <span
+                        class="inline-block h-2 w-3 shrink-0 border-b"
+                        :style="{ borderColor: segment.color, transform: 'skewY(-20deg)' }"
+                      />
+                      <span>{{ TREND_LABELS[segment.side] }}</span>
+                      <span class="font-mono">{{ segment.fromPrice }}→{{ segment.toPrice }}</span>
+                      <span class="text-gray-400">
+                        {{ barLabel(segment.from.time) }}–{{ barLabel(segment.to.time) }}
+                      </span>
+                      <!-- The one thing the drawing cannot say: this line ends on the leg still
+                           running, so it moves with every candle and may not be there tomorrow. -->
+                      <span v-if="segment.provisional" class="text-amber-600">provisória</span>
+                      <button
+                        class="ml-auto text-gray-400 hover:text-gray-600"
+                        :aria-label="`desselecionar ${TREND_LABELS[segment.side]}`"
+                        @click="togglePin(overlay.producer, segment.id)"
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+                <template #fallback>
+                  <div class="h-[20px]" />
+                </template>
+              </ClientOnly>
+
+              <!-- The Forma rule this Pattern applies — the only thing on this page the browser
+                   composes and the server runs. Under the same condition as the filters above, and
+                   for a sharper version of the same reason: every committed field is a pipeline
+                   run, and offering them under a Pattern nobody is looking at would spend one on
+                   nothing.
+
+                   Inside `ClientOnly` because the stored rule arrives after mount: the server
+                   renders `PIPELINE_RULE` and the client may replace it, which is a hydration
+                   mismatch anywhere it is rendered on both. Same guard as the timepicker above. -->
+              <ClientOnly>
+                <div
+                  v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
+                  class="mt-2 space-y-2 border-l border-gray-100 pl-3 text-xs"
+                >
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="font-semibold text-gray-500">Regra Forma</span>
+                    <!-- The producer key is identical whichever rule ran — see `/patterns`. This
+                         badge is the only thing on screen that tells an adjusted run from the
+                         declared one, so it is not decoration. -->
+                    <button
+                      v-if="adjusted"
+                      class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100"
+                      @click="resetRule()"
+                    >
+                      ajustada · voltar ao padrão
+                    </button>
+                    <span v-else class="text-[10px] text-gray-400">a do pipeline</span>
+                  </div>
+
+                  <label v-if="savedRules.length" class="flex items-center justify-between gap-2">
+                    <span class="text-gray-500">Carregar</span>
+                    <select
+                      class="w-28 rounded border border-gray-300 px-1 py-0.5 text-xs"
+                      value=""
+                      @change="loadSaved(($event.target as HTMLSelectElement).value)"
+                    >
+                      <!-- Only the numbers are copied, so the list is a starting point and never a
+                           claim about what the Series is called. -->
+                      <option value="" disabled>só os números…</option>
+                      <option v-for="entry in savedRules" :key="entry.name" :value="entry.name">
+                        {{ entry.name }}
+                      </option>
+                    </select>
+                  </label>
+
+                  <label class="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      :checked="rule.requireWfOverWc"
+                      @change="updateRule({ requireWfOverWc: ($event.target as HTMLInputElement).checked })"
+                    >
+                    <span>exigir <code class="font-mono">wf &gt; wc</code></span>
+                  </label>
+
+                  <!-- `@change`, not `@input`: each committed value is a full pipeline run on the
+                       server, and `@change` fires on blur or Enter. That is the debounce. -->
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-gray-500"><code class="font-mono">wf ≥</code></span>
+                    <input
+                      type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wfMin"
+                      @change="updateRule({ wfMin: Number(($event.target as HTMLInputElement).value) })"
+                    >
+                  </label>
+
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-gray-500"><code class="font-mono">wc ≤</code></span>
+                    <input
+                      type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wcMax"
+                      @change="updateRule({ wcMax: Number(($event.target as HTMLInputElement).value) })"
+                    >
+                  </label>
+
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-gray-500"><code class="font-mono">wc ≤ k·wf</code></span>
+                    <input
+                      type="number" step="0.01" min="0" max="10" :class="ruleField" placeholder="sem k"
+                      :value="rule.wcMaxRatio ?? ''"
+                      @change="setRatio(($event.target as HTMLInputElement).value)"
+                    >
+                  </label>
+
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-gray-500"><code class="font-mono">b</code> entre</span>
+                    <span class="flex gap-1">
+                      <input
+                        type="number" step="0.05" min="0" :max="rule.bodyMax"
+                        class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                        :value="rule.bodyMin"
+                        @change="setBody('bodyMin', ($event.target as HTMLInputElement).value)"
+                      >
+                      <input
+                        type="number" step="0.05" :min="rule.bodyMin" max="1"
+                        class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                        :value="rule.bodyMax"
+                        @change="setBody('bodyMax', ($event.target as HTMLInputElement).value)"
+                      >
+                    </span>
+                  </div>
+
+                  <label class="flex items-center justify-between gap-2">
+                    <span class="text-gray-500">Cor</span>
+                    <select
+                      class="rounded border border-gray-300 px-1 py-0.5 text-xs"
+                      :value="rule.colour"
+                      @change="updateRule({ colour: ($event.target as HTMLSelectElement).value as Rule['colour'] })"
+                    >
+                      <option v-for="option in COLOUR_MODES" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                  </label>
+
+                  <label v-if="rule.colour === 'acima-de'" class="flex items-center justify-between gap-2">
+                    <span class="text-gray-500">cor se <code class="font-mono">b &gt;</code></span>
+                    <input
+                      type="number" step="0.05" min="0" max="1" :class="ruleField" :value="rule.colourBodyMin"
+                      @change="updateRule({ colourBodyMin: Number(($event.target as HTMLInputElement).value) })"
+                    >
+                  </label>
+                </div>
+              </ClientOnly>
+            </div>
+          </template>
+        </div>
 
         <!-- A Pattern that raised drew nothing, and so did a Pattern that found nothing. Without
              this the two are indistinguishable on the chart. -->
