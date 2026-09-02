@@ -295,6 +295,37 @@ export interface BarGap extends PatternPoint {
   closed_by: PatternPoint | null
 }
 
+/**
+ * One trend line: a straight line from a `simple-leg` pivot to a later pivot of the **same side**,
+ * kept only because no candle between the two reaches through it.
+ *
+ * Anchored on the near pivot, whose `price` is the first point the line passes through; `to` is the
+ * far one, carried whole, and its `price` is the second. Both are real bars of the window — the
+ * line is drawn between them and claims nothing about what happens after `to`.
+ *
+ * `direction` is the **side** in `Pivot`'s vocabulary, not a move: `'high'` is a ceiling drawn
+ * along the tops, `'low'` a floor along the bottoms. That is why this Pattern gets a filter of its
+ * own rather than the bull/bear one — see `SIDES` in `pages/monitor.vue`.
+ *
+ * The Series is a fan and is by far the largest the pipeline emits: every pivot is joined to every
+ * later one it can see, so many Points share an anchor and consecutive Points can sit on the same
+ * bar. Nothing here is ranked or thinned; the sidebar is what filters it.
+ */
+export interface TrendLine extends PatternPoint {
+  /** The near pivot's own extreme — the price the line starts at. */
+  price: number
+  /** Which side both endpoints are: `'high'` is a ceiling, `'low'` a floor. */
+  direction: 'high' | 'low'
+  /** The far pivot, whole. Its `price` is the line's second point. */
+  to: LegMark
+  /**
+   * Either endpoint is `simple-leg`'s running mark, so this line moves with every bar and can
+   * vanish when that leg finally closes elsewhere. Carried, not acted on: which lines to trust is
+   * the reader's call, the same trade `LegMark.provisional` makes.
+   */
+  provisional: boolean
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   /**
    * What the Pattern calls itself — one line, written on the class, for a person reading a list.

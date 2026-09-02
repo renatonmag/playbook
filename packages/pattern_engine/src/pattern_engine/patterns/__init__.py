@@ -31,6 +31,7 @@ from .leg_reversals import (
 from .leg_window import LegWindow, LegWindowPattern, split_leg_windows
 from .nested_legs import NestedLegs, NestedLegsPattern, nested_legs
 from .simple_leg import LegMark, PbMark, SimpleLegPattern
+from .trend_lines import TrendLine, TrendLinesPattern, clear, trend_lines
 from .zigzag import ZigZagIndidicator, ZigZagPattern, ZigZagPivot
 
 __all__ = [
@@ -61,6 +62,8 @@ __all__ = [
     "NestedLegsPattern",
     "PbMark",
     "SimpleLegPattern",
+    "TrendLine",
+    "TrendLinesPattern",
     "ZigZagIndidicator",
     "ZigZagPattern",
     "ZigZagPivot",
@@ -69,6 +72,7 @@ __all__ = [
     "alike",
     "bar_gaps",
     "bar_positions",
+    "clear",
     "dominates",
     "expands",
     "extreme_points",
@@ -80,5 +84,6 @@ __all__ = [
     "reverses",
     "split_leg_windows",
     "split_legs",
+    "trend_lines",
     "trim_tail",
 ]

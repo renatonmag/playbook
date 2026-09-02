@@ -33,6 +33,7 @@ from pattern_engine.patterns import (
     LegWindowPattern,
     NestedLegsPattern,
     SimpleLegPattern,
+    TrendLinesPattern,
     ZigZagPattern,
 )
 
@@ -99,6 +100,18 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # legs' pivots and guarded by the zigzag's. It reads the two Series above, never the
         # bars, so it must sit after both — declaration order is run order.
         GeneralDirectionPattern(source=simple_leg, pivots=zigzag, reads=("5m",), emits="5m"),
+        # The other thing the simple legs' pivots say once you stop reading them one leg at a
+        # time: the straight lines they can be joined by. Tops to tops and bottoms to bottoms,
+        # kept only where no candle in between reaches through the line. It needs the bars as well
+        # as the Series — a collision is a fact about the candles, not about the pivots — so it
+        # sits here, after its source and among the Patterns that still look at raw price.
+        #
+        # No dials. What counts as a collision (a wick past the line) and which side a pivot is
+        # are both settled in the module, and how many lines to keep is not a decision a detector
+        # gets to make. Expect this to be by far the heaviest Series the pipeline emits: every
+        # pivot fans out to every later one it can see, which is the point and is stated in full
+        # in the module docstring.
+        TrendLinesPattern(source=simple_leg, reads=("5m",), emits="5m"),
         # No source and no ordering constraint: a gap is a property of three adjacent bars, not of
         # a leg somebody cut, so this one reads `ctx["bars"]` and could sit anywhere in the tuple.
         # It is here because it answers about the raw bars, like the two detectors above it, and

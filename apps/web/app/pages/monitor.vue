@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Timeframe } from '~/types/candle'
-import { producerName, type BarGap, type LegExtremes, type PatternPoint } from '~/types/pattern'
+import { producerName, type BarGap, type LegExtremes, type PatternPoint, type TrendLine } from '~/types/pattern'
 import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
@@ -9,6 +9,7 @@ import LegReversalsOverlay from '~/components/LegReversalsOverlay.vue'
 import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
+import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -44,6 +45,12 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * is the first to share a drawing with an existing entry: `LevelBoxes` takes its time-axis
  * arithmetic from `LevelSegments`. That sharing happens between the two utils, not here, which is
  * the shape this map was hoping for.
+ *
+ * The seventh, `trend-lines`, is the third primitive and the first **sloped** drawing — the one
+ * shape none of the six above could be talked into, since a level, a band and a line series are all
+ * horizontal or one-value-per-time. It is also the first primitive to draw in the *Series'* palette
+ * colour rather than a per-point hue, which is a claim about the picture rather than a shortcut:
+ * see `trendSegments`.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
@@ -54,6 +61,7 @@ const OVERLAYS: Record<string, Component> = {
   // Markers-only again, like `leg-reversals`, but drawn in the palette colour: a turn of the
   // general direction carries no per-type hue to protect, only a side.
   'general-direction': GeneralDirectionOverlay,
+  'trend-lines': TrendLinesOverlay,
 }
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
@@ -315,9 +323,10 @@ const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes', 'bar-gap'])
  *
  * A set for the same reason `DIRECTIONAL` is one — the condition is asked in four places, and they
  * fell out of step the moment a second Pattern qualified. What each entry pins is its own business:
- * `leg-extremes` pins one of a leg's three levels, `bar-gap` pins a whole band.
+ * `leg-extremes` pins one of a leg's three levels, `bar-gap` pins a whole band, `trend-lines` pins
+ * — *selects*, in that Pattern's words — one line, which then runs on to the current candle.
  */
-const PINNABLE = new Set(['leg-extremes', 'bar-gap'])
+const PINNABLE = new Set(['leg-extremes', 'bar-gap', 'trend-lines'])
 
 /**
  * The two states a gap can be in, in the order the filters are listed, with the label each gets.
@@ -356,6 +365,48 @@ function toggleState(producer: string, state: State) {
   const key = stateKey(producer, state)
   if (hiddenStates.value.has(key)) hiddenStates.value.delete(key)
   else hiddenStates.value.add(key)
+}
+
+/**
+ * The two sides a trend line can run along, in the order the filters are listed, with the label
+ * each gets.
+ *
+ * `trend-lines`' own axis, and the third distinct one on this page. Deliberately not `DIRECTIONS`:
+ * that names a *move* — which way a leg or a gap ran — and this names an *extreme*. A ceiling drawn
+ * along the tops is not a bearish line, and one row of checkboxes answering both questions would
+ * say otherwise. The labels come from `TREND_LABELS`, which the pinned list below also reads, so
+ * the filter and the list cannot end up calling one side two different things.
+ *
+ * Written out at each place that asks, like `STATES` and for its stated reason: two Patterns with
+ * two axes is not yet the drift a set exists to prevent. Promote both the moment a third qualifies.
+ */
+const SIDES = [
+  { value: 'high', label: TREND_LABELS.high },
+  { value: 'low', label: TREND_LABELS.low },
+] as const
+
+/**
+ * Sides the top/bottom filters have turned *off*, keyed by producer and side.
+ *
+ * The exception again, as with `hiddenStates` and `hiddenDirections`: a Series you chose to show
+ * arrives with both sides drawn, and unchecking is the deliberate act worth storing.
+ */
+const hiddenSides = ref(new Set<string>())
+
+function sideKey(producer: string, side: TrendSide) {
+  return `${producer}:${side}`
+}
+
+function sidesFor(producer: string): TrendSide[] {
+  return SIDES.map(item => item.value).filter(
+    value => !hiddenSides.value.has(sideKey(producer, value)),
+  )
+}
+
+function toggleSide(producer: string, side: TrendSide) {
+  const key = sideKey(producer, side)
+  if (hiddenSides.value.has(key)) hiddenSides.value.delete(key)
+  else hiddenSides.value.add(key)
 }
 
 /**
@@ -496,9 +547,33 @@ function pinnedGaps(overlay: { producer: string, points: PatternPoint[] }): GapB
   ).filter(box => ids.has(box.id))
 }
 
+/**
+ * The same thing for `trend-lines`, through `trendSegments` — its overlay's own shaping function.
+ *
+ * A third function rather than a third branch, for the reason there is already a second: a line is
+ * named by its side and read as two prices at two bars, where a gap is two prices at one and a
+ * level is one price at one. The lists in the sidebar say different words about all three.
+ *
+ * It needs the Series' colour, which neither of the two above do — the swatch in this list is the
+ * line's actual colour, because for this Pattern the palette colour *is* what gets drawn.
+ */
+function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color: string }): DrawnTrend[] {
+  const ids = new Set(pinsFor(overlay.producer))
+  if (ids.size === 0) return []
+
+  return trendSegments(
+    overlay.points as TrendLine[],
+    sidesFor(overlay.producer),
+    overlay.color,
+    ids,
+  ).filter(segment => ids.has(segment.id))
+}
+
 /** How many of a Series' pins currently resolve, whichever kind of thing it pins. */
-function pinnedCount(overlay: { name: string, producer: string, points: PatternPoint[] }) {
-  return overlay.name === 'bar-gap' ? pinnedGaps(overlay).length : pinnedSegments(overlay).length
+function pinnedCount(overlay: { name: string, producer: string, points: PatternPoint[], color: string }) {
+  if (overlay.name === 'bar-gap') return pinnedGaps(overlay).length
+  if (overlay.name === 'trend-lines') return pinnedTrends(overlay).length
+  return pinnedSegments(overlay).length
 }
 
 /**
@@ -549,6 +624,9 @@ function extraProps(overlay: { producer: string, name: string }) {
     ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
     // The second filter axis, and `bar-gap`'s alone — see `STATES`.
     ...overlay.name === 'bar-gap' ? { states: statesFor(overlay.producer) } : {},
+    // The third, and `trend-lines`' alone — tops or bottoms, which is not the bull/bear question
+    // above however much the two rows look alike. See `SIDES`.
+    ...overlay.name === 'trend-lines' ? { sides: sidesFor(overlay.producer) } : {},
     // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
     // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and
     // two Series minting one id would have each pinning the other's levels.
@@ -823,6 +901,29 @@ function isVisible(overlay: { producer: string }) {
               </label>
             </div>
 
+            <!-- `trend-lines`' only filter. Same shape as the two rows above and a different
+                 question again: not which way the move ran, but which extreme the line is drawn
+                 along. It is the one control this Series needs — there is no colour key, because
+                 every line it draws is the Series' own colour, which the swatch above already
+                 shows. -->
+            <div
+              v-if="overlay.name === 'trend-lines' && shown.has(overlay.producer)"
+              class="mt-1 ml-6 flex gap-3"
+            >
+              <label
+                v-for="side in SIDES"
+                :key="side.value"
+                class="flex items-center gap-1 text-xs text-gray-500"
+              >
+                <input
+                  type="checkbox"
+                  :checked="!hiddenSides.has(`${overlay.producer}:${side.value}`)"
+                  @change="toggleSide(overlay.producer, side.value)"
+                >
+                {{ side.label }}
+              </label>
+            </div>
+
             <!-- Red and blue are now a claim about what the picture means, so the key that the
                  three levels needed this one needs too. The swatch is a filled square because the
                  thing it stands for is a filled region, not a line. -->
@@ -971,6 +1072,53 @@ function isVisible(overlay: { producer: string }) {
                       class="ml-auto text-gray-400 hover:text-gray-600"
                       :aria-label="`desafixar ${GAP_LABELS[box.direction]}`"
                       @click="togglePin(overlay.producer, box.id)"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <!-- And the same list once more for `trend-lines`, written out for the reason the
+                   one above it is: a line is named by its side and read as two prices at two
+                   times, which is a third row shape rather than a variant of either. The swatch
+                   is a short diagonal stroke — the only one of the three lists whose swatch is the
+                   colour actually on the chart, since this Pattern draws in the Series' hue. -->
+              <div
+                v-if="overlay.name === 'trend-lines' && shown.has(overlay.producer)"
+                class="mt-1 ml-6 text-xs"
+              >
+                <div v-if="pinnedTrends(overlay).length" class="flex items-baseline justify-between gap-2">
+                  <span class="text-gray-500">Selecionadas</span>
+                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(overlay.producer)">
+                    limpar
+                  </button>
+                </div>
+                <p v-else class="text-gray-400">
+                  Clique numa linha do gráfico para estendê-la até o candle atual.
+                </p>
+
+                <ul class="mt-1 space-y-0.5">
+                  <li
+                    v-for="segment in pinnedTrends(overlay)"
+                    :key="segment.id"
+                    class="flex items-center gap-1.5 text-gray-500"
+                  >
+                    <span
+                      class="inline-block h-2 w-3 shrink-0 border-b"
+                      :style="{ borderColor: segment.color, transform: 'skewY(-20deg)' }"
+                    />
+                    <span>{{ TREND_LABELS[segment.side] }}</span>
+                    <span class="font-mono">{{ segment.fromPrice }}→{{ segment.toPrice }}</span>
+                    <span class="text-gray-400">
+                      {{ barLabel(segment.from.time) }}–{{ barLabel(segment.to.time) }}
+                    </span>
+                    <!-- The one thing the drawing cannot say: this line ends on the leg still
+                         running, so it moves with every candle and may not be there tomorrow. -->
+                    <span v-if="segment.provisional" class="text-amber-600">provisória</span>
+                    <button
+                      class="ml-auto text-gray-400 hover:text-gray-600"
+                      :aria-label="`desselecionar ${TREND_LABELS[segment.side]}`"
+                      @click="togglePin(overlay.producer, segment.id)"
                     >
                       ✕
                     </button>
