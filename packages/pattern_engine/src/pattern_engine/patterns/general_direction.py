@@ -20,21 +20,28 @@ in, it pairs with the third mark and hands the seed to the wrong side one inflex
 **A flip takes two breakouts** by the opposite side's marks. In a bearish trend, watching highs:
 
 1. a high mark above the *chronologically previous* high mark — the immediate structure bending;
-2. a later high mark above **that first breakout's own high** — the crack widening instead of
+2. a later high mark above **the standing breakout's own high** — the crack widening instead of
    closing.
 
-So the first breakout sets the level the second has to clear, and nothing else is a ceiling. In
+So a breakout sets the level the next threat has to clear, and nothing else is a ceiling. In
 particular the trend's earlier highs are not: the question being asked is whether the break that
-started is carrying on, not whether the whole move has been retraced. A failed high between the
-two clears nothing — the first crack stands until the trend repairs it (below) or the flip lands.
-A bullish trend is the vertical mirror throughout, watching lows.
+started is carrying on, not whether the whole move has been retraced.
 
-**The guard** is how the trend repairs a first breakout. When breakout one fires, the extreme of
-the zigzag leg then in progress is registered — the latest `zig-zag` pivot on the *trend's own*
+**The standing breakout is the latest one, not the first.** A high that fails to clear the level
+but is itself a breakout — it is still above the chronologically previous high — takes the level's
+place, and the next threat is measured against *it*. Test one and test two are the same test asked
+of different references, which is why there is one place below where a breakout is registered. A
+high that beats nothing at all is not a breakout and changes nothing: the standing crack survives
+it, until the trend repairs it (below) or the flip lands. A bullish trend is the vertical mirror
+throughout, watching lows.
+
+**The guard** is how the trend repairs a breakout. When a breakout is registered — the first, or
+one replacing it — the extreme of the zigzag leg then in progress is registered with it — the latest `zig-zag` pivot on the *trend's own*
 side, a high in a bullish trend, a low in a bearish one. A trend-side mark printing strictly past
 that level afterwards discards the breakout: the market went beyond the leg the breakout
-interrupted, so the trend reasserted itself and the crack is repaired. A first breakout then has
-to happen again from scratch. The zigzag is a second source, not a convenience — the simple legs
+interrupted, so the trend reasserted itself and the crack is repaired. A breakout then has to
+happen again from scratch. The guard moves with the level and is read at the same instant, so the
+two always describe the same crack rather than two different moments. The zigzag is a second source, not a convenience — the simple legs
 are too noisy to say where "the current leg" began, which is exactly what `depth=8` smoothing is
 for. No pivot seen yet means no guard and no repair.
 
@@ -44,11 +51,14 @@ What it costs, stated rather than hidden:
   judged against the last opposite-side mark of the *old* trend. That is one total rule instead
   of a carve-out, and it makes immediate re-flips conservative — the old trend's structure has to
   actually be taken out.
-- **A standing level outlives failed attempts.** A threat mark that does not clear it neither
-  raises it nor clears it, so a trend can sit on one crack for a long stretch. Only two things
-  end it: the flip it was waiting for, or the guard repairing it. In particular the level is
-  *not* raised to the highest attempt, which would make each failure make the next one harder —
-  the level is where the break began, and a failure does not move where it began.
+- **The level walks toward price, never away from it.** Each new crack replaces the standing
+  one, so a grind of failing highs that keep taking out the high before them lowers the ceiling
+  step by step, and the flip lands on the mark that broke the *recent* structure rather than on
+  the one that finally cleared a crack from hours ago. The cost is a trend that turns sooner and
+  more often — a long enough drift will always assemble two breakouts eventually. What is *not*
+  paid: an attempt that beats nothing leaves the level exactly where it was, so a single wild
+  mark cannot walk the ceiling down on its own, and the level is never raised away from price to
+  the highest attempt, which would make each failure make the next one harder.
 - **A trend's own establishing pivot is not a ceiling.** The seed and the flip both set no level
   at all, so what a trend has to clear is only ever what a first breakout put there. A trend
   seeded on a very high pivot is no harder to break than one seeded on a low one, which is the
@@ -58,9 +68,13 @@ What it costs, stated rather than hidden:
   inflexion, so it is a reference for nothing. And since which mark opens the Series is a property
   of where the window starts, so is the seed — a window opening one leg earlier reads a different
   first inflexion, and can settle on a different direction.
-- **Provisional marks are ignored**, so the reading runs one settled leg behind the newest bar
-  and never repaints. A provisional mark that would have flipped the trend flips it only when it
-  settles — possibly on a different bar, possibly not at all.
+- **The provisional mark counts**, so the reading is current with the newest bar and
+  **repaints**. `simple-leg`'s last Point is the leg still in formation, and it moves with every
+  bar; a turn decided by it can shift to another bar, or vanish outright, when that leg finally
+  closes somewhere else. Nothing in the output says which turn that is — the Series is turns and
+  nothing else, and a flag on one would be a second opinion about how far to trust it. The trade
+  is deliberate: the alternative is a reading one settled leg behind, which never repaints and
+  never reports the turn happening now.
 - **Merged marks are survived, not assumed away.** `simple-leg` normally alternates sides, but
   two marks can collapse onto one bar; every reference here is per-side, so two consecutive
   same-side marks compare against each other and nothing double-counts.
@@ -96,9 +110,10 @@ _AGREES: dict[Literal["high", "low"], Callable[[int, int], bool]] = {
 }
 
 #: While trending this way, which side's marks threaten the trend, and how a threatening price
-#: beats a reference. One comparator serves all three questions asked here: breakout one against
-#: the previous mark of its side, breakout two against the level that breakout one set, and —
-#: read through `_FLIPS`, which turns the table around — the guard's repair test.
+#: beats a reference. One comparator serves all three questions asked here: the flip test against
+#: the standing breakout's level, the breakout test against the previous mark of its side — which
+#: registers the first crack and every replacement alike — and, read through `_FLIPS`, which turns
+#: the table around, the guard's repair test.
 _WATCH: dict[Direction, tuple[Literal["high", "low"], Callable[[int, int], bool]]] = {
     "bearish": ("high", lambda candidate, reference: candidate > reference),
     "bullish": ("low", lambda candidate, reference: candidate < reference),
@@ -136,9 +151,9 @@ def general_direction(
     merged = 0
 
     direction: Direction | None = None
-    #: The price the first breakout printed — what the second one has to clear. `None` is "no
-    #: breakout standing", so this doubles as the count and there is no separate counter to keep
-    #: in step with it.
+    #: The price the standing breakout printed — what the next threat has to clear. `None` is
+    #: "no breakout standing", so this doubles as the count and there is no separate counter to
+    #: keep in step with it. It is the *latest* crack, not the first: see the module docstring.
     level: int | None = None
     #: The extreme of the zigzag leg the standing breakout interrupted. Moves and clears with
     #: `level`, and is `None` on its own when the zigzag had said nothing yet.
@@ -171,21 +186,25 @@ def general_direction(
                 level = guard = None
             continue
 
-        if level is not None:
-            # Breakout two: the crack widening. It is judged against where the break began and
-            # nothing else, so a failure leaves the level exactly where it was — it neither
-            # raises it nor clears it, and the next mark faces the same level.
-            if beats(value, level):
-                direction = _FLIPS[direction]
-                events.append((mark, direction, "flip"))
-                level = guard = None
+        if level is not None and beats(value, level):
+            # The crack widening past where it stands: the flip. `continue` rather than falling
+            # through, or this mark would go on to register a breakout of the trend it has just
+            # started — judged, absurdly, with the comparator of the trend it ended.
+            direction = _FLIPS[direction]
+            events.append((mark, direction, "flip"))
+            level = guard = None
             continue
 
         if previous is not None and beats(value, integer(previous.price)):
-            # Breakout one: the level the next threat has to clear, plus the level the *trend*
-            # has to clear to repair it — the extreme of the zigzag leg this interrupted, read as
-            # the latest trend-side vertex. That one is `None` when the zigzag has said nothing
-            # yet, and then there is no repair.
+            # A crack: the first one, or a later one that failed to clear the standing level and
+            # takes its place. One test and one registration for both, because they are the same
+            # question asked of the same reference — the previous mark of this side.
+            #
+            # It sets the level the next threat has to clear, plus the level the *trend* has to
+            # clear to repair it: the extreme of the zigzag leg this interrupted, read as the
+            # latest trend-side vertex. Re-read on a replacement, so the guard never describes an
+            # older crack than the level does. `None` when the zigzag has said nothing yet, and
+            # then there is no repair.
             level = value
             guard = latest[_WATCH[_FLIPS[direction]][0]]
 
@@ -216,7 +235,8 @@ class GeneralDirectionPattern(Pattern):
     gives: a string restates what `Pattern.producer` derives, and the two fall out of step as a
     `KeyError` at run time instead of an error at import.
 
-    - `source` — the `SimpleLegPattern` whose marks are the pivots being counted.
+    - `source` — the `SimpleLegPattern` whose marks are the pivots being counted, the
+      provisional last one included.
     - `pivots` — the `ZigZagPattern` that names the guard level: the extreme of the leg a first
       breakout interrupted. The same second source, for the same smoothing, that
       `AdvancingLegsPattern` takes.
@@ -245,9 +265,10 @@ class GeneralDirectionPattern(Pattern):
     def run(self, ctx: Ctx) -> BaseSeries[GeneralDirection]:
         """One Point per turn, anchored on the deciding mark's bar with that mark's price.
 
-        The provisional mark is dropped before the rule ever sees it: it moves with every bar,
-        and a trend that flipped on it would flip back in silence. The cost is stated in the
-        module docstring — the reading runs one settled leg behind the newest bar.
+        Every mark of `source` reaches the rule, the provisional last one included: the leg in
+        formation is an inflexion like any other, and holding it back is what kept the reading a
+        settled leg behind the newest bar. The cost is stated in the module docstring — the
+        newest turn repaints, and the Series does not say so.
 
         No cross-Series anchor to resolve, so no lookup to fail: the deciding mark *is* a bar,
         and `anchored` copies it. The Candles of `emits` are never read.
@@ -255,11 +276,9 @@ class GeneralDirectionPattern(Pattern):
         marks: BaseSeries[LegMark] = ctx[self.source.producer]
         pivots: BaseSeries[ZigZagPivot] = ctx[self.pivots.producer]
 
-        settled = [mark for mark in marks.points if not mark.provisional]
-
         points = [
             GeneralDirection.anchored(mark, price=mark.price, direction=direction, kind=kind)
-            for mark, direction, kind in general_direction(settled, pivots.points)
+            for mark, direction, kind in general_direction(marks.points, pivots.points)
         ]
 
         return BaseSeries(SeriesIdentity(self.producer, ctx[INSTRUMENT], self.emits), points)

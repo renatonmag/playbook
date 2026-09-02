@@ -1,9 +1,9 @@
 """Tests for `general-direction` — the rule first, then the adapter over it.
 
 The rule tests speak in hand-built `LegMark`/`ZigZagPivot` lists, because a detector cannot be
-asked for a specific breakout. The adapter tests assert what the Pattern promises on top: the
-provisional mark never reaches the rule, the Points sit on the deciding marks' bars, and the
-identity names the run. One test at the bottom drives the real two-detector chain.
+asked for a specific breakout. The adapter tests assert what the Pattern promises on top: every
+mark reaches the rule — the provisional one included — the Points sit on the deciding marks'
+bars, and the identity names the run. One test at the bottom drives the real two-detector chain.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -174,8 +174,13 @@ def test_the_seed_pivot_is_not_a_ceiling():
     assert seed.price == 108.0 > 107.0
 
 
-def test_a_failed_second_breakout_leaves_the_level_where_it_was():
-    """A failure does not raise the bar for the next attempt — 107 still only has to clear 106."""
+def test_an_attempt_that_beats_nothing_leaves_the_level_where_it_was():
+    """105.5 is under the previous high (106), so it is no breakout and replaces nothing.
+
+    The level stays where the crack at index 6 put it, and 107 still only has to clear 106. A
+    failure never raises the bar for the next attempt; what it can do — when it is a breakout in
+    its own right — is take the bar's place, which is the test below.
+    """
     events = general_direction(
         [*BEAR_SEED_ONE_CRACK, mark(7, "low", 97.0), mark(8, "high", 105.5),
          mark(9, "low", 96.5), mark(10, "high", 107.0)],
@@ -194,14 +199,57 @@ def test_a_high_above_the_level_flips_to_bullish_at_that_mark():
 
 
 def test_a_failed_high_between_the_two_breakouts_does_not_clear_the_breakout():
-    # Index 6 cracked the structure; the lower high at 8 repairs nothing by itself, and the
-    # high at 10 only has to clear the level that crack set.
+    # Index 6 cracked the structure; the high at 8 is under the previous high (106), so it is
+    # neither a breakout that could take the level's place nor a repair, and the high at 10 still
+    # only has to clear the level that crack set.
     events = general_direction(
         [*BEAR_SEED_ONE_CRACK, mark(7, "low", 97.0), mark(8, "high", 104.0),
          mark(9, "low", 96.5), mark(10, "high", 109.0)],
         [],
     )
     assert [(m.time, d, k) for m, d, k in events][-1] == (bar(10, 109.0).time, "bullish", "flip")
+
+
+def test_a_later_breakout_replaces_the_standing_one():
+    """The crack at 6 set 106; the high at 10 takes out the high before it and takes its place.
+
+    So the flip at 12 clears 105 rather than 106 — a level that never moved would still be
+    waiting, because 105.5 is under the original crack.
+    """
+    tail = [mark(7, "low", 97.0), mark(8, "high", 104.0), mark(9, "low", 96.5),
+            mark(10, "high", 105.0), mark(11, "low", 96.0), mark(12, "high", 105.5)]
+    events = general_direction([*BEAR_SEED_ONE_CRACK, *tail], [])
+    assert [(m.time, d, k) for m, d, k in events] == [
+        (bar(2, 108.0).time, "bearish", "seed"),
+        (bar(12, 105.5).time, "bullish", "flip"),
+    ]
+
+
+def test_only_a_breakout_replaces_the_standing_one():
+    """The same shape with 103 in the middle: it beats nothing, so 105.5 still faces 106."""
+    tail = [mark(7, "low", 97.0), mark(8, "high", 104.0), mark(9, "low", 96.5),
+            mark(10, "high", 103.0), mark(11, "low", 96.0), mark(12, "high", 105.5)]
+    events = general_direction([*BEAR_SEED_ONE_CRACK, *tail], [])
+    assert [(d, k) for _, d, k in events] == [("bearish", "seed")]
+
+
+def test_the_replacement_is_the_vertical_mirror_in_a_bullish_trend():
+    """The 14/07 shape: the crack at 4 set 101, the low at 8 walks it up to 102, 101.5 clears it.
+
+    A level that never moved would hold the trend bullish here — 101.5 is above the original
+    crack — which is exactly the reading that put a real session's turn hours late.
+    """
+    events = general_direction(
+        [opening(), mark(0, "low", 100.0), mark(1, "high", 110.0), mark(2, "low", 102.0),
+         mark(3, "high", 108.0), mark(4, "low", 101.0), mark(5, "high", 107.0),
+         mark(6, "low", 103.0), mark(7, "high", 106.0), mark(8, "low", 102.0),
+         mark(9, "high", 105.0), mark(10, "low", 101.5)],
+        [],
+    )
+    assert [(m.time, d, k) for m, d, k in events] == [
+        (bar(2, 102.0).time, "bullish", "seed"),
+        (bar(10, 101.5).time, "bearish", "flip"),
+    ]
 
 
 def test_bullish_to_bearish_is_the_vertical_mirror():
@@ -262,6 +310,24 @@ def test_no_zigzag_pivot_means_no_guard_and_no_repair():
         [],
     )
     assert [(m.time, d, k) for m, d, k in events][-1] == (bar(6, 111.0).time, "bullish", "flip")
+
+
+def test_the_replacement_brings_its_own_guard():
+    """The crack at 4 is guarded by the pivot at 94; the one at 8 replaces it, guard included.
+
+    With the guard re-read at the replacement it stands at 96, so the low at 9 prints past it and
+    repairs the crack — leaving the high at 10 to be breakout one all over again, and no flip. A
+    guard still describing the *first* crack would sit at 94, repair nothing, and let 107 clear
+    106 for a flip.
+    """
+    marks = [
+        opening(), mark(0, "high", 110.0), mark(1, "low", 100.0), mark(2, "high", 108.0),
+        mark(3, "low", 94.0), mark(4, "high", 109.0), mark(5, "low", 98.0),
+        mark(6, "high", 105.0), mark(7, "low", 96.0), mark(8, "high", 106.0),
+        mark(9, "low", 95.0), mark(10, "high", 107.0),
+    ]
+    events = general_direction(marks, [pivot(3, "low", 94.0), pivot(7, "low", 96.0)])
+    assert [(d, k) for _, d, k in events] == [("bearish", "seed")]
 
 
 # --- after a flip -----------------------------------------------------------------------
@@ -343,16 +409,23 @@ def test_each_point_sits_on_the_deciding_mark_s_bar_with_its_price():
     assert [(p.direction, p.kind) for p in series] == [("bearish", "seed"), ("bullish", "flip")]
 
 
-def test_a_provisional_mark_never_reaches_the_rule():
-    # Settled, this last mark completes the bearish seed; provisional, it is the running leg's
-    # moving endpoint and the adapter drops it before the rule looks. Both halves asserted, so
-    # the test cannot pass for the wrong reason — an empty answer is what the whole fixture
-    # gives if anything upstream of the flag goes wrong.
+def test_the_provisional_mark_reaches_the_rule():
+    # This last mark completes the bearish seed, and the flag makes no difference to that: the
+    # leg in formation is an inflexion like any other. Both spellings asserted, so the test
+    # cannot pass for the wrong reason — an empty answer is what the whole fixture gives if
+    # anything upstream goes wrong, and it is what the old filter gave for the second half.
     head = [opening(), mark(0, "high", 110.0), mark(1, "low", 100.0)]
-    assert [(p.direction, p.kind) for p in run([*head, mark(2, "high", 108.0)], [])] == [
-        ("bearish", "seed")
-    ]
-    assert len(run([*head, mark(2, "high", 108.0, provisional=True)], [])) == 0
+    for last in (mark(2, "high", 108.0), mark(2, "high", 108.0, provisional=True)):
+        assert [(p.direction, p.kind) for p in run([*head, last], [])] == [("bearish", "seed")]
+
+
+def test_the_provisional_mark_can_flip_the_trend():
+    # The point of counting it: breakout one stands at 106, and the running leg's endpoint clears
+    # it. The flip lands on that mark's own bar, repainting and all.
+    threat = mark(7, "high", 107.0, provisional=True)
+    series = run([*BEAR_SEED_ONE_CRACK, threat], [])
+    assert [(p.direction, p.kind) for p in series] == [("bearish", "seed"), ("bullish", "flip")]
+    assert series[1].time == threat.time
 
 
 def test_the_real_chain_seeds_a_bearish_trend_on_a_falling_wave():
