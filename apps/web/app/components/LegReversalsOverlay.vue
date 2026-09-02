@@ -1,11 +1,5 @@
 <script setup lang="ts">
-import {
-  createSeriesMarkers,
-  type ISeriesMarkersPluginApi,
-  type SeriesMarker,
-  type Time,
-  type UTCTimestamp,
-} from 'lightweight-charts'
+import type { SeriesMarker, Time, UTCTimestamp } from 'lightweight-charts'
 import type { LegReversals } from '~/types/pattern'
 
 /**
@@ -33,12 +27,6 @@ const props = withDefaults(
   { color: undefined, directions: () => ['bullish', 'bearish'] },
 )
 
-const candleSeries = inject(CANDLE_SERIES, shallowRef(null))
-
-// Typed on `Time`, not `UTCTimestamp`: these hang on the candlestick series, whose horizontal
-// scale the chart declares generically.
-let markers: ISeriesMarkersPluginApi<Time> | null = null
-
 /**
  * The hues, matching what `LegReversalsVerify` uses for the same types — sky, amber and pink.
  *
@@ -58,16 +46,16 @@ const HUES = {
  * The filter is applied here rather than by the caller so the sidebar can ask for "bull only"
  * without knowing that a leg's direction is what puts its dots above or below the bar.
  *
- * The markers hang on the *candlestick* series: a marker is placed by `time` within its own
- * series, and this overlay owns no series of its own to place them in.
+ * Typed on `Time`, not `UTCTimestamp`: these end up on the candlestick series, whose horizontal
+ * scale the chart declares generically.
  *
  * The side comes from the leg, not the mark: a leg that rose turns at a top, so its candidates go
  * above the bars; a leg that fell turns at a bottom and its go below. A single lane cannot say
  * this, and it is the thing worth reading off the chart at a glance.
  *
- * What that costs: the lower lane is the zigzag's, so a down-leg dot can land on a vertex dot.
- * Only on vertex bars, and the two are different colours — cheaper than putting half the marks on
- * the wrong side of the price, which is what one lane did.
+ * Sharing the lower lane with the zigzag's vertex dots used to cost an overlap on vertex bars, and
+ * does not any more: every marker overlay draws through one plugin, which stacks the two outward
+ * from the candle. See `createMarkerRegistry`.
  *
  * Consecutive legs overlap, so the same bar genuinely arrives twice under two anchors; the dots
  * are deduped by bar, type *and side*. A bar two filters both marked is two facts, not one — the
@@ -101,24 +89,7 @@ function asMarkers(
   return [...seen.values()].sort((a, b) => (a.time as number) - (b.time as number))
 }
 
-// Same reason the other overlays wait on their refs: the candlestick series is created in the
-// parent's `onMounted`, which runs after this component's.
-watch(
-  [candleSeries, () => props.points, () => props.visible, () => props.directions],
-  ([bars, points, visible, directions]) => {
-    if (!bars) return
-    if (!markers) markers = createSeriesMarkers(bars)
-    markers.setMarkers(visible ? asMarkers(points, directions) : [])
-  },
-  { immediate: true },
-)
-
-onBeforeUnmount(() => {
-  // The markers hang on a series this component does not own, so unmounting does not take them
-  // with it — they have to be cleared by hand.
-  markers?.setMarkers([])
-  markers = null
-})
+useMarkerOverlay(() => asMarkers(props.points, props.directions), () => props.visible)
 </script>
 
 <template>

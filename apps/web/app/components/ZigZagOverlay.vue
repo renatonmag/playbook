@@ -1,12 +1,5 @@
 <script setup lang="ts">
-import {
-  createSeriesMarkers,
-  type ISeriesMarkersPluginApi,
-  type LineData,
-  type SeriesMarker,
-  type Time,
-  type UTCTimestamp,
-} from 'lightweight-charts'
+import type { LineData, SeriesMarker, Time, UTCTimestamp } from 'lightweight-charts'
 import type { ZigZagPivot } from '~/types/pattern'
 
 /**
@@ -19,12 +12,6 @@ import type { ZigZagPivot } from '~/types/pattern'
  */
 const props = defineProps<{ points: ZigZagPivot[], visible: boolean, color?: string }>()
 
-const candleSeries = inject(CANDLE_SERIES, shallowRef(null))
-
-// Typed on `Time`, not `UTCTimestamp`: these hang on the candlestick series, whose horizontal
-// scale the chart declares generically.
-let markers: ISeriesMarkersPluginApi<Time> | null = null
-
 function asLine(points: ZigZagPivot[]): LineData<UTCTimestamp>[] {
   return points.map(point => ({ time: point.time as UTCTimestamp, value: point.price }))
 }
@@ -32,9 +19,13 @@ function asLine(points: ZigZagPivot[]): LineData<UTCTimestamp>[] {
 /**
  * A dot under the bar the leg started on.
  *
- * The markers hang on the *candlestick* series, not on the line above: a marker is placed by
- * `time` within its own series, and the line is sparse — it holds vertices only, never the bar a
- * leg began on. The candlestick series has every bar, so every dot lands where it belongs.
+ * The markers go on the *candlestick* series, not on the line above: a marker is placed by `time`
+ * within its own series, and the line is sparse — it holds vertices only, never the bar a leg began
+ * on. The candlestick series has every bar, so every dot lands where it belongs. `useMarkerOverlay`
+ * is what puts them there, alongside every other overlay's, so a dot sharing a bar with another
+ * Series' marker stacks rather than overlaps.
+ *
+ * Typed on `Time`, not `UTCTimestamp`, for the reason that series' scale is.
  *
  * A dot lands on the bar where the leg turned — the extreme that was current at that instant —
  * which is usually *not* one of the vertices on the line. Seeing a dot away from any corner of
@@ -56,25 +47,7 @@ function asMarkers(points: ZigZagPivot[]): SeriesMarker<Time>[] {
 }
 
 useLineOverlay(() => asLine(props.points), () => props.visible, () => props.color)
-
-// Same reason the line waits on its own ref: the candlestick series is created in the parent's
-// `onMounted`, which runs after this component's.
-watch(
-  [candleSeries, () => props.points, () => props.visible],
-  ([bars, points, visible]) => {
-    if (!bars) return
-    if (!markers) markers = createSeriesMarkers(bars)
-    markers.setMarkers(visible ? asMarkers(points) : [])
-  },
-  { immediate: true },
-)
-
-onBeforeUnmount(() => {
-  // The markers hang on a series this component does not own, so removing the line does not
-  // take them with it — they have to be cleared by hand.
-  markers?.setMarkers([])
-  markers = null
-})
+useMarkerOverlay(() => asMarkers(props.points), () => props.visible)
 </script>
 
 <template>

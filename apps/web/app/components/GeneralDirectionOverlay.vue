@@ -1,11 +1,5 @@
 <script setup lang="ts">
-import {
-  createSeriesMarkers,
-  type ISeriesMarkersPluginApi,
-  type SeriesMarker,
-  type Time,
-  type UTCTimestamp,
-} from 'lightweight-charts'
+import type { SeriesMarker, Time, UTCTimestamp } from 'lightweight-charts'
 import type { GeneralDirection } from '~/types/pattern'
 
 /**
@@ -21,6 +15,10 @@ import type { GeneralDirection } from '~/types/pattern'
  * The up arrow sits *above* the bar and the down arrow *below* it — the opposite lanes from the
  * reversal dots, which sit where the old leg was heading. An arrow here announces the trend now
  * in force, so it stands on the side the market is claimed to be going.
+ *
+ * The lanes still cross on a bar that a reversal dot and an arrow both claim, and that is no longer
+ * a collision: every marker overlay draws through one plugin, which stacks the two outward from the
+ * candle. See `createMarkerRegistry`.
  */
 const props = withDefaults(
   defineProps<{
@@ -31,15 +29,9 @@ const props = withDefaults(
   { color: '#a855f7' },
 )
 
-const candleSeries = inject(CANDLE_SERIES, shallowRef(null))
-
-// Typed on `Time`, not `UTCTimestamp`: these hang on the candlestick series, whose horizontal
-// scale the chart declares generically.
-let markers: ISeriesMarkersPluginApi<Time> | null = null
-
 /**
- * One arrow per turn. The markers hang on the *candlestick* series: a marker is placed by
- * `time` within its own series, and this overlay owns no series of its own to place them in.
+ * One arrow per turn. Typed on `Time`, not `UTCTimestamp`: these end up on the candlestick series,
+ * whose horizontal scale the chart declares generically.
  *
  * No dedup and no sort beyond what arrives: the Pattern emits at most one Point per bar and the
  * Series is already ascending, which is all the chart requires.
@@ -53,24 +45,7 @@ function asMarkers(points: GeneralDirection[], color: string): SeriesMarker<Time
   }))
 }
 
-// Same reason the other overlays wait on their refs: the candlestick series is created in the
-// parent's `onMounted`, which runs after this component's.
-watch(
-  [candleSeries, () => props.points, () => props.visible, () => props.color],
-  ([bars, points, visible, color]) => {
-    if (!bars) return
-    if (!markers) markers = createSeriesMarkers(bars)
-    markers.setMarkers(visible ? asMarkers(points, color) : [])
-  },
-  { immediate: true },
-)
-
-onBeforeUnmount(() => {
-  // The markers hang on a series this component does not own, so unmounting does not take them
-  // with it — they have to be cleared by hand.
-  markers?.setMarkers([])
-  markers = null
-})
+useMarkerOverlay(() => asMarkers(props.points, props.color), () => props.visible)
 </script>
 
 <template>

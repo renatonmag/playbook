@@ -17,7 +17,8 @@ import type { Candle } from '~/types/candle'
  *
  * Overlays go in the default slot. They receive the chart through `provide` rather than props,
  * so this component never learns what a zigzag is — adding a Pattern costs an overlay component
- * and a line in the page's registry, and nothing here.
+ * and a line in the page's registry, and nothing here. The marker registry below is provided the
+ * same way and does not change that: it holds slots and marker arrays, not Patterns.
  */
 const props = defineProps<{
   candles: Candle[]
@@ -38,6 +39,18 @@ const series = shallowRef<ISeriesApi<'Candlestick'> | null>(null)
 
 provide(CHART, chart)
 provide(CANDLE_SERIES, series)
+
+/**
+ * The one marker plugin every marker overlay draws through, so markers sharing a bar stack rather
+ * than land on top of each other. See `createMarkerRegistry` for why it cannot be one per overlay.
+ */
+const markers = createMarkerRegistry(series)
+
+provide(MARKERS, markers)
+
+// Overlays set up — and so claim their slots and offer their markers — before this component's
+// `onMounted` creates the series, so the registry has had nowhere to draw until now.
+watch(series, () => markers.flush())
 
 /**
  * The API already emits the library's bar shape, so this is a type assertion and not a
