@@ -3,8 +3,8 @@ import type { IChartApi, ISeriesApi, MouseEventParams, SeriesType, Time } from '
 import type { TrendLine } from '~/types/pattern'
 
 /**
- * Draws one trend-lines Series: a straight stroke from each `simple-leg` pivot to every later pivot
- * of the same side it can reach without a candle in the way.
+ * Draws one trend-lines Series: a straight stroke from each `simple-leg` leg's extreme to every
+ * later leg's extreme of the same side it can reach without a candle in the way.
  *
  * Renders no markup. It reaches the chart through `inject` and draws through the chart API — the
  * same shape as the other six overlays.
@@ -19,7 +19,7 @@ import type { TrendLine } from '~/types/pattern'
  *
  * `pinned` and `onlyPinned` are the auto-hide switch and mean what they mean on the other two
  * pinnable overlays. What a pin means to *this* drawing is the thing the request calls **selecting**
- * a line: it survives the hide timer, and it carries the line's own slope past its far pivot out to
+ * a line: it survives the hide timer, and it carries the line's own slope past its far end out to
  * the current candle. That second half is what `extend` has meant since `LevelSegments`; only the
  * geometry is new.
  */

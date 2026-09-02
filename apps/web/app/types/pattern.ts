@@ -296,10 +296,27 @@ export interface BarGap extends PatternPoint {
 }
 
 /**
- * One trend line: a straight line from a `simple-leg` pivot to a later pivot of the **same side**,
- * kept only because no candle between the two reaches through it.
+ * One end of a trend line: the bar where a `simple-leg` leg actually reached its extreme.
  *
- * Anchored on the near pivot, whose `price` is the first point the line passes through; `to` is the
+ * Not the mark. A `LegMark` says which leg ended and on which side; the turn rule that finds it
+ * reads one side at a time, so a leg can top out several bars before the bar that ends it. This is
+ * the bar it topped out on — the highest `high` of the leg for a top, the lowest `low` for a
+ * bottom — which is the point a line is actually drawn through.
+ */
+export interface TrendLineEnd extends PatternPoint {
+  /** The leg's extreme: the price the line passes through here. */
+  price: number
+  /** Which extreme this is: `'high'` for a top, `'low'` for a bottom. */
+  direction: 'high' | 'low'
+  /** This end measures `simple-leg`'s running leg, so it moves with every bar. */
+  provisional: boolean
+}
+
+/**
+ * One trend line: a straight line from one `simple-leg` leg's extreme to a later leg's extreme on
+ * the **same side**, kept only because no candle between the two reaches through it.
+ *
+ * Anchored on the near end, whose `price` is the first point the line passes through; `to` is the
  * far one, carried whole, and its `price` is the second. Both are real bars of the window — the
  * line is drawn between them and claims nothing about what happens after `to`.
  *
@@ -307,19 +324,19 @@ export interface BarGap extends PatternPoint {
  * along the tops, `'low'` a floor along the bottoms. That is why this Pattern gets a filter of its
  * own rather than the bull/bear one — see `SIDES` in `pages/monitor.vue`.
  *
- * The Series is a fan and is by far the largest the pipeline emits: every pivot is joined to every
- * later one it can see, so many Points share an anchor and consecutive Points can sit on the same
+ * The Series is a fan and is by far the largest the pipeline emits: every leg extreme is joined to
+ * every later one it can see, so many Points share an anchor and consecutive Points can sit on the same
  * bar. Nothing here is ranked or thinned; the sidebar is what filters it.
  */
 export interface TrendLine extends PatternPoint {
-  /** The near pivot's own extreme — the price the line starts at. */
+  /** The near leg's own extreme — the price the line starts at. */
   price: number
   /** Which side both endpoints are: `'high'` is a ceiling, `'low'` a floor. */
   direction: 'high' | 'low'
-  /** The far pivot, whole. Its `price` is the line's second point. */
-  to: LegMark
+  /** The far end, whole. Its `price` is the line's second point. */
+  to: TrendLineEnd
   /**
-   * Either endpoint is `simple-leg`'s running mark, so this line moves with every bar and can
+   * Either endpoint measures `simple-leg`'s running leg, so this line moves with every bar and can
    * vanish when that leg finally closes elsewhere. Carried, not acted on: which lines to trust is
    * the reader's call, the same trade `LegMark.provisional` makes.
    */

@@ -5,7 +5,7 @@ that outlives several. This one answers about the *geometry between* them: the s
 resistance lines a chart reader draws by eye, from one bottom to a later bottom and from one top to
 a later top, kept only when the straight line between the two has clear air all the way across.
 
-Three rules carry the whole thing:
+Four rules carry the whole thing:
 
 - **Same side only.** A `LegMark` is a top (`direction == "high"`) or a bottom (`"low"`), and a
   line joins two marks of one side. Tops to tops is a ceiling, bottoms to bottoms a floor; a line
@@ -19,6 +19,14 @@ Three rules carry the whole thing:
 - **Every reachable pivot, not the next one.** Each mark is joined to *every* later same-side mark
   it can see, not merely to the first. A line that skips three pivots is the long trend the eye is
   looking for, and it is exactly the one a chain of nearest-neighbour links would never draw.
+- **An endpoint is where the leg got to, not where it was marked.** `SimpleLegPattern` says it of
+  its own Points: "`price` is the extreme of the **marked bar**, which is not always the extreme of
+  the leg" — the turn rule reads one side at a time, so a leg can top out several bars before the
+  bar that ends it. A line drawn from the mark therefore starts at a lower, later point, and the
+  bar that actually made the high is one of the candles that *blocks* it. So each mark is first
+  rewritten as the bar its leg reached: the highest `high` of the leg for a top, the lowest `low`
+  for a bottom, over the leg's bars — the span from the previous mark to this one, inclusive,
+  which is `split_legs`' own definition of a leg.
 
 The output is a fan: one Point per surviving pair, anchored on the **first** of the two — where a
 drawing wants to start, the reason `bar_gap` anchors on the first bar of its triple. The far
@@ -43,8 +51,14 @@ What it costs, stated rather than hidden:
   every line ending on it moves too, and can vanish outright when that leg finally closes
   elsewhere. `provisional` is the flag to filter on, carried here rather than decided here for the
   reason `simple_leg` carries it: which lines to trust is the reader's call.
+- **The marks themselves are not in the output.** Both endpoints are `LineEnd`s standing on the
+  bars the legs reached; a reader wanting the vertex that named a leg goes to `simple-leg`, which
+  is where it lives. An endpoint can also coincide with the *neighbouring* leg's vertex bar, since
+  a leg's span is inclusive at both ends, and the first leg's span is the truncated window head —
+  it opens mid-leg, so its extreme is the best of what the window happens to show.
 - **A pair with no bars between it is not a line.** Marks normally alternate sides but two can
-  merge onto one bar, and adjacent same-side marks can sit on neighbouring bars. There is nothing
+  merge onto one bar, adjacent same-side marks can sit on neighbouring bars, and two legs can
+  reach their extreme on the very same bar. There is nothing
   in between for a candle to block, so such a pair connects unconditionally — which is true and
   useless. Only pairs with at least one bar between them are emitted.
 - **Nothing says a line is still unbroken.** It is clear between its endpoints, and says nothing
@@ -61,6 +75,7 @@ from ..engine import BARS, INSTRUMENT
 from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..timeframes import Timeframe
+from .leg_extremes import extreme_points
 from .leg_processor import bar_positions, position_of
 from .simple_leg import LegMark, integer
 
@@ -84,8 +99,10 @@ def clear(
     rejects a candle that is sitting exactly on the line. Rounding to the tick first makes "on the
     line" mean what a reader means by it.
 
-    The endpoints are not tested. They are the line — a mark's own extreme is the price the line
-    was drawn through, so testing it would reject every line against itself.
+    The endpoints are not tested. They are the line — each is a leg's own extreme, the price the
+    line was drawn through, so testing it would reject every line against itself. And since an
+    endpoint is now the leg's furthest bar rather than the bar it was marked on, the extreme that
+    used to sit *between* two endpoints and block them is one of them.
     """
     span = end - start
     slope = (to_price - from_price) / span
@@ -102,29 +119,104 @@ def clear(
     return True
 
 
-def trend_lines(
-    bars: Sequence[Candle], marks: Sequence[LegMark]
-) -> list[tuple[LegMark, LegMark]]:
-    """Every pair of same-side marks whose straight line clears the candles between them.
+@dataclass(frozen=True, slots=True)
+class LineEnd(Pivot):
+    """One end of a trend line: the bar where a leg actually reached its extreme.
 
-    Yielded in the order of the *first* mark, which is what leaves the anchors non-decreasing and
-    saves `BaseSeries` a sort it would otherwise need. Within one anchor the far endpoints come out
-    in their own order, nearest first; nothing downstream depends on that, and it is stated only so
-    the tests can.
+    Not a `LegMark`. A mark says *which* leg ended and on which side; this says *where that leg
+    got to*, which is a different bar whenever the leg topped out before its turn was read — see
+    the module docstring's fourth rule. The mark it came from is not carried: `simple-leg` is the
+    Series that holds the vertices, and restating one here would be two Series claiming the fact.
+
+    Named for the endpoint rather than the leg on purpose: `leg_extremes.py` already owns
+    `LegExtremes`/`LegPoint`, which answer all three of a leg's defining levels. This is only the
+    one a line is drawn through.
+    """
+
+    #: Which extreme this is, in `Pivot`'s vocabulary — the side of the mark whose leg it measures.
+    direction: Literal["high", "low"]
+    #: True when the mark this came from was `simple-leg`'s running one, so the leg is unfinished
+    #: and its extreme moves with every bar.
+    provisional: bool
+
+
+def leg_ends(
+    bars: Sequence[Candle], marks: Sequence[LegMark]
+) -> list[tuple[LineEnd, int]]:
+    """Each mark rewritten as the bar its leg reached, with that bar's position in `bars`.
+
+    A mark's leg is the span from the **previous mark to it, inclusive** — `split_legs`' own
+    definition, boundary bar shared and all — and the first mark takes the window head, the same
+    fold `split_legs` does. The extreme over that span is the endpoint: the highest `high` for a
+    top, the lowest `low` for a bottom.
+
+    The extreme itself comes from `extreme_points`, which is where the tie rule (the earliest bar
+    to reach a level keeps it) and the direction table are already written and tested. It answers
+    all three of a leg's levels and only `reach`, the first, is wanted here; the two discarded
+    passes are over a slice a few bars long, which is cheaper than a second strict scan living
+    here and drifting from that one.
+
+    Positions come back alongside because everything downstream is index work — the interpolation
+    in `clear` and the "is there anything in between" guard — and looking a bar up twice by `time`
+    would be the same dictionary hit written in two places.
 
     Raises `ValueError` through `position_of` for a mark that sits on no bar of `bars` — the
     mismatched-Timeframe guard, shared rather than rewritten.
     """
     positions = bar_positions(bars)
-    located = [(mark, position_of(mark, positions)) for mark in marks]
 
-    pairs: list[tuple[LegMark, LegMark]] = []
+    ends: list[tuple[LineEnd, int]] = []
+    opened = 0
+
+    for mark in marks:
+        at = position_of(mark, positions)
+        leg = bars[opened : at + 1]
+        # `reach` — how far the leg went — read on the leg's own side: a top mark closes a leg
+        # that ran up, a bottom mark one that ran down.
+        reach = extreme_points(leg, "bullish" if mark.direction == "high" else "bearish")[0]
+        ends.append(
+            (
+                LineEnd.anchored(
+                    leg[reach.at],
+                    price=reach.price,
+                    direction=mark.direction,
+                    provisional=mark.provisional,
+                ),
+                opened + reach.at,
+            )
+        )
+        opened = at
+
+    return ends
+
+
+def trend_lines(
+    bars: Sequence[Candle], marks: Sequence[LegMark]
+) -> list[tuple[LineEnd, LineEnd]]:
+    """Every pair of same-side leg extremes whose straight line clears the candles between them.
+
+    The marks are rewritten as the bars their legs reached — `leg_ends` — and it is those the line
+    is drawn between. Everything after that is the pairing and nothing else: same side, something
+    in between, clear air across.
+
+    Yielded in the order of the *first* endpoint, which is what leaves the anchors non-decreasing
+    and saves `BaseSeries` a sort it would otherwise need. That holds because a leg's extreme sits
+    at or before its own mark, and so at or before the next leg's extreme. Within one anchor the
+    far endpoints come out in their own order, nearest first; nothing downstream depends on that,
+    and it is stated only so the tests can.
+
+    Raises `ValueError` through `leg_ends` for a mark that sits on no bar of `bars`.
+    """
+    located = leg_ends(bars, marks)
+
+    pairs: list[tuple[LineEnd, LineEnd]] = []
 
     for index, (start, at) in enumerate(located):
         for end, to in located[index + 1 :]:
             if end.direction != start.direction:
                 continue
-            # Nothing in between means nothing to block it: true, and no line anybody drew.
+            # Nothing in between means nothing to block it: true, and no line anybody drew. Two
+            # legs that reached their extreme on the same bar, or on neighbouring ones, land here.
             if to - at < 2:
                 continue
             if clear(bars, at, to, start.price, end.price, start.direction):
@@ -135,10 +227,10 @@ def trend_lines(
 
 @dataclass(frozen=True, slots=True)
 class TrendLine(Pivot):
-    """One trend line: the pivot it is drawn from, and the later pivot it reaches.
+    """One trend line: the leg extreme it is drawn from, and the later extreme it reaches.
 
-    `price` is the anchor mark's own, so the Point reads as the line's near end and not merely as
-    the bar under it. The far end is `to`, whole.
+    `price` is the near end's own, so the Point reads as the line's near end and not merely as the
+    bar under it. The far end is `to`, whole.
     """
 
     #: Which side both endpoints are, in `Pivot`'s vocabulary: `"high"` is a ceiling drawn along
@@ -146,21 +238,22 @@ class TrendLine(Pivot):
     direction: Literal["high", "low"]
     #: The far endpoint, whole rather than as a time — `ZigZagPivot.since`'s precedent. It carries
     #: its own `price`, which is the second point the line passes through.
-    to: LegMark
-    #: True when **either** endpoint is `simple-leg`'s running mark, so this line moves with every
-    #: bar and may vanish when that leg closes. See the module docstring.
+    to: LineEnd
+    #: True when **either** endpoint measures `simple-leg`'s running leg, so this line moves with
+    #: every bar and may vanish when that leg closes elsewhere. See the module docstring.
     provisional: bool
 
 
 class TrendLinesPattern(Pattern):
-    """`trend_lines` as a Pattern: a Series of the lines a detector's pivots can be joined by.
+    """`trend_lines` as a Pattern: a Series of the lines a detector's legs can be joined by.
 
     `source` is the detector's **instance**, not its producer key — the reason `LegPattern` gives:
     a key written as a string restates what `Pattern.producer` derives, and drifts into a run-time
     `KeyError` rather than an import-time one.
 
-    It reads the bars as well as the Series, because a collision is a fact about the candles
-    between two pivots and no Series carries them. Declare it *after* its source: declaration order
+    It reads the bars as well as the Series, twice over and for two reasons: where each leg
+    reached is a fact about the leg's candles, and a collision is a fact about the candles between
+    two of those extremes. No Series carries either. Declare it *after* its source: declaration order
     is run order, and the wrong order leaves the key simply absent from `ctx`.
 
     Typed to `LegMark` rather than to `Pivot`, unlike `LegPattern`: `direction` is what puts a mark
@@ -178,7 +271,12 @@ class TrendLinesPattern(Pattern):
         self.source = source
 
     def run(self, ctx: Ctx) -> BaseSeries[TrendLine]:
-        """Pair up `source`'s marks over `emits`' Candles and pack one Point per surviving line."""
+        """Pair up the extremes of `source`'s legs over `emits`' Candles, one Point per line.
+
+        The Candles are read twice over: once to find where each leg reached, and again to ask
+        whether anything reaches through the line between two of those. Both are the same window,
+        and neither is a lookup by `time` past the one `leg_ends` does.
+        """
         bars: BaseSeries[Candle] = ctx[BARS][self.emits]
         marks: BaseSeries[LegMark] = ctx[self.source.producer]
 

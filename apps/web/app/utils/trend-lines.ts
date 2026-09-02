@@ -21,13 +21,13 @@ export const TREND_LABELS: Record<TrendSide, string> = {
 /**
  * What a drawn trend line is called, for the whole app: its two bars and the side it runs along.
  *
- * Both ends, unlike `gapBoxId`, which needs only its anchor. A pivot is the start of *several*
- * lines here — the fan is the whole point — so an anchor alone names a handful of them at once.
- * The side is not redundant either: `simple-leg` marks normally alternate but two can merge onto
- * one bar, so a single pair of bars can in principle carry both a ceiling and a floor.
+ * Both ends, unlike `gapBoxId`, which needs only its anchor. A leg extreme is the start of
+ * *several* lines here — the fan is the whole point — so an anchor alone names a handful of them at
+ * once. The side is not redundant either: two legs running opposite ways can reach their extreme on
+ * the same bar, so a single pair of bars can in principle carry both a ceiling and a floor.
  *
  * The times are the Points' own, which is what makes an id survive a pipeline re-run: the same two
- * pivots mint the same id even when the window they were found in has moved. A pin therefore
+ * leg extremes mint the same id even when the window they were found in has moved. A pin therefore
  * follows its line rather than being frozen to a price, and a line that leaves the window takes
  * its pin off the list with it — the honest reading, since there is no such line any more.
  *
@@ -47,7 +47,7 @@ export interface DrawnTrend extends TrendSegment {
   /** The two prices the line passes through, for the list. The primitive reads them off `from`/`to`. */
   fromPrice: number
   toPrice: number
-  /** Either endpoint is the running leg's mark, so this line moves with every bar. */
+  /** Either endpoint measures the running leg, so this line moves with every bar. */
   provisional: boolean
 }
 
@@ -84,8 +84,8 @@ export function trendSegments(
     segments.push({
       id,
       side: point.direction,
-      // The near pivot and the far one, each a real bar of the window. The primitive draws
-      // straight between the two and, when pinned, carries that slope onward.
+      // The near leg's extreme and the far one, each a real bar of the window. The primitive
+      // draws straight between the two and, when pinned, carries that slope onward.
       from: { time: point.time as UTCTimestamp, price: point.price },
       to: { time: point.to.time as UTCTimestamp, price: point.to.price },
       fromPrice: point.price,
