@@ -63,6 +63,16 @@ export interface TrendSegment {
    * visually straight line is the one that is straight in pixels.
    */
   extend?: boolean
+  /**
+   * Whether a click can name this line. Absent means yes — a plain segment is a target.
+   *
+   * Not a fourth way to draw a line, and so not in tension with `extend`'s rule above: this changes
+   * nothing about the stroke, which comes out identical either way. It is whether the line is a
+   * target at all, which becomes a question the moment a caller pushes some of its lines into the
+   * background — a faded line that still intercepted the click aimed at the line in front of it
+   * would make the fading worse than useless.
+   */
+  hittable?: boolean
 }
 
 export interface TrendSegmentsOptions {
@@ -272,6 +282,10 @@ export class TrendSegments implements ISeriesPrimitive<Time> {
     let distance = HIT_TOLERANCE
 
     for (const segment of segments) {
+      // `=== false`, not falsy: an absent field is a target, so every caller that never heard of
+      // this keeps the behaviour it had.
+      if (segment.hittable === false) continue
+
       const bounds = boundsOf(segment, timeScale, series, edge)
       if (bounds === null) continue
 

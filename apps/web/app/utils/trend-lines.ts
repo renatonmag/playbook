@@ -19,6 +19,17 @@ export const TREND_LABELS: Record<TrendSide, string> = {
 }
 
 /**
+ * How much of a line is left when it is not the one being asked about: the alpha byte appended to
+ * the Series' colour, ~15%.
+ *
+ * A colour rather than a filter, because the primitive reads `strokeStyle` per segment on every
+ * frame and needs no change to accept one — the same 8-digit-hex idiom the sidebar's gap swatch
+ * already uses. It assumes the `color` handed to `trendSegments` is a 6-digit `#rrggbb`, which is
+ * true of every entry in the page's palette and of the overlay's default.
+ */
+const DIM_ALPHA = '26'
+
+/**
  * What a drawn trend line is called, for the whole app: its two bars and the side it runs along.
  *
  * Both ends, unlike `gapBoxId`, which needs only its anchor. A leg extreme is the start of
@@ -66,6 +77,37 @@ export interface DrawnTrend extends TrendSegment {
  * that would spend two hues from an already crowded palette to repeat what the picture says, and
  * would cost the sidebar swatch its meaning as a legend for the checkbox.
  *
+ * `focus` is a bar: the lines that *arrive* there keep the Series' colour and stay clickable, and
+ * every other line fades to `DIM_ALPHA` and stops being a target. The far end and not either end,
+ * because the question the switch answers is which lines converge on a pivot — a line that merely
+ * starts there is part of a different fan, running the other way. Decided here for `extend`'s
+ * reason: this is the module that already knows what selecting a line does to the drawing.
+ *
+ * `hovered` is the line under the cursor, and it is drawn as though it were selected. The
+ * projection is the reason to select a line in the first place — where this ceiling would sit now
+ * is the question a trend line exists to answer — and reading it used to cost a pin and an undo,
+ * twenty times over in a fan that size. So the hover says it and the click keeps it. It borrows
+ * `extend` rather than getting a look of its own on purpose: a preview that drew differently from
+ * the thing it previews would not be a preview.
+ *
+ * One answer to both questions — which lines to read, and which lines a click may name — and
+ * deliberately so. This Series is dense enough that a dimmed line lies across a lit one every few
+ * pixels, so a backdrop that still took clicks would hand back the wrong line most of the time and
+ * leave the highlight worse than no highlight at all. The cost is that a line which is pinned but
+ * not lit can no longer be unpinned from the chart; it is still listed in the sidebar with its
+ * `✕`, which is where a line you currently cannot pick out belongs.
+ *
+ * It dims rather than filters, which is the whole point. This Series is a fan of some hundreds of
+ * strokes, and a handful of lines converging on a bar is only legible against the ones they were
+ * picked out of — drop the rest and the picture stops saying anything about the pivot. So this is
+ * emphasis, not a fourth filter: the side checkboxes and `Mostrar` still decide what exists.
+ *
+ * A `focus` no line reaches dims the whole fan, deliberately: "nothing ends on this bar" is an
+ * answer, and silently keeping the previous highlight would be a different bar's answer shown for
+ * this one. Note also that `focus` is a bar of the *displayed* timeframe while `to.time` is one of
+ * the Pattern's; when those differ nothing matches, which is the honest reading and is already what
+ * the sidebar's "fora do timeframe exibido" warning is about.
+ *
  * Not deduplicated and unsorted, for the reasons `gapBoxes` gives: two Points cannot collide on a
  * pair of endpoints, and a primitive draws in whatever order it is handed.
  */
@@ -74,6 +116,8 @@ export function trendSegments(
   sides: TrendSide[],
   color: string,
   pinned: ReadonlySet<string> = new Set(),
+  focus: number | null = null,
+  hovered: string | null = null,
 ): DrawnTrend[] {
   const segments: DrawnTrend[] = []
 
@@ -81,6 +125,10 @@ export function trendSegments(
     if (!sides.includes(point.direction)) continue
 
     const id = trendSegmentId(point.time, point.to.time, point.direction)
+    // One decision, read twice below, so the colour and the hit test cannot come to disagree about
+    // which lines the chart is currently about.
+    const lit = focus === null || point.to.time === focus
+
     segments.push({
       id,
       side: point.direction,
@@ -91,11 +139,19 @@ export function trendSegments(
       fromPrice: point.price,
       toPrice: point.to.price,
       provisional: point.provisional,
-      color,
+      // Full strength when nothing is being asked about, and when this is one of the lines that
+      // answers. `DIM_ALPHA` for the rest of the fan.
+      color: lit ? color : color + DIM_ALPHA,
+      // And the backdrop is a backdrop for the cursor too: only a lit line can be clicked.
+      hittable: lit,
       // What selecting a line does to the drawing, decided here because this is the module that
       // knows what a pin is: the line keeps its slope, its weight and its colour, and only its
       // length changes — it runs on to the current candle.
-      extend: pinned.has(id),
+      //
+      // Two reasons, one picture: the pin is the answer kept, the hover is the same answer asked.
+      // Kept separate from `pinned` rather than folded into it by the caller, because `pinned` is
+      // also what survives the auto-hide timer and a line under the cursor is not one you kept.
+      extend: pinned.has(id) || id === hovered,
     })
   }
 

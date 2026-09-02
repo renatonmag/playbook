@@ -427,6 +427,61 @@ function toggleSide(producer: string, side: TrendSide) {
 }
 
 /**
+ * Producers whose `Destacar por ponto` switch is on, keyed the way `shown` and `autoHide` are.
+ *
+ * Off by default and stored as the exception, the fourth time on this page — and here the rule has
+ * a sharper reason than usual: with the switch on, a click on the chart means something it has
+ * never meant before, and that is not a thing to turn on for somebody.
+ */
+const focusMode = ref(new Set<string>())
+
+/**
+ * The bar each Series is currently asking about — what the lines are highlighted *against*.
+ *
+ * A `Map` rather than the `Set` every other piece of state on this page is: the value is a bar time,
+ * not a membership. Per producer for the same reason the sets are, even though one Series declares
+ * this Pattern today.
+ *
+ * Nothing here says what a focus *does* to the drawing; that is `trendSegments`, which is also
+ * where "the lines that end on this bar" is defined.
+ */
+const focusBar = ref(new Map<string, number>())
+
+function focusFor(producer: string): number | null {
+  return focusBar.value.get(producer) ?? null
+}
+
+function toggleFocusMode(producer: string) {
+  if (focusMode.value.has(producer)) {
+    focusMode.value.delete(producer)
+    // Turning the switch off forgets the bar rather than parking it: the highlight is gone from the
+    // chart, and a focus nothing on screen reflects would come back on a later click as a stale
+    // answer to a question nobody remembers asking.
+    focusBar.value.delete(producer)
+  }
+  else focusMode.value.add(producer)
+}
+
+/**
+ * A click on the chart, once the switch is on: focus that bar. It never clears one.
+ *
+ * This used to clear when you clicked the focused bar again, and that fought the thing a focus is
+ * for. A focused pivot is something you work *against* — you select one of the lines arriving at
+ * it, then another, then another — and those clicks land on bars, so sooner or later one lands on
+ * the focused bar and the highlight would vanish in the middle of the job. Clicks have to be free
+ * to land anywhere.
+ *
+ * So the way out is the switch, which is the deliberate act and was always the better one:
+ * `toggleFocusMode` drops the bar on its way off.
+ */
+function setFocusBar(producer: string, time: number | null) {
+  // A click past the last bar names no bar, and leaves the focus alone rather than clearing it —
+  // a missed click cannot cost the highlight either.
+  if (time === null) return
+  focusBar.value.set(producer, time)
+}
+
+/**
  * Directions the bull/bear filters have turned *off*, keyed by producer and direction.
  *
  * The exception again, as with `shown`, but inverted: a Series arrives hidden, while a Series you
@@ -573,6 +628,11 @@ function pinnedGaps(overlay: { producer: string, points: PatternPoint[] }): GapB
  *
  * It needs the Series' colour, which neither of the two above do — the swatch in this list is the
  * line's actual colour, because for this Pattern the palette colour *is* what gets drawn.
+ *
+ * No `focus`, unlike the overlay, and this is the one place the list is deliberately not a mirror
+ * of the chart: dimming is emphasis on a drawing, not a change to what a line is, and a swatch at
+ * `DIM_ALPHA` would read as a broken row rather than as a legend. The side filter is still passed,
+ * because that one really does take lines off the screen.
  */
 function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color: string }): DrawnTrend[] {
   const ids = new Set(pinsFor(overlay.producer))
@@ -636,7 +696,22 @@ function extraProps(overlay: { producer: string, name: string }) {
     ...overlay.name === 'bar-gap' ? { states: statesFor(overlay.producer) } : {},
     // The third, and `trend-lines`' alone — tops or bottoms, which is not the bull/bear question
     // above however much the two rows look alike. See `SIDES`.
-    ...overlay.name === 'trend-lines' ? { sides: sidesFor(overlay.producer) } : {},
+    ...overlay.name === 'trend-lines'
+      ? {
+          sides: sidesFor(overlay.producer),
+          focus: focusFor(overlay.producer),
+          // Only wired while the switch is on. With it off the overlay still reports every click's
+          // bar — it cannot know the switch exists — and nothing here is listening, so a click on
+          // the chart means exactly what it has always meant.
+          // The switch again, at the cursor: hovering a line draws it as though it were selected.
+          // Not gated on a bar being chosen — the preview is worth having on the raw fan too, and
+          // once a bar *is* chosen only the lit lines are hit-testable, so only they preview.
+          previewOnHover: focusMode.value.has(overlay.producer),
+          ...focusMode.value.has(overlay.producer)
+            ? { onBar: (time: number | null) => setFocusBar(overlay.producer, time) }
+            : {},
+        }
+      : {},
     // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
     // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and
     // two Series minting one id would have each pinning the other's levels.
@@ -955,6 +1030,43 @@ function isVisible(overlay: { producer: string }) {
                   >
                   {{ side.label }}
                 </label>
+              </div>
+
+              <!-- The fan is the problem this answers: a few hundred strokes in one colour, and the
+                   thing worth reading in them is which lines converge on one pivot. On, a click
+                   picks a candle and the lines arriving there keep their colour while the rest fade
+                   back — dimmed and not hidden, because the convergence only reads against the fan
+                   it was picked out of.
+
+                   Under the side filter rather than beside it: that row decides what exists, this
+                   one only decides what stands out. -->
+              <div
+                v-if="overlay.name === 'trend-lines' && shown.has(overlay.producer)"
+                class="mt-1"
+              >
+                <button
+                  class="rounded border px-2 py-0.5 text-xs"
+                  :class="focusMode.has(overlay.producer)
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-500'"
+                  @click="toggleFocusMode(overlay.producer)"
+                >
+                  Destacar por ponto
+                  <!-- Which candle is being asked about. The only place it is written down: on the
+                       chart it is wherever the lit lines happen to meet. -->
+                  <span v-if="focusFor(overlay.producer) !== null" class="ml-1 text-gray-500">
+                    · {{ barLabel(focusFor(overlay.producer)!) }}
+                  </span>
+                </button>
+
+                <!-- Only until the first click, and needed because the switch on its own changes
+                     nothing visible: the whole feature is a click on the chart. -->
+                <p
+                  v-if="focusMode.has(overlay.producer) && focusFor(overlay.producer) === null"
+                  class="mt-0.5 text-xs text-gray-400"
+                >
+                  Clique num candle para destacar as linhas que terminam nele.
+                </p>
               </div>
 
               <!-- Red and blue are now a claim about what the picture means, so the key that the
