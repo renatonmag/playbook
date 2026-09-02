@@ -586,13 +586,6 @@ function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color
   ).filter(segment => ids.has(segment.id))
 }
 
-/** How many of a Series' pins currently resolve, whichever kind of thing it pins. */
-function pinnedCount(overlay: { name: string, producer: string, points: PatternPoint[], color: string }) {
-  if (overlay.name === 'bar-gap') return pinnedGaps(overlay).length
-  if (overlay.name === 'trend-lines') return pinnedTrends(overlay).length
-  return pinnedSegments(overlay).length
-}
-
 /**
  * A bar time as a clock reading.
  *
@@ -1018,13 +1011,12 @@ function isVisible(overlay: { producer: string }) {
                     @click="toggleAutoHide(overlay.producer)"
                   >
                     Ocultar entre candles
-                    <!-- "oculto" stopped being the whole truth once levels could be pinned: with a
-                         pin held, the Series is hidden *except* for it. -->
+                    <!-- The state word alone: "oculto" is not the whole truth with a pin held — the
+                         Series is hidden *except* for it — but the list below ("Fixados",
+                         "Selecionadas") is where that reads properly. Saying it here too made the
+                         button wrap in a 20rem sidebar. -->
                     <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
                       · {{ hideTimer.hidden.value ? 'oculto' : 'visível' }}
-                      <template v-if="hideTimer.hidden.value && pinnedCount(overlay)">
-                        ({{ pinnedCount(overlay) }} fixados)
-                      </template>
                     </span>
                   </button>
                   <template #fallback>
