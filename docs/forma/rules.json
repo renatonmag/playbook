@@ -65,11 +65,11 @@
       "name": "K",
       "direction": "alta",
       "requireWfOverWc": true,
-      "wfMin": 0.49,
-      "wcMax": 1,
+      "wfMin": 0.47,
+      "wcMax": 0.38,
       "wcMaxRatio": null,
       "bodyMin": 0,
-      "bodyMax": 0.35,
+      "bodyMax": 0.6,
       "colour": "nunca",
       "colourBodyMin": 1
     }
