@@ -63,6 +63,10 @@ export function reversalMarkers(
         time: bar.time as UTCTimestamp,
         position,
         shape: 'circle' as const,
+        // Half the library's default dot. It only reads as smaller once bars are wider than about
+        // 24px: a circle's diameter is `ceiledOdd(max(shapeHeight * size, 12) * 0.8)`, so 11px is
+        // the floor whatever the multiplier, and the monitor's fitted zoom already sits on it.
+        size: 0.5,
         color: REVERSAL_HUES[bar.type],
       })
     }
