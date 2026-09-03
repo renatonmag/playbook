@@ -507,6 +507,47 @@ function toggleDirection(producer: string, direction: Direction) {
 }
 
 /**
+ * Producers whose marks should be trimmed to those the *next* bar confirmed.
+ *
+ * `leg-reversals` alone today, and stored as the exception the fifth time on this page: a Series
+ * you turned on is a Series you want to see, and asking for the stricter reading is the deliberate
+ * act. Off is what the chart drew before this switch existed.
+ */
+const confirmedOnly = ref(new Set<string>())
+
+function toggleConfirmedOnly(producer: string) {
+  if (confirmedOnly.value.has(producer)) confirmedOnly.value.delete(producer)
+  else confirmedOnly.value.add(producer)
+}
+
+/**
+ * A map from a bar's `time` to the bar that immediately follows it, over the loaded window plus
+ * any live bars — the input the confirmation filter reads.
+ *
+ * One map for the page rather than per Series, because every `leg-reversals` Series is measured
+ * against the same candle history: the anchor moves with the pipeline run, but the bars don't.
+ * A missing key means the bar is the newest one on screen, and the filter keeps such marks — see
+ * `confirmed` in `utils/leg-reversals`. Live bars are appended after the loaded window so the seam
+ * between the two links across naturally; `useCandles` and `useLiveCandles` never disagree about
+ * the shared boundary bar's `time`.
+ */
+const nextBarByTime = computed(() => {
+  const map = new Map<number, { high: number, low: number }>()
+  const loaded = candles.value ?? []
+  const streamed = live.bars.value
+  const start = loaded.length > 0 && streamed.length > 0 && loaded[loaded.length - 1]!.time === streamed[0]!.time
+    ? streamed.slice(1)
+    : streamed
+  const all = start.length ? [...loaded, ...start] : loaded
+  for (let i = 0; i < all.length - 1; i++) {
+    const bar = all[i]!
+    const next = all[i + 1]!
+    map.set(bar.time, { high: next.high, low: next.low })
+  }
+  return map
+})
+
+/**
  * Producers whose levels should fade out between bars, keyed the same way `shown` is.
  *
  * Off by default and stored as the exception, for the third time on this page: a Series you turned
@@ -692,6 +733,11 @@ const lastBarLabel = computed(() => {
 function extraProps(overlay: { producer: string, name: string }) {
   return {
     ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
+    // The confirmation filter, `leg-reversals` alone: a mark survives only if the next bar broke
+    // against the leg's move. `null` off, which is the drawing the chart had before this switch.
+    ...overlay.name === 'leg-reversals' && confirmedOnly.value.has(overlay.producer)
+      ? { nextByTime: nextBarByTime.value }
+      : {},
     // The second filter axis, and `bar-gap`'s alone — see `STATES`.
     ...overlay.name === 'bar-gap' ? { states: statesFor(overlay.producer) } : {},
     // The third, and `trend-lines`' alone — tops or bottoms, which is not the bull/bear question
@@ -985,6 +1031,26 @@ function isVisible(overlay: { producer: string }) {
                   >
                   {{ direction.label }}
                 </label>
+              </div>
+
+              <!-- Trims each Series' marks to those the *next* bar confirmed: for a bearish-leg
+                   mark (bull-turn candidate) the next bar must break above its high, for a
+                   bullish-leg mark the next bar must break below its low. Off is what the chart
+                   drew before this switch — every mark shown, undecided included. Marks on the
+                   newest bar stay whichever way the switch is set. -->
+              <div
+                v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
+                class="mt-1"
+              >
+                <button
+                  class="rounded border px-2 py-0.5 text-xs"
+                  :class="confirmedOnly.has(overlay.producer)
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-500'"
+                  @click="toggleConfirmedOnly(overlay.producer)"
+                >
+                  Só confirmados
+                </button>
               </div>
 
               <!-- `bar-gap`'s second axis. Same shape as the row above and deliberately not folded
