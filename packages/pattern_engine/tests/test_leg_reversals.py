@@ -8,6 +8,10 @@ in the middle of a test is how a fixture ends up meaning something other than wh
 The Pattern is then driven with pivots placed by hand rather than by a detector, which is what
 lets a leg be made to close on a low or on a high over the *same* bars — the one thing the
 direction rule has to be tested against.
+
+The filters themselves live in `reversal_filters.py`, which `BarsPattern` reads too. Their tests
+stay here, where they were written: what they assert is proportions, and the leg is the context
+that makes a direction mean something. `test_bars.py` covers what changes once it is taken away.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -16,19 +20,18 @@ import pytest
 
 from pattern_engine import BaseSeries, Candle, FormaRule, SeriesIdentity, shape_of
 from pattern_engine.engine import BARS, INSTRUMENT
-from pattern_engine.patterns.leg_reversals import (
+from pattern_engine.patterns.leg_reversals import LegReversals, LegReversalsPattern
+from pattern_engine.patterns.leg_window import LegWindowPattern, split_leg_windows
+from pattern_engine.patterns.reversal_filters import (
     DEFAULT_EXPANSION,
     DEFAULT_K,
     DEFAULT_SIMILARITY,
-    LegReversals,
-    LegReversalsPattern,
     adjacent,
     alike,
     average_amplitude,
     dominates,
     nests,
 )
-from pattern_engine.patterns.leg_window import LegWindowPattern, split_leg_windows
 from pattern_engine.patterns.zigzag import ZigZagPattern, ZigZagPivot
 from pattern_engine.series import CANDLES
 from pattern_engine.shape import marks

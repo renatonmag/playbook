@@ -2,14 +2,16 @@
 import type { Component } from 'vue'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
 import { producerName, type BarGap, type LegExtremes, type PatternPoint, type TrendLine } from '~/types/pattern'
-import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/utils/rule'
+import { parseRule, PIPELINE_RULE, sameRule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import LegReversalsOverlay from '~/components/LegReversalsOverlay.vue'
+import BarsOverlay from '~/components/BarsOverlay.vue'
 import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
+import FormaRuleControls from '~/components/FormaRuleControls.vue'
 import { Badge } from '~/components/ui/badge'
 
 /**
@@ -57,6 +59,14 @@ const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
   'simple-leg': SimpleLegOverlay,
   'leg-reversals': LegReversalsOverlay,
+  // The eighth, and the first that draws *the same picture* as an entry already here:
+  // `bars` is the same three filters with the leg taken away, so it is markers hued by filter
+  // type, exactly as above. It is a second component rather than a second key pointing at the
+  // first because the Points are shaped differently — a flat mark instead of a leg holding a
+  // `found` list — and the shared part is the marker arithmetic, which lives in `utils/bars`
+  // borrowing `REVERSAL_HUES` from `utils/leg-reversals`. Sharing between the two utils rather
+  // than in this map is the shape this registry was hoping for.
+  'bars': BarsOverlay,
   'leg-extremes': LegExtremesOverlay,
   'bar-gap': BarGapOverlay,
   // Markers-only again, like `leg-reversals`, but drawn in the palette colour: a turn of the
@@ -220,30 +230,6 @@ function loadSaved(name: string) {
   updateRule(numbers)
 }
 
-/** `null` clears the proportional frontier; the field is left empty to mean "unused". */
-function setRatio(value: string) {
-  updateRule({ wcMaxRatio: value === '' ? null : Number(value) })
-}
-
-/**
- * The body range, clamped so the two ends cannot cross.
- *
- * On the bench a crossed range is merely a rule that marks nothing, and you see that immediately
- * in the counts. Here it is a **400** from `rule_query` — a request that fails rather than one
- * that answers zero — so dragging `bmin` past `bmax` would flash an error banner mid-edit. The
- * clamp keeps the invariant on this side of the wire, where it costs one line.
- */
-function setBody(edge: 'bodyMin' | 'bodyMax', value: string) {
-  const parsed = Number(value)
-  if (Number.isNaN(parsed)) return
-  updateRule(edge === 'bodyMin'
-    ? { bodyMin: Math.min(parsed, rule.value.bodyMax) }
-    : { bodyMax: Math.max(parsed, rule.value.bodyMin) })
-}
-
-/** The number fields in the rule block. Narrower than the bench's — this is a 20rem sidebar. */
-const ruleField = 'w-20 rounded border border-gray-300 px-1.5 py-0.5 text-xs'
-
 /**
  * Every Series the pipeline produced, in a shape the checkbox list and the overlays share.
  *
@@ -332,7 +318,7 @@ type Direction = typeof DIRECTIONS[number]['value']
  * spread, the checkboxes, the colour key. Those fell out of step the moment a second Pattern
  * qualified, and the failure is quiet: filter checkboxes that render while nothing reads them.
  */
-const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes', 'bar-gap'])
+const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes', 'bar-gap', 'bars'])
 
 /**
  * The Patterns whose overlay draws clickable things, and so get the pin machinery: the auto-hide
@@ -571,11 +557,31 @@ function toggleDirection(producer: string, direction: Direction) {
 /**
  * Producers whose marks should be trimmed to those the *next* bar confirmed.
  *
- * `leg-reversals` alone today, and stored as the exception the fifth time on this page: a Series
- * you turned on is a Series you want to see, and asking for the stricter reading is the deliberate
- * act. Off is what the chart drew before this switch existed.
+ * Stored as the exception the fifth time on this page: a Series you turned on is a Series you want
+ * to see, and asking for the stricter reading is the deliberate act. Off is what the chart drew
+ * before this switch existed.
  */
 const confirmedOnly = ref(new Set<string>())
+
+/**
+ * The Patterns whose marks the next bar can confirm, and so get the switch above.
+ *
+ * A set for the reason `DIRECTIONAL` is one: the condition is asked in two places — the props
+ * spread and the button — and it fell out of step the moment a second Pattern qualified. What
+ * "confirmed" means is each util's own business, and the two do not agree on the arithmetic:
+ * `reversalMarkers` is handed the leg's move and inverts it, `barMarkers` reads the mark's own
+ * direction and does not.
+ */
+const CONFIRMABLE = new Set(['leg-reversals', 'bars'])
+
+/**
+ * The Patterns the Forma rule reaches, and so get the rule editor under them.
+ *
+ * Must match what `build_pipeline` hands the rule to — nothing checks it, and the failure is
+ * quiet in both directions: a missing entry hides an editor for a Series the rule does move, and
+ * a spurious one offers an editor that changes nothing on the Series it sits under.
+ */
+const RULED = new Set(['leg-reversals', 'bars'])
 
 function toggleConfirmedOnly(producer: string) {
   if (confirmedOnly.value.has(producer)) confirmedOnly.value.delete(producer)
@@ -837,9 +843,9 @@ const lastBarLabel = computed(() => {
 function extraProps(overlay: { producer: string, name: string }) {
   return {
     ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
-    // The confirmation filter, `leg-reversals` alone: a mark survives only if the next bar broke
-    // against the leg's move. `null` off, which is the drawing the chart had before this switch.
-    ...overlay.name === 'leg-reversals' && confirmedOnly.value.has(overlay.producer)
+    // The confirmation filter: a mark survives only if the next bar broke the way it predicted.
+    // `null` off, which is the drawing the chart had before this switch.
+    ...CONFIRMABLE.has(overlay.name) && confirmedOnly.value.has(overlay.producer)
       ? { nextByTime: nextBarByTime.value }
       : {},
     // The second filter axis, and `bar-gap`'s alone — see `STATES`.
@@ -1171,13 +1177,15 @@ function isVisible(overlay: { producer: string }) {
                 </label>
               </div>
 
-              <!-- Trims each Series' marks to those the *next* bar confirmed: for a bearish-leg
-                   mark (bull-turn candidate) the next bar must break above its high, for a
-                   bullish-leg mark the next bar must break below its low. Off is what the chart
-                   drew before this switch — every mark shown, undecided included. Marks on the
-                   newest bar stay whichever way the switch is set. -->
+              <!-- Trims each Series' marks to those the *next* bar confirmed: a bull-turn
+                   candidate needs the next bar to break above its high, a bear-turn candidate to
+                   break below its low. On `leg-reversals` the direction on screen is the leg's,
+                   so the test reads inverted there — see the two utils. Off is what the chart drew
+                   before this switch — every mark shown, undecided included. Marks on the newest
+                   bar stay whichever way the switch is set, as do inside bars, which predict
+                   nothing for a break to confirm. -->
               <div
-                v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
+                v-if="CONFIRMABLE.has(overlay.name) && shown.has(overlay.producer)"
                 class="mt-1"
               >
                 <button
@@ -1478,124 +1486,30 @@ function isVisible(overlay: { producer: string }) {
                 </template>
               </ClientOnly>
 
-              <!-- The Forma rule this Pattern applies — the only thing on this page the browser
+              <!-- The Forma rule these Patterns apply — the only thing on this page the browser
                    composes and the server runs. Under the same condition as the filters above, and
                    for a sharper version of the same reason: every committed field is a pipeline
                    run, and offering them under a Pattern nobody is looking at would spend one on
                    nothing.
 
+                   Rendered once per Pattern that reads the rule, over **one** stored rule and one
+                   query: an edit under either chip re-runs both Series. That is deliberate — the
+                   two are the same filters with and without a leg, and the comparison is the point
+                   — and it is written out in the component.
+
                    Inside `ClientOnly` because the stored rule arrives after mount: the server
                    renders `PIPELINE_RULE` and the client may replace it, which is a hydration
                    mismatch anywhere it is rendered on both. Same guard as the timepicker above. -->
               <ClientOnly>
-                <div
-                  v-if="overlay.name === 'leg-reversals' && shown.has(overlay.producer)"
-                  class="mt-2 space-y-2 border-l border-gray-100 pl-3 text-xs"
-                >
-                  <div class="flex items-baseline justify-between gap-2">
-                    <span class="font-semibold text-gray-500">Regra Forma</span>
-                    <!-- The producer key is identical whichever rule ran — see `/patterns`. This
-                         badge is the only thing on screen that tells an adjusted run from the
-                         declared one, so it is not decoration. -->
-                    <button
-                      v-if="adjusted"
-                      class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800 hover:bg-amber-100"
-                      @click="resetRule()"
-                    >
-                      ajustada · voltar ao padrão
-                    </button>
-                    <span v-else class="text-[10px] text-gray-400">a do pipeline</span>
-                  </div>
-
-                  <label v-if="savedRules.length" class="flex items-center justify-between gap-2">
-                    <span class="text-gray-500">Carregar</span>
-                    <select
-                      class="w-28 rounded border border-gray-300 px-1 py-0.5 text-xs"
-                      value=""
-                      @change="loadSaved(($event.target as HTMLSelectElement).value)"
-                    >
-                      <!-- Only the numbers are copied, so the list is a starting point and never a
-                           claim about what the Series is called. -->
-                      <option value="" disabled>só os números…</option>
-                      <option v-for="entry in savedRules" :key="entry.name" :value="entry.name">
-                        {{ entry.name }}
-                      </option>
-                    </select>
-                  </label>
-
-                  <label class="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      :checked="rule.requireWfOverWc"
-                      @change="updateRule({ requireWfOverWc: ($event.target as HTMLInputElement).checked })"
-                    >
-                    <span>exigir <code class="font-mono">wf &gt; wc</code></span>
-                  </label>
-
-                  <!-- `@change`, not `@input`: each committed value is a full pipeline run on the
-                       server, and `@change` fires on blur or Enter. That is the debounce. -->
-                  <label class="flex items-center justify-between gap-2">
-                    <span class="text-gray-500"><code class="font-mono">wf ≥</code></span>
-                    <input
-                      type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wfMin"
-                      @change="updateRule({ wfMin: Number(($event.target as HTMLInputElement).value) })"
-                    >
-                  </label>
-
-                  <label class="flex items-center justify-between gap-2">
-                    <span class="text-gray-500"><code class="font-mono">wc ≤</code></span>
-                    <input
-                      type="number" step="0.01" min="0" max="1" :class="ruleField" :value="rule.wcMax"
-                      @change="updateRule({ wcMax: Number(($event.target as HTMLInputElement).value) })"
-                    >
-                  </label>
-
-                  <label class="flex items-center justify-between gap-2">
-                    <span class="text-gray-500"><code class="font-mono">wc ≤ k·wf</code></span>
-                    <input
-                      type="number" step="0.01" min="0" max="10" :class="ruleField" placeholder="sem k"
-                      :value="rule.wcMaxRatio ?? ''"
-                      @change="setRatio(($event.target as HTMLInputElement).value)"
-                    >
-                  </label>
-
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-gray-500"><code class="font-mono">b</code> entre</span>
-                    <span class="flex gap-1">
-                      <input
-                        type="number" step="0.05" min="0" :max="rule.bodyMax"
-                        class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
-                        :value="rule.bodyMin"
-                        @change="setBody('bodyMin', ($event.target as HTMLInputElement).value)"
-                      >
-                      <input
-                        type="number" step="0.05" :min="rule.bodyMin" max="1"
-                        class="w-14 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
-                        :value="rule.bodyMax"
-                        @change="setBody('bodyMax', ($event.target as HTMLInputElement).value)"
-                      >
-                    </span>
-                  </div>
-
-                  <label class="flex items-center justify-between gap-2">
-                    <span class="text-gray-500">Cor</span>
-                    <select
-                      class="rounded border border-gray-300 px-1 py-0.5 text-xs"
-                      :value="rule.colour"
-                      @change="updateRule({ colour: ($event.target as HTMLSelectElement).value as Rule['colour'] })"
-                    >
-                      <option v-for="option in COLOUR_MODES" :key="option" :value="option">{{ option }}</option>
-                    </select>
-                  </label>
-
-                  <label v-if="rule.colour === 'acima-de'" class="flex items-center justify-between gap-2">
-                    <span class="text-gray-500">cor se <code class="font-mono">b &gt;</code></span>
-                    <input
-                      type="number" step="0.05" min="0" max="1" :class="ruleField" :value="rule.colourBodyMin"
-                      @change="updateRule({ colourBodyMin: Number(($event.target as HTMLInputElement).value) })"
-                    >
-                  </label>
-                </div>
+                <FormaRuleControls
+                  v-if="RULED.has(overlay.name) && shown.has(overlay.producer)"
+                  :rule="rule"
+                  :adjusted="adjusted"
+                  :saved-rules="savedRules"
+                  @update="updateRule"
+                  @reset="resetRule"
+                  @load="loadSaved"
+                />
               </ClientOnly>
             </div>
           </template>

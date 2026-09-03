@@ -143,6 +143,28 @@ export interface LegReversals extends PatternPoint {
 }
 
 /**
+ * One finding about one bar, with no leg around it — a Point of the `bars` Series.
+ *
+ * The flat counterpart to `LegBar`: there is no window to index into, so there is no `at`, and the
+ * mark is not nested inside anything — `time` here *is* the anchor. Several can share it, since
+ * the three filters are a union and the Forma rule can match a bar for both turns, so `time`,
+ * `type` and `direction` together name one.
+ */
+export interface BarMark extends PatternPoint {
+  /** Which filter marked it. The same three readings `LegBar['type']` documents. */
+  type: LegBar['type']
+  /**
+   * The turn this mark is a candidate for — a `bearish` mark is a candidate top.
+   *
+   * **The opposite convention to `LegReversals.direction`**, which reports the leg's own move and
+   * leaves the reader to invert it. There is no leg here to invert, so the mark says outright what
+   * it is a candidate for. `null` on an `inside-bar`, which reads only the extremes and makes no
+   * directional claim at all.
+   */
+  direction: 'bullish' | 'bearish' | null
+}
+
+/**
  * One of a leg's three defining bars — how far it reached, where it closed best, what it held.
  *
  * Not a Point of any Series — these arrive nested in `LegExtremes.found`, so `time` here is just

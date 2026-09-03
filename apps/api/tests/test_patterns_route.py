@@ -12,7 +12,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from pattern_engine import BaseSeries, Ctx, Pattern, SeriesIdentity
-from pattern_engine.patterns import LegExtremesPattern, LegReversalsPattern
+from pattern_engine.patterns import BarsPattern, LegExtremesPattern, LegReversalsPattern
 
 from playbook_api.db import get_session
 from playbook_api.main import app
@@ -38,7 +38,8 @@ PRODUCERS = [pattern.producer for pattern in PIPELINE]
 #: the wire by the same schema — so the tests below say `ZIGZAG` only to have something to name.
 ZIGZAG = PIPELINE[0].producer
 
-#: The one Pattern a rule override reaches. Derived, like `PRODUCERS`, and for the same reason.
+#: The first of the two Patterns a rule override reaches — see `BARS` for the other. Derived,
+#: like `PRODUCERS`, and for the same reason.
 #:
 #: Found by **class**, not by position. `PIPELINE[-1]` said the same thing only for as long as
 #: `leg-reversals` happened to be declared last, and the first Pattern appended after it — one
@@ -53,6 +54,11 @@ LEG_REVERSALS = next(
 LEG_EXTREMES = next(
     pattern.producer for pattern in PIPELINE if isinstance(pattern, LegExtremesPattern)
 )
+
+#: The *other* Pattern a rule override reaches, and the reason the note above says "one Pattern"
+#: no longer. Found by class for the same reason, and kept separate rather than folded into a set:
+#: its Points are marks, not legs holding a `found` list, so it is counted differently below.
+BARS = next(pattern.producer for pattern in PIPELINE if isinstance(pattern, BarsPattern))
 
 #: A full override that marks everything, spelled in the short keys `toQuery` emits — so the wire
 #: format is under test and not only the parsing. Chosen to be far looser than `RULE_K`, which on
@@ -295,6 +301,33 @@ def test_an_override_reaches_the_pattern_and_changes_what_it_marks(client):
     # Not `!=`: which way it moves is the claim. A loosened rule that marked *fewer* bars would
     # pass an inequality and mean the parameters landed in the wrong fields.
     assert found(loose) > found(strict)
+
+
+def test_the_override_reaches_bars_too(client):
+    """One rule, two Series. `build_pipeline` hands the same `FormaRule` to both on purpose.
+
+    Counted on the Points themselves rather than on a `found` list, because that is the shape
+    difference the Pattern exists for: with no leg to hold them, a mark *is* a Point.
+    """
+    strict = client.get("/patterns", params=WINDOW).json()
+    loose = client.get("/patterns", params={**WINDOW, **LOOSE_RULE}).json()
+
+    assert len(loose["series"][BARS]["points"]) > len(strict["series"][BARS]["points"])
+
+
+def test_bars_reports_both_turns_where_leg_reversals_reports_one_per_leg(client):
+    """The behavioural difference, asserted on the wire rather than only in the engine tests."""
+    body = client.get("/patterns", params={**WINDOW, **LOOSE_RULE}).json()
+    points = body["series"][BARS]["points"]
+
+    directions = {point["direction"] for point in points}
+    # Both turns, in one Series, over bars a single leg could only have been read one way. `None`
+    # is not asserted present: the triangular wave never contains a bar in its predecessor, so it
+    # produces no `inside-bar` at all — which is a fact about the fixture, not about the Pattern.
+    assert {"bullish", "bearish"} <= directions
+    assert directions <= {"bullish", "bearish", None}
+    # And every mark says which filter made it, so the drawing can hue them apart.
+    assert {point["type"] for point in points} <= {"two-bar", "reversal-bar", "inside-bar"}
 
 
 def test_the_counts_come_from_leg_reversals_and_not_the_other_series_with_a_found_list(client):

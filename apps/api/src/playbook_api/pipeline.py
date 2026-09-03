@@ -12,8 +12,8 @@ would diverge in silence, with both appearing to work.
 The list is produced by `build_pipeline`, and `PIPELINE` is that function at its declared
 defaults. The importable-list property is unchanged: a tick worker imports `PIPELINE` and gets
 what it always got. What the function buys is that `/patterns` can run this same pipeline with
-one Pattern's Forma rule replaced, without a second hand-maintained copy of the tuple drifting
-from this one. It takes exactly one argument, deliberately: `depth`, `ahead`, `k`, `similarity`
+the Forma rule replaced, without a second hand-maintained copy of the tuple drifting from this
+one. It takes exactly one argument, deliberately: `depth`, `ahead`, `k`, `similarity`
 and `expansion` stay written below, because they are what someone tuning the *detector* comes
 looking for, and only the Forma rule is a thing the browser can edit and cannot evaluate for
 itself. See the module docstring on `routers/patterns.py` for why that one exception exists.
@@ -26,6 +26,7 @@ from pattern_engine.patterns import (
     DEFAULT_SIMILARITY,
     AdvancingLegsPattern,
     BarGapPattern,
+    BarsPattern,
     GeneralDirectionPattern,
     LegExtremesPattern,
     LegPattern,
@@ -67,7 +68,12 @@ RULE_K = FormaRule(
 
 
 def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
-    """The Patterns this installation runs, in run order, with `rule` applied to `leg-reversals`.
+    """The Patterns this installation runs, in run order, with `rule` applied where one is read.
+
+    Two Patterns read it today — `leg-reversals` and `bars` — and they get the *same* rule, not a
+    rule each. That is the whole point of a single argument: the two are the same three filters
+    asked with and without a leg, and letting the browser tune them apart would make the
+    comparison meaningless.
 
     The detectors are bound to local names rather than declared inline because the slicers below
     take the detector *instance*, not its producer key — one source of truth for a key that is
@@ -138,6 +144,23 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         LegReversalsPattern(
             source=leg_windows,
             pivots=zigzag,
+            rule=rule,
+            k=DEFAULT_K,
+            similarity=DEFAULT_SIMILARITY,
+            expansion=DEFAULT_EXPANSION,
+            reads=("5m",),
+            emits="5m",
+        ),
+        # And the same three filters again, with the leg taken away: every bar in the window,
+        # asked for both turns. Same arithmetic — `reversal_filters` is the one copy of it — and
+        # the same `rule`, so the browser's override reaches both Series at once and the two can
+        # be read against each other on the chart. It reads the bars alone, so it has no ordering
+        # constraint and sits here only because it belongs next to what it is a variant of.
+        #
+        # Expect it to be much the heavier of the two: nothing narrows the history first, and a
+        # bar is judged for a bullish turn and a bearish one rather than for the single one its
+        # leg was a candidate for.
+        BarsPattern(
             rule=rule,
             k=DEFAULT_K,
             similarity=DEFAULT_SIMILARITY,
