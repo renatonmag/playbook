@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { isTimeframe, SECONDS, TIMEFRAMES, type Timeframe } from '~/types/candle'
+import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
 import { producerName, type BarGap, type LegExtremes, type PatternPoint, type TrendLine } from '~/types/pattern'
 import { COLOUR_MODES, parseRule, PIPELINE_RULE, sameRule, type Rule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
@@ -346,6 +346,68 @@ const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes', 'bar-gap'])
 const PINNABLE = new Set(['leg-extremes', 'bar-gap', 'trend-lines'])
 
 /**
+ * The wick tool's key, standing where a producer key stands.
+ *
+ * It is not a Pattern — nothing runs on the server for it, and it draws off the candles themselves —
+ * but it is a chip beside them, with a control block, a `Mostrar` and pins. Giving it a key buys the
+ * whole of that bookkeeping unchanged: `shown`, `open`, `pinned`, `pinsFor`, `togglePin`,
+ * `clearPins`. The alternative was a parallel set of each, which is four more places for the two
+ * kinds of thing on this sidebar to drift apart.
+ *
+ * It cannot collide with a real producer: those always carry their `(params)` — see `producerName`.
+ */
+const WICK_KEY = 'wick-levels'
+
+/**
+ * The two wicks, in the order the filters are listed. The fourth filter axis on this page, and the
+ * first belonging to something that is not a Pattern.
+ *
+ * Deliberately not `SIDES`, which it looks exactly like: that one names which extreme a *trend line*
+ * runs along, and this one names a wick. The labels come from `WICK_LABELS`, so the checkboxes and
+ * the pinned list below cannot end up calling one wick two different things.
+ */
+const WICK_SIDES = [
+  { value: 'high', label: WICK_LABELS.high },
+  { value: 'low', label: WICK_LABELS.low },
+] as const
+
+/**
+ * Wicks the filters have turned *off*. The exception stored, as everywhere else on this page: the
+ * tool is turned on to see both, and unchecking is the deliberate act.
+ *
+ * Unkeyed, unlike its four predecessors — there is one wick tool, not one per Series.
+ */
+const hiddenWickSides = ref(new Set<WickSide>())
+
+function wickSides(): WickSide[] {
+  return WICK_SIDES.map(item => item.value).filter(value => !hiddenWickSides.value.has(value))
+}
+
+function toggleWickSide(side: WickSide) {
+  if (hiddenWickSides.value.has(side)) hiddenWickSides.value.delete(side)
+  else hiddenWickSides.value.add(side)
+}
+
+/**
+ * The wick tool's cursor is being held still.
+ *
+ * `Mostrar` used to answer two questions at once: put the tool on the chart, *and* give the cursor a
+ * new meaning. Those come apart the moment something is pinned — the pins are what you wanted to
+ * keep, and the cursor goes on painting four lines over them on its way anywhere else. So `Mostrar`
+ * now means the tool is on the chart, which with the cursor held still means the pinned levels, and
+ * this is the second question.
+ *
+ * Stored as the **off** state, which is this page's rule read properly rather than broken: every
+ * switch here stores its non-default, and this one's default is on. Hunting for a level is what the
+ * tool is turned on for, and that is the cursor.
+ */
+const wickPaused = ref(false)
+
+function toggleWickTracking() {
+  wickPaused.value = !wickPaused.value
+}
+
+/**
  * The two states a gap can be in, in the order the filters are listed, with the label each gets.
  *
  * `bar-gap`'s second filter axis, and the only Pattern with one — which is why the places that ask
@@ -533,17 +595,41 @@ function toggleConfirmedOnly(producer: string) {
  */
 const nextBarByTime = computed(() => {
   const map = new Map<number, { high: number, low: number }>()
-  const loaded = candles.value ?? []
-  const streamed = live.bars.value
-  const start = loaded.length > 0 && streamed.length > 0 && loaded[loaded.length - 1]!.time === streamed[0]!.time
-    ? streamed.slice(1)
-    : streamed
-  const all = start.length ? [...loaded, ...start] : loaded
+  const all = mergedBars.value
   for (let i = 0; i < all.length - 1; i++) {
     const bar = all[i]!
     const next = all[i + 1]!
     map.set(bar.time, { high: next.high, low: next.low })
   }
+  return map
+})
+
+/**
+ * The candle history this page reasons about: the loaded window with the live bars after it.
+ *
+ * Extracted from `nextBarByTime`, which was the only thing that needed it and is no longer: the
+ * wick tool reads the same bars, and a second splice would be a second chance to disagree about the
+ * seam. Live bars are appended after the loaded window so the join happens naturally;
+ * `useCandles` and `useLiveCandles` never disagree about the shared boundary bar's `time`.
+ */
+const mergedBars = computed(() => {
+  const loaded = candles.value ?? []
+  const streamed = live.bars.value
+  const start = loaded.length > 0 && streamed.length > 0 && loaded[loaded.length - 1]!.time === streamed[0]!.time
+    ? streamed.slice(1)
+    : streamed
+  return start.length ? [...loaded, ...start] : loaded
+})
+
+/**
+ * The same bars by `time` — what the wick tool looks a bar up in.
+ *
+ * A map for the reason `nextBarByTime` is one: the lookups are by name, one bar at a time, and they
+ * happen on hover. Computed, so it is rebuilt when the feed moves and never while the mouse does.
+ */
+const barsByTime = computed(() => {
+  const map = new Map<number, Candle>()
+  for (const bar of mergedBars.value) map.set(bar.time, bar)
   return map
 })
 
@@ -685,6 +771,24 @@ function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color
     overlay.color,
     ids,
   ).filter(segment => ids.has(segment.id))
+}
+
+/**
+ * The pinned wick levels as things with a colour, a wick, an end and a price — what the list under
+ * the tool's checkboxes shows.
+ *
+ * Through the same `wickLevels` the overlay draws from, so the list and the chart cannot disagree,
+ * and a pin whose bar has left the window simply does not resolve. No hovered bar is passed: this
+ * list is what survives the cursor moving on, which is what a pin means here.
+ *
+ * The side filter is passed, for the reason `pinnedSegments` passes the one it has: a level hidden
+ * by a checkbox is not on screen, and the list is a legend for what is.
+ */
+function pinnedWicks(): WickLevel[] {
+  const ids = new Set(pinsFor(WICK_KEY))
+  if (ids.size === 0) return []
+
+  return wickLevels(barsByTime.value, null, ids, wickSides())
 }
 
 /**
@@ -920,6 +1024,17 @@ function isVisible(overlay: { producer: string }) {
               :visible="isVisible(overlay)"
               v-bind="extraProps(overlay)"
             />
+            <!-- Not one of the overlays above, and so not in the loop: it draws off the candles
+                 rather than off a Series the pipeline produced, and has no Points, no colour from
+                 the palette and no producer. What it shares with them is the chip and the pins. -->
+            <WickLevelsOverlay
+              :bars="barsByTime"
+              :visible="shown.has(WICK_KEY)"
+              :sides="wickSides()"
+              :pinned="pinsFor(WICK_KEY)"
+              :tracking="!wickPaused"
+              @pin="(id: string) => togglePin(WICK_KEY, id)"
+            />
           </CandleChart>
           <template #fallback>
             <div class="h-[520px] w-full lg:h-full" />
@@ -960,8 +1075,12 @@ function isVisible(overlay: { producer: string }) {
         <!-- A chip per Pattern, and under them the control block of whichever chips are on. The
              chip itself draws nothing — it opens and closes the control — and `Mostrar` inside the
              control is what reaches the chart. Those are two facts about one Pattern, and the
-             checkbox this replaced had to stand for both at once. -->
-        <div v-else>
+             checkbox this replaced had to stand for both at once.
+
+             No longer the `v-else` of the message above: the last chip in the row is the wick tool,
+             which reads the candles and has something to draw whether or not the pipeline found
+             anything. The message stays, because it is still true of the Patterns. -->
+        <div>
           <div class="mt-3 flex flex-wrap gap-1.5">
             <!-- `as="button"` so a chip is focusable and answers the keyboard: it is a control, and
                  its variant is the only thing on screen saying which controls are open. -->
@@ -983,6 +1102,25 @@ function isVisible(overlay: { producer: string }) {
                   : { backgroundColor: 'transparent', borderColor: 'currentColor', opacity: 0.4 }"
               />
               {{ overlay.label }}
+            </Badge>
+
+            <!-- The wick tool, last in the row and deliberately in it: from here it is one more
+                 thing you can put on the chart, and a section of its own would have made the fact
+                 that no server ran for it into a layout decision. Its dot is `WICK_HUES.high`,
+                 which is a colour actually on the chart — unlike a Pattern's palette slot. -->
+            <Badge
+              as="button"
+              :variant="open.has(WICK_KEY) ? 'default' : 'secondary'"
+              title="pavios do candle sob o cursor"
+              @click="toggleOpen(WICK_KEY)"
+            >
+              <span
+                class="size-1.5 shrink-0 rounded-full border"
+                :style="shown.has(WICK_KEY)
+                  ? { backgroundColor: WICK_HUES.high, borderColor: WICK_HUES.high }
+                  : { backgroundColor: 'transparent', borderColor: 'currentColor', opacity: 0.4 }"
+              />
+              Pavio
             </Badge>
           </div>
 
@@ -1461,6 +1599,118 @@ function isVisible(overlay: { producer: string }) {
               </ClientOnly>
             </div>
           </template>
+
+          <!-- The wick tool's control block, in the same shape as a Pattern's and after all of
+               them, because its chip is the last in the row. Written out rather than folded into
+               the loop above: it has no Series, no point count and no timeframe to warn about, and
+               a row of `v-if`s standing in for those would say nothing about either kind. -->
+          <div v-if="open.has(WICK_KEY)" class="mt-3 border-t border-gray-200 pt-3">
+            <div class="flex items-baseline justify-between gap-2 text-xs">
+              <span class="min-w-0 truncate font-medium" :style="{ color: WICK_HUES.high }">
+                Pavio do candle
+              </span>
+              <!-- Where a Pattern says how many points it found. This one finds nothing until the
+                   cursor is somewhere, so it says what it does instead. -->
+              <span class="shrink-0 text-gray-500">no cursor</span>
+            </div>
+
+            <button
+              class="mt-1.5 rounded border px-2 py-0.5 text-xs"
+              :class="shown.has(WICK_KEY)
+                ? 'border-green-600 bg-green-50 text-green-700'
+                : 'border-gray-300 text-gray-500'"
+              @click="toggle(WICK_KEY)"
+            >
+              {{ shown.has(WICK_KEY) ? 'Ocultar' : 'Mostrar' }}
+            </button>
+
+            <!-- The second question the button above used to answer as well: whether the cursor
+                 draws. Off, the tool holds still and shows what is pinned — which is what you want
+                 the moment you have pinned something.
+
+                 A fixed label with the state in the styling, like `Ocultar entre candles` and
+                 `Destacar por ponto`. Not called `Ativar`: it starts on, and a button reading
+                 "activate" while already active says the wrong thing in its resting state. -->
+            <button
+              v-if="shown.has(WICK_KEY)"
+              class="mt-1.5 ml-1.5 rounded border px-2 py-0.5 text-xs"
+              :class="wickPaused
+                ? 'border-gray-300 text-gray-500'
+                : 'border-green-600 bg-green-50 text-green-700'"
+              @click="toggleWickTracking"
+            >
+              Seguir o cursor
+              <span class="ml-1 text-gray-500">· {{ wickPaused ? 'pausado' : 'ativo' }}</span>
+            </button>
+
+            <!-- Only while the tool is on, as with every filter row on this page: with `Mostrar`
+                 off there is nothing for these to filter. -->
+            <div v-if="shown.has(WICK_KEY)" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              <label
+                v-for="side in WICK_SIDES"
+                :key="side.value"
+                class="flex items-center gap-1.5"
+              >
+                <input
+                  type="checkbox"
+                  :checked="!hiddenWickSides.has(side.value)"
+                  @change="toggleWickSide(side.value)"
+                >
+                <!-- The colour key and the checkbox in one: each wick is drawn in its own hue, and
+                     a separate legend for two rows would be a legend for a list of two. -->
+                <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: WICK_HUES[side.value] }" />
+                <span class="text-gray-500">{{ side.label }}</span>
+              </label>
+            </div>
+
+            <p v-if="shown.has(WICK_KEY)" class="mt-1 text-xs text-gray-400">
+              <template v-if="wickPaused">
+                Só os pavios fixados. Ative para seguir o cursor de novo.
+              </template>
+              <template v-else>
+                Passe o cursor por um candle para ver onde seus pavios começam e terminam.
+              </template>
+            </p>
+
+            <!-- What survives the cursor moving on. `ClientOnly` because a pin only exists after a
+                 click, the same reason the three Pattern lists are wrapped. -->
+            <ClientOnly>
+              <div v-if="shown.has(WICK_KEY)" class="mt-1 text-xs">
+                <div v-if="pinnedWicks().length" class="flex items-baseline justify-between gap-2">
+                  <span class="text-gray-500">Fixados</span>
+                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(WICK_KEY)">
+                    limpar
+                  </button>
+                </div>
+                <p v-else class="text-gray-400">
+                  Clique numa linha do gráfico para mantê-la fixada.
+                </p>
+
+                <ul class="mt-1 space-y-0.5">
+                  <li
+                    v-for="level in pinnedWicks()"
+                    :key="level.id"
+                    class="flex items-center gap-1.5 text-gray-500"
+                  >
+                    <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: level.color }" />
+                    <span>{{ WICK_LABELS[level.side] }} · {{ WICK_END_LABELS[level.end] }}</span>
+                    <span class="font-mono">{{ level.price }}</span>
+                    <span class="text-gray-400">{{ barLabel(level.time) }}</span>
+                    <button
+                      class="ml-auto text-gray-400 hover:text-gray-600"
+                      :aria-label="`desafixar ${WICK_LABELS[level.side]} ${WICK_END_LABELS[level.end]}`"
+                      @click="togglePin(WICK_KEY, level.id)"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <template #fallback>
+                <div class="h-[20px]" />
+              </template>
+            </ClientOnly>
+          </div>
         </div>
 
         <!-- A Pattern that raised drew nothing, and so did a Pattern that found nothing. Without
