@@ -46,6 +46,25 @@ export function useLiveCandles(
    */
   const bars = ref<Candle[]>([]) as Ref<Candle[]>
 
+  /**
+   * Every bar this connection has seen, by `time` — the record, where `bars` above is the news.
+   *
+   * Both, and not one: a frame carries only what *changed* since the last one, which is what makes
+   * `bars` the right input for `series.update()` and for the bar clock, and the wrong input for
+   * anything that asks a question about a bar later. A bar that opened after the page loaded and has
+   * since closed is in no frame and in no fetched window; without this it exists only inside the
+   * chart's own series, where nothing can look it up. The wick tool looks bars up by name on hover,
+   * which is how that showed.
+   *
+   * Reassigned rather than mutated, so a computed reading it is rebuilt when the feed moves. A later
+   * frame overwrites an earlier state of the same `time`: that is how a bar last seen unfinished is
+   * corrected.
+   *
+   * Bounded by the session, not by the connection: a reconnect's bars are the same bars. What does
+   * end it is a different Instrument or Timeframe — see the watcher at the bottom.
+   */
+  const history = ref<ReadonlyMap<number, Candle>>(new Map()) as Ref<ReadonlyMap<number, Candle>>
+
   let socket: WebSocket | null = null
   let retry: ReturnType<typeof setTimeout> | null = null
   let backoff = RETRY_MIN_MS
@@ -104,7 +123,13 @@ export function useLiveCandles(
       }
       // Ordering is the route's contract, and the chart depends on it: `update()` refuses a
       // bar older than the one before it.
-      if (frame.candles?.length) bars.value = frame.candles
+      if (frame.candles?.length) {
+        bars.value = frame.candles
+
+        const seen = new Map(history.value)
+        for (const candle of frame.candles) seen.set(candle.time, candle)
+        history.value = seen
+      }
     }
 
     next.onerror = () => {
@@ -146,10 +171,15 @@ export function useLiveCandles(
 
   // The socket is per Instrument and Timeframe, so changing either is a different connection.
   watch([() => toValue(symbol), () => toValue(timeframe)], () => {
+    // And a different history: a bar `time` is only comparable within one Instrument and Timeframe,
+    // so keeping the old feed's bars would put `5m` bars on an `1h` chart's scale. Cleared here and
+    // nowhere else — a reconnect is the same feed, and dropping the record on every backoff retry
+    // would be the very hole this map exists to close.
+    history.value = new Map()
     if (connected.value) open()
   })
 
   onScopeDispose(close)
 
-  return { connected, status, error, bars, connect, disconnect, toggle }
+  return { connected, status, error, bars, history, connect, disconnect, toggle }
 }

@@ -626,9 +626,8 @@ function toggleConfirmedOnly(producer: string) {
  * One map for the page rather than per Series, because every `leg-reversals` Series is measured
  * against the same candle history: the anchor moves with the pipeline run, but the bars don't.
  * A missing key means the bar is the newest one on screen, and the filter keeps such marks — see
- * `confirmed` in `utils/leg-reversals`. Live bars are appended after the loaded window so the seam
- * between the two links across naturally; `useCandles` and `useLiveCandles` never disagree about
- * the shared boundary bar's `time`.
+ * `confirmed` in `utils/leg-reversals`. `mergedBars` puts the live bars in time order after the
+ * loaded window, so the seam between the two links across like any other pair.
  */
 const nextBarByTime = computed(() => {
   const map = new Map<number, { high: number, low: number }>()
@@ -642,20 +641,26 @@ const nextBarByTime = computed(() => {
 })
 
 /**
- * The candle history this page reasons about: the loaded window with the live bars after it.
+ * The candle history this page reasons about: the loaded window with every bar the feed has opened
+ * since, in time order.
  *
  * Extracted from `nextBarByTime`, which was the only thing that needed it and is no longer: the
  * wick tool reads the same bars, and a second splice would be a second chance to disagree about the
- * seam. Live bars are appended after the loaded window so the join happens naturally;
- * `useCandles` and `useLiveCandles` never disagree about the shared boundary bar's `time`.
+ * seam.
+ *
+ * Merged over `live.history` and not over `live.bars`, which is the correction: a frame carries only
+ * what changed, so a bar that opened after this page loaded and has since closed is in no frame at
+ * all. The chart went on drawing it — `update()` accumulates in the series — while this list had
+ * dropped it, and every question asked of a bar by name went unanswered for it.
+ *
+ * A map rather than a splice, which is also why there is no seam case left: the boundary bar is one
+ * key, written twice. The live read wins, being the fresher reading of the same bar.
  */
 const mergedBars = computed(() => {
-  const loaded = candles.value ?? []
-  const streamed = live.bars.value
-  const start = loaded.length > 0 && streamed.length > 0 && loaded[loaded.length - 1]!.time === streamed[0]!.time
-    ? streamed.slice(1)
-    : streamed
-  return start.length ? [...loaded, ...start] : loaded
+  const merged = new Map<number, Candle>()
+  for (const bar of candles.value ?? []) merged.set(bar.time, bar)
+  for (const [time, bar] of live.history.value) merged.set(time, bar)
+  return [...merged.values()].sort((a, b) => a.time - b.time)
 })
 
 /**
