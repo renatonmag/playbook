@@ -1,6 +1,6 @@
 /**
  * The `/monitor` sidebar's layout — which Patterns are unfolded, which are drawn, what is pinned
- * under each — remembered between visits.
+ * and what has been moved under each — remembered between visits.
  *
  * In `localStorage` rather than in the URL, and unlike `symbol`/`timeframe`/`to` this is not a
  * choice: the keys here are producer keys, and a producer key carries its timeframe. Half of a
@@ -22,15 +22,20 @@ const KEY = 'playbook:monitor:overlays'
 /**
  * The parts of the sidebar that survive a reload, by the name each carries on the page.
  *
+ * `moves` is the odd one only in what follows its `producer|`: a hand-adjusted trend line, as one
+ * `moveKey` string. It belongs here rather than in memory for `pinned`'s reason — it is a decision
+ * somebody made about a line, not an exception to a default — and it resolves the same way, against
+ * the current Points and the current bars, so a move whose line is gone is simply never consulted.
+ *
  * Every one of them is a `Set<string>` of producer keys — which is what makes one composable
- * enough for five pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
+ * enough for six pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
  * `hiddenStates`) deliberately are not: those are keyed `producer:value` and store the *exception*,
  * so a stale entry from an older window is a checkbox silently off rather than a Series simply not
  * found. They stay in memory.
  */
-type Stored = 'shown' | 'open' | 'pinned' | 'autoHide' | 'confirmedOnly'
+type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'confirmedOnly'
 
-const NAMES: Stored[] = ['shown', 'open', 'pinned', 'autoHide', 'confirmedOnly']
+const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'confirmedOnly']
 
 /** Total, like `parseRule`: anything that is not an array of strings reads as an empty set. */
 function readList(value: unknown): string[] {

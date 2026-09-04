@@ -1,4 +1,5 @@
 import type { UTCTimestamp } from 'lightweight-charts'
+import type { Candle } from '~/types/candle'
 import type { TrendLine } from '~/types/pattern'
 import type { TrendSegment } from '~/utils/trend-segments'
 
@@ -60,6 +61,16 @@ export interface DrawnTrend extends TrendSegment {
   toPrice: number
   /** Either endpoint measures the running leg, so this line moves with every bar. */
   provisional: boolean
+  /**
+   * The line this one was moved from, when it is a moved line — `trendSegmentId`'s id for the
+   * Pattern the engine actually proposed. Absent on every line the engine drew itself.
+   *
+   * The sidebar reads it as "this row is a line you adjusted", and the page reads it to keep one
+   * move per origin. See `movedSegments`.
+   */
+  origin?: string
+  /** Which of the far bar's four prices the moved end sits on. Absent for the same reason. */
+  field?: PriceField
 }
 
 /**
@@ -152,6 +163,178 @@ export function trendSegments(
       // Kept separate from `pinned` rather than folded into it by the caller, because `pinned` is
       // also what survives the auto-hide timer and a line under the cursor is not one you kept.
       extend: pinned.has(id) || id === hovered,
+    })
+  }
+
+  return segments
+}
+
+/**
+ * Which of a Candle's four prices a moved line's far end sits on.
+ *
+ * The magnetism is the point: a trend line is a claim about where price turned, and a line ending
+ * halfway up a wick is a claim about nothing. So the second point is not a free price — it is one
+ * of the four readings the bar under the cursor actually took.
+ *
+ * All four rather than the two the line's own side would suggest, because a ceiling drawn along
+ * closes is a different and equally common reading of the same tops: which anchor a line runs
+ * along is exactly the judgement this feature exists to let somebody make.
+ */
+export type PriceField = 'open' | 'high' | 'low' | 'close'
+
+/** What each anchor is called in the sidebar's list of selected lines. */
+export const FIELD_LABELS: Record<PriceField, string> = {
+  open: 'abertura',
+  high: 'máxima',
+  low: 'mínima',
+  close: 'fechamento',
+}
+
+/** The four, in the order they are searched for the one nearest the cursor. */
+export const PRICE_FIELDS: PriceField[] = ['open', 'high', 'low', 'close']
+
+/**
+ * What a *moved* line is called: its two bars and side, as ever, plus the anchor its far end sits
+ * on.
+ *
+ * The `@field` suffix is not decoration. Without it a line moved onto the very bar the engine had
+ * already chosen would mint the id of the line it replaced, and the two would be the same line to
+ * every part of the app that names one — the pin, the hit test, the sidebar row. A moved line is a
+ * different claim from the one the engine proposed even when it lands in the same place, and its
+ * name has to say so.
+ */
+export function movedTrendId(from: number, to: number, side: TrendSide, field: PriceField): string {
+  return `${trendSegmentId(from, to, side)}@${field}`
+}
+
+/**
+ * A move, as the page stores it: the line it was made from, and where its far end went.
+ *
+ * Nothing else. The fixed near end, the side and the price are all resolved from the current
+ * Points and the current bars — which is what makes a move survive a pipeline re-run for the same
+ * reason a pin does, and what makes a move whose origin line or whose bar has left the window
+ * simply not resolve rather than resolve to something stale.
+ */
+export interface TrendMove {
+  /** `trendSegmentId`'s id for the line the engine proposed. */
+  origin: string
+  /** The bar the far end was dropped on. */
+  toTime: number
+  field: PriceField
+}
+
+/**
+ * A move as one string, so `useStoredOverlays` can keep it in a `Set` beside the pins.
+ *
+ * The separators cannot collide with the id's own: `trendSegmentId` joins with `:` and mints only
+ * digits and the two side words, so `>` and `@` appear nowhere inside an origin.
+ */
+export function moveKey(origin: string, toTime: number, field: PriceField): string {
+  return `${origin}>${toTime}@${field}`
+}
+
+/**
+ * A move key back into a move, or `null`.
+ *
+ * Total, in `parseRule`'s style, and for the same reason: these come back out of `localStorage`,
+ * which is hand-editable and outlives every version of this file. A key this function cannot read
+ * is a line that is simply not moved, which is a correct chart.
+ */
+export function parseMove(key: string): TrendMove | null {
+  const [origin, rest] = key.split('>')
+  if (!origin || !rest) return null
+
+  const [time, field] = rest.split('@')
+  const toTime = Number(time)
+  if (!Number.isFinite(toTime)) return null
+
+  if (!PRICE_FIELDS.includes(field as PriceField)) return null
+
+  return { origin, toTime, field: field as PriceField }
+}
+
+/**
+ * The lines somebody moved by hand, drawn from the same Points and bars the rest of the chart is.
+ *
+ * A sibling of `trendSegments` rather than a parameter on it, because the two answer different
+ * questions: that one is "what did the engine find", this one is "what did you make of it". Folding
+ * them together would have `trendSegments` take the candle history, which it has never needed —
+ * every price it draws comes off a Point.
+ *
+ * The origin line is deliberately **not** removed from the fan. It is still a real Pattern the
+ * engine found, and a moved line is an opinion laid over it rather than a correction of it; what a
+ * move takes away is the origin's *pin*, which the page does. So the two can sit on the chart at
+ * once, and the moved one is the one that carries a slope out to the live edge.
+ *
+ * A moved line is always `extend`ed and needs no `pinned` argument: the move is the pin. There is
+ * nothing else a moved line could be for — you moved it to read where it now points.
+ *
+ * `focus` means exactly what it means in `trendSegments`, applied here too so a moved line dims
+ * with the fan rather than floating above a highlight that no longer includes it. There is no
+ * `hovered`: that argument previews the projection a pin would give a line, and this line already
+ * has it.
+ *
+ * Four ways a move does not resolve, all of them silent and all of them the honest reading: the
+ * origin line is no longer among the Points; its side is filtered off; the bar it was dropped on
+ * has left the window; or that bar is not after the fixed end, which is not a trend line at all.
+ */
+export function movedSegments(
+  points: TrendLine[],
+  sides: TrendSide[],
+  color: string,
+  moves: readonly string[],
+  bars: ReadonlyMap<number, Candle>,
+  focus: number | null = null,
+): DrawnTrend[] {
+  if (moves.length === 0) return []
+
+  // One pass over the Points for however many moves there are, rather than a scan per move: the
+  // fan runs to some hundreds of lines and this is rebuilt on every mouse move.
+  const origins = new Map<string, TrendLine>()
+  for (const point of points) {
+    origins.set(trendSegmentId(point.time, point.to.time, point.direction), point)
+  }
+
+  const segments: DrawnTrend[] = []
+
+  for (const key of moves) {
+    const move = parseMove(key)
+    if (move === null) continue
+
+    const point = origins.get(move.origin)
+    if (!point) continue
+    if (!sides.includes(point.direction)) continue
+
+    const bar = bars.get(move.toTime)
+    if (!bar) continue
+
+    // A trend line runs from an earlier extreme to a later one. A far end dropped at or before the
+    // near one is not a shorter line, it is not a line — and `boundsOf` would be dividing by zero.
+    if (move.toTime <= point.time) continue
+
+    const price = bar[move.field]
+    const id = movedTrendId(point.time, move.toTime, point.direction, move.field)
+    const lit = focus === null || move.toTime === focus
+
+    segments.push({
+      id,
+      side: point.direction,
+      // The half of the line that never moves: the Point's own near extreme.
+      from: { time: point.time as UTCTimestamp, price: point.price },
+      // And the half that did: a real bar, at one of the four prices it actually took.
+      to: { time: move.toTime as UTCTimestamp, price },
+      fromPrice: point.price,
+      toPrice: price,
+      // The origin's reading of it. The near end still measures the same leg, so a line moved off a
+      // running leg is still moving with every candle.
+      provisional: point.provisional,
+      origin: move.origin,
+      field: move.field,
+      color: lit ? color : color + DIM_ALPHA,
+      hittable: lit,
+      // Always, unlike a fan line: the move is the pin, and a line you adjusted by hand is one you
+      // adjusted in order to read where it now points.
+      extend: true,
     })
   }
 

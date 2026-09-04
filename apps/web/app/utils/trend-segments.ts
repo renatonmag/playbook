@@ -83,6 +83,29 @@ export interface TrendSegmentsOptions {
 /** How far from a line a cursor still counts as being on it, in CSS pixels. */
 const HIT_TOLERANCE = 4
 
+/** The grab handle's radius in CSS pixels — big enough to aim at, small enough not to hide the bar. */
+const HANDLE_RADIUS = 4
+
+/** What the handle is ringed in: the chart's own background, so the dot reads as sitting on top. */
+const HANDLE_RING = '#ffffff'
+
+/**
+ * The dot drawn on one segment: what a caller offers when a line's far end can be taken hold of.
+ *
+ * `pointer` is the cursor in media coordinates, and the dot rides the line at the point nearest it
+ * — the affordance, sliding along the line under the mouse. `null` puts the dot on the segment's
+ * far end instead, which is what a caller passes while that end is being *placed*: during a drag
+ * the dot is no longer following the cursor along a fixed line, it **is** the end the cursor is
+ * carrying, and the line is redrawn to it on every frame.
+ *
+ * Its own field rather than a fifth thing a `TrendSegment` can be, because it is not a property of
+ * a line: it is a property of the cursor, and it changes on mouse moves that reshape nothing.
+ */
+export interface TrendHandle {
+  id: string
+  pointer: { x: number, y: number } | null
+}
+
 /** Where a line lies in media (CSS) space: the same numbers the renderer strokes, unscaled. */
 interface SegmentBounds {
   x1: number
@@ -136,11 +159,14 @@ function boundsOf(
 }
 
 /**
- * How far `(x, y)` is from the line segment, in CSS pixels — clamped to the segment, so the
- * distance to a line is measured from the part of it that is actually drawn and not from the
- * infinite line through it.
+ * The point of the segment nearest `(x, y)`, in CSS pixels — clamped to the segment, so it is a
+ * point of the line that is actually drawn and not of the infinite line through it.
+ *
+ * Two callers, which is why it is its own function: the hit test measures its distance, and the
+ * handle is drawn *at* it. A second copy of this arithmetic would put the dot somewhere the cursor
+ * cannot grab, which is the failure `boundsOf` is written against one level up.
  */
-function distanceTo(bounds: SegmentBounds, x: number, y: number): number {
+function projectOnto(bounds: SegmentBounds, x: number, y: number): { x: number, y: number } {
   const dx = bounds.x2 - bounds.x1
   const dy = bounds.y2 - bounds.y1
   const length = dx * dx + dy * dy
@@ -152,22 +178,26 @@ function distanceTo(bounds: SegmentBounds, x: number, y: number): number {
       ? 0
       : Math.max(0, Math.min(1, ((x - bounds.x1) * dx + (y - bounds.y1) * dy) / length))
 
-  const nearestX = bounds.x1 + along * dx
-  const nearestY = bounds.y1 + along * dy
+  return { x: bounds.x1 + along * dx, y: bounds.y1 + along * dy }
+}
 
-  return Math.hypot(x - nearestX, y - nearestY)
+/** How far `(x, y)` is from the line segment, in CSS pixels. */
+function distanceTo(bounds: SegmentBounds, x: number, y: number): number {
+  const nearest = projectOnto(bounds, x, y)
+  return Math.hypot(x - nearest.x, y - nearest.y)
 }
 
 class TrendSegmentsRenderer implements IPrimitivePaneRenderer {
   constructor(
     private readonly segments: readonly TrendSegment[],
+    private readonly handle: TrendHandle | null,
     private readonly options: TrendSegmentsOptions,
     private readonly chart: IChartApi | null,
     private readonly series: ISeriesApi<SeriesType, Time> | null,
   ) {}
 
   draw(target: RenderTarget): void {
-    const { chart, series, segments, options } = this
+    const { chart, series, segments, handle, options } = this
     if (!chart || !series || segments.length === 0) return
 
     const timeScale = chart.timeScale()
@@ -183,9 +213,19 @@ class TrendSegmentsRenderer implements IPrimitivePaneRenderer {
     target.useBitmapCoordinateSpace(({ context, horizontalPixelRatio, verticalPixelRatio }) => {
       context.lineWidth = Math.max(1, Math.round(options.lineWidth * verticalPixelRatio))
 
+      // The handle's own bounds, kept from the pass over the lines rather than recomputed: the dot
+      // has to sit on the stroke that was actually drawn, at whatever length `extend` gave it.
+      let held: SegmentBounds | null = null
+      let heldColor = ''
+
       for (const segment of segments) {
         const bounds = boundsOf(segment, timeScale, series, edge)
         if (bounds === null) continue
+
+        if (handle && segment.id === handle.id) {
+          held = bounds
+          heldColor = segment.color
+        }
 
         context.beginPath()
         context.strokeStyle = segment.color
@@ -193,6 +233,28 @@ class TrendSegmentsRenderer implements IPrimitivePaneRenderer {
         context.lineTo(bounds.x2 * horizontalPixelRatio, bounds.y2 * verticalPixelRatio)
         context.stroke()
       }
+
+      // Last, so it sits on top of every line it crosses — a handle hidden under the fan is a
+      // handle nobody would think to grab.
+      if (!handle || held === null) return
+
+      // Following the cursor along the line, or *being* the end the cursor is placing. See
+      // `TrendHandle`.
+      const at = handle.pointer
+        ? projectOnto(held, handle.pointer.x, handle.pointer.y)
+        : { x: held.x2, y: held.y2 }
+
+      const radius = HANDLE_RADIUS * verticalPixelRatio
+
+      // The line's own colour, ringed in the pane's background: a bare dot in the fan's hue reads
+      // as a thickening of the stroke, and the ring is what makes it a thing to take hold of.
+      context.beginPath()
+      context.fillStyle = heldColor
+      context.strokeStyle = HANDLE_RING
+      context.lineWidth = Math.max(1, Math.round(verticalPixelRatio))
+      context.arc(at.x * horizontalPixelRatio, at.y * verticalPixelRatio, radius, 0, Math.PI * 2)
+      context.fill()
+      context.stroke()
     })
   }
 }
@@ -217,6 +279,7 @@ class TrendSegmentsPaneView implements IPrimitivePaneView {
 
 export class TrendSegments implements ISeriesPrimitive<Time> {
   private segments: readonly TrendSegment[] = []
+  private handle: TrendHandle | null = null
   private chart: IChartApi | null = null
   private series: ISeriesApi<SeriesType, Time> | null = null
   private requestUpdate: (() => void) | null = null
@@ -232,6 +295,20 @@ export class TrendSegments implements ISeriesPrimitive<Time> {
 
   setSegments(segments: readonly TrendSegment[]): void {
     this.segments = segments
+    this.views = [new TrendSegmentsPaneView(this)]
+    this.requestUpdate?.()
+  }
+
+  /**
+   * Offer — or withdraw — the grab handle on one line.
+   *
+   * Its own method rather than an argument to `setSegments`, and this is the reason it is worth
+   * one: the handle changes on every mouse move along a line, while the lines themselves change
+   * only when the Pattern, the filters or the pins do. Reshaping the whole fan to move a dot four
+   * pixels is work the cursor should not cost.
+   */
+  setHandle(handle: TrendHandle | null): void {
+    this.handle = handle
     this.views = [new TrendSegmentsPaneView(this)]
     this.requestUpdate?.()
   }
@@ -253,7 +330,13 @@ export class TrendSegments implements ISeriesPrimitive<Time> {
   }
 
   renderer(): IPrimitivePaneRenderer {
-    return new TrendSegmentsRenderer(this.segments, this.options, this.chart, this.series)
+    return new TrendSegmentsRenderer(
+      this.segments,
+      this.handle,
+      this.options,
+      this.chart,
+      this.series,
+    )
   }
 
   /**

@@ -772,18 +772,81 @@ function pinsFor(producer: string): string[] {
   return [...pinned.value].filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))
 }
 
+/** `limpar`: everything this Series has on the list, which for `trend-lines` includes its moves. */
 function clearPins(producer: string) {
   for (const key of pinsFor(producer)) pinned.value.delete(pinKey(producer, key))
+  for (const key of movesFor(producer)) moves.value.delete(pinKey(producer, key))
 }
 
 /**
- * The five sets above, remembered between visits — everything about the sidebar that is keyed by
+ * The trend lines somebody adjusted by hand, keyed the way `pinned` is: `producer|` and then one
+ * `moveKey` — the line the engine proposed, and the candle anchor its far end was dragged onto.
+ *
+ * A set of its own rather than more entries in `pinned`, because a move is not a pin of a line the
+ * pipeline produced: there is no such line, and every id in `pinned` has to be one an overlay can
+ * resolve against its Points. What the two share is that **a move is its own pin** — a hand-placed
+ * line is always extended and always survives the hide timer, since adjusting one is only ever done
+ * in order to read where it now points. So there is no state that says a moved line is selected,
+ * and nothing that could disagree with it.
+ *
+ * Stored beside the pins and resolved the same way, against the current Points and the current
+ * bars. A move whose line is gone from the window takes itself off the list, which is the same
+ * honest reading `pinned` gives.
+ */
+const moves = ref(new Set<string>())
+
+/** The bare move keys for one Series, which is what its overlay speaks. */
+function movesFor(producer: string): string[] {
+  const prefix = `${producer}|`
+  return [...moves.value].filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length))
+}
+
+/**
+ * A line's far end was dropped on a candle: keep the move, and let go of what it replaces.
+ *
+ * Two things go, and both are the request as stated. The line's earlier move, if it had one — a
+ * line is moved *from* somewhere, not to several places at once, so a second drag adjusts the same
+ * line rather than forking it. And the origin's pin: what the engine proposed is still a real
+ * Pattern and stays drawn in the fan, but it is no longer the line you are reading, so it stops
+ * being extended and stops being listed. The moved line is the one in `Selecionadas`.
+ */
+function applyMove(producer: string, key: string) {
+  const move = parseMove(key)
+  if (move === null) return
+
+  for (const existing of movesFor(producer)) {
+    if (parseMove(existing)?.origin === move.origin) moves.value.delete(pinKey(producer, existing))
+  }
+
+  pinned.value.delete(pinKey(producer, move.origin))
+  moves.value.add(pinKey(producer, key))
+}
+
+/**
+ * A row of `Selecionadas` back to the move that made it, so the list's `✕` can name what to remove.
+ * `null` for a line the engine drew itself, which is unpinned rather than un-moved.
+ */
+function moveOf(segment: DrawnTrend): string | null {
+  if (segment.origin === undefined || segment.field === undefined) return null
+  return moveKey(segment.origin, segment.to.time, segment.field)
+}
+
+/**
+ * The `✕` on a moved line: un-move it. The origin does not come back selected — it is still there
+ * in the fan, and a click puts it back on the list if that is what you wanted.
+ */
+function removeMove(producer: string, key: string) {
+  moves.value.delete(pinKey(producer, key))
+}
+
+/**
+ * The six sets above, remembered between visits — everything about the sidebar that is keyed by
  * producer and nothing that is not. See `useStoredOverlays` for why the write is automatic and the
  * read is the button beside the heading.
  *
- * Here rather than beside `shown`, because it needs all five and `pinned` is the last of them.
+ * Here rather than beside `shown`, because it needs all six and `moves` is the last of them.
  */
-const layout = useStoredOverlays({ shown, open, pinned, autoHide, confirmedOnly })
+const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, confirmedOnly })
 
 /**
  * `Restaurar`'s click: the saved layout, and then the hide it stands for.
@@ -864,14 +927,27 @@ function pinnedGaps(overlay: { producer: string, points: PatternPoint[] }): GapB
  */
 function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color: string }): DrawnTrend[] {
   const ids = new Set(pinsFor(overlay.producer))
-  if (ids.size === 0) return []
+  const keys = movesFor(overlay.producer)
+  if (ids.size === 0 && keys.length === 0) return []
 
-  return trendSegments(
-    overlay.points as TrendLine[],
-    sidesFor(overlay.producer),
-    overlay.color,
-    ids,
-  ).filter(segment => ids.has(segment.id))
+  return [
+    ...trendSegments(
+      overlay.points as TrendLine[],
+      sidesFor(overlay.producer),
+      overlay.color,
+      ids,
+    ).filter(segment => ids.has(segment.id)),
+    // The hand-adjusted lines are on this list for the same reason the pinned ones are: they are
+    // what is extended on the chart. A move is its own pin, so they need no membership test — a
+    // move that no longer resolves has already dropped out of `movedSegments`.
+    ...movedSegments(
+      overlay.points as TrendLine[],
+      sidesFor(overlay.producer),
+      overlay.color,
+      keys,
+      barsByTime.value,
+    ),
+  ]
 }
 
 /**
@@ -958,6 +1034,12 @@ function extraProps(overlay: { producer: string, name: string }) {
           // Not gated on a bar being chosen — the preview is worth having on the raw fan too, and
           // once a bar *is* chosen only the lit lines are hit-testable, so only they preview.
           previewOnHover: focusMode.value.has(overlay.producer),
+          // The hand-adjusted lines, and the candles a drag snaps to. Both belong to this Pattern
+          // alone: it is the only one whose drawing anybody edits.
+          moves: movesFor(overlay.producer),
+          bars: barsByTime.value,
+          onMove: (key: string) => applyMove(overlay.producer, key),
+          onUnmove: (key: string) => removeMove(overlay.producer, key),
           ...focusMode.value.has(overlay.producer)
             ? { onBar: (time: number | null) => setFocusBar(overlay.producer, time) }
             : {},
@@ -1568,7 +1650,8 @@ function isVisible(overlay: { producer: string }) {
                     </button>
                   </div>
                   <p v-else class="text-gray-400">
-                    Clique numa linha do gráfico para estendê-la até o candle atual.
+                    Clique numa linha do gráfico para estendê-la até o candle atual. Depois arraste
+                    a ponta dela para movê-la até outro candle.
                   </p>
 
                   <ul class="mt-1 space-y-0.5">
@@ -1586,13 +1669,19 @@ function isVisible(overlay: { producer: string }) {
                       <span class="text-gray-400">
                         {{ barLabel(segment.from.time) }}–{{ barLabel(segment.to.time) }}
                       </span>
+                      <!-- A line whose far end you placed yourself, and the anchor you placed it
+                           on. The chart cannot say the second half: every line ends on a price, and
+                           only this list can say *which* of the candle's four it is. -->
+                      <span v-if="segment.field" class="text-gray-400">
+                        movida · {{ FIELD_LABELS[segment.field] }}
+                      </span>
                       <!-- The one thing the drawing cannot say: this line ends on the leg still
                            running, so it moves with every candle and may not be there tomorrow. -->
                       <span v-if="segment.provisional" class="text-amber-600">provisória</span>
                       <button
                         class="ml-auto text-gray-400 hover:text-gray-600"
                         :aria-label="`desselecionar ${TREND_LABELS[segment.side]}`"
-                        @click="togglePin(overlay.producer, segment.id)"
+                        @click="moveOf(segment) ? removeMove(overlay.producer, moveOf(segment)!) : togglePin(overlay.producer, segment.id)"
                       >
                         ✕
                       </button>
