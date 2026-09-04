@@ -29,7 +29,7 @@ export function useLineOverlay(
       if (!chartApi) return
 
       line ??= chartApi.addSeries(LineSeries, {
-        lineWidth: 2,
+        lineWidth: 1,
         // Both belong to the candles, not to a derived line: a zigzag's last vertex is not a
         // price level, and a label for it on the scale would read as one.
         priceLineVisible: false,
