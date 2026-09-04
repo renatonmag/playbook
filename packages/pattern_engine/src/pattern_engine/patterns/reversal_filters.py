@@ -1,11 +1,14 @@
 """The reversal filters themselves — the arithmetic, with no leg and no Series in sight.
 
-Three claims a bar can carry, extracted here because two Patterns now ask them different
+Four claims a bar can carry, extracted here because two Patterns now ask them different
 questions: `LegReversalsPattern` asks them of the bars of one leg, filtered for the one turn that
 leg is a candidate for, and `BarsPattern` asks them of every bar in the history, for both turns.
 The rules are identical in the two — they are statements about *bars* — and leaving them in
 `leg_reversals` would have made the leg-agnostic Pattern import the leg one to borrow arithmetic
 that was never about legs.
+
+The fourth is asked by `BarsPattern` alone. It lives here anyway, because what this module is is
+the one place bar arithmetic is written — not "the filters `leg_reversals` happens to need".
 
 - **The two-bar reversal** — `reverses`. Two adjacent Candles, each with a body dominating its own
   shadows, in opposite colours, of comparable size, and large for the moment they happened in.
@@ -13,6 +16,10 @@ that was never about legs.
 - **The Forma rule** — not here: it is `marks` in `shape.py`, which needs no history at all.
 - **The inside bar** — `nests`. One Candle whose range its predecessor already covered, both
   extremes included.
+- **The small overlap** — `clears`. One Candle that closed clear of its predecessor's range: a bull
+  bar above the previous high, a bear bar below the previous low. Not a reversal filter at all —
+  it marks a bar that *continued*, not one that might turn — which is why only `BarsPattern`, whose
+  business is every reading of every bar, asks it.
 
 **Everything reads the global history, never a slice.** Every function that needs context takes
 the whole bar array and an index rather than the Candles it will look at, because `expands`
@@ -240,3 +247,42 @@ def nests(bars: Sequence[Candle], i: int, timeframe: Timeframe) -> bool:
         return False
 
     return previous.high >= current.high and previous.low <= current.low
+
+
+def clears(bars: Sequence[Candle], i: int, direction: Direction, timeframe: Timeframe) -> bool:
+    """Whether `bars[i]` closed clear of the range of the bar before it — a small overlap.
+
+    A bull bar that closed above the previous high, or a bear bar that closed below the previous
+    low. Two claims per direction, and the colour one is not redundant: a bar can open above the
+    previous high, sell off, and still close above it while being bear all the way down. That bar
+    overlapped little with its predecessor, but it is not a bull bar and the rule says bull bar.
+
+    So a bar with no body — `close == open` — is neither colour and is never marked, which is the
+    one thing this does *not* share with `nests`: containment survives a bar that traded at a
+    single price, a colour does not.
+
+    The comparisons are strict, the opposite convention to `nests` and for the same reason read the
+    other way: there, an equal high is a high that was not exceeded, so containment holds. Here the
+    claim *is* that the close exceeded it, and a close sitting exactly on the previous high has
+    exceeded nothing.
+
+    Reads `open`, `close` and one extreme of the previous bar, so — like `nests` and unlike the two
+    shape-reading filters — it has an answer for a bar `shape_of` returns `None` for, and callers
+    have to ask it above their shape guard. See `BarsPattern.run`.
+
+    Takes the array and an index rather than two Candles, matching `nests` and `reverses`: the pair
+    has to be found in the history to be checked for adjacency at all.
+    """
+    if i <= 0:
+        return False
+
+    previous, current = bars[i - 1], bars[i]
+
+    # Yesterday's last bar is not "the bar before" this one. Without this the overnight gap would
+    # mark a good share of the session's first bars, which says nothing about overlap.
+    if not adjacent(previous, current, timeframe):
+        return False
+
+    if direction == "bullish":
+        return current.close > current.open and current.close > previous.high
+    return current.close < current.open and current.close < previous.low

@@ -151,8 +151,15 @@ export interface LegReversals extends PatternPoint {
  * `type` and `direction` together name one.
  */
 export interface BarMark extends PatternPoint {
-  /** Which filter marked it. The same three readings `LegBar['type']` documents. */
-  type: LegBar['type']
+  /**
+   * Which filter marked it — the three readings `LegBar['type']` documents, plus one no leg can
+   * carry.
+   *
+   * `small-overlap` means the bar closed clear of the range of the bar before it: a bull bar above
+   * the previous high, a bear bar below the previous low. Only this Pattern asks it, which is why
+   * it widens the union here instead of in `LegBar`.
+   */
+  type: LegBar['type'] | 'small-overlap'
   /**
    * The turn this mark is a candidate for — a `bearish` mark is a candidate top.
    *
@@ -160,6 +167,10 @@ export interface BarMark extends PatternPoint {
    * leaves the reader to invert it. There is no leg here to invert, so the mark says outright what
    * it is a candidate for. `null` on an `inside-bar`, which reads only the extremes and makes no
    * directional claim at all.
+   *
+   * `small-overlap` is the exception to the sentence above: there the direction is the bar's own
+   * colour, so it marks a move that *continued* rather than one that might turn. Read alongside
+   * the others it sits on the opposite side of the bar from a candidate for the same turn.
    */
   direction: 'bullish' | 'bearish' | null
 }

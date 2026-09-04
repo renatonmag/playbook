@@ -327,7 +327,12 @@ def test_bars_reports_both_turns_where_leg_reversals_reports_one_per_leg(client)
     assert {"bullish", "bearish"} <= directions
     assert directions <= {"bullish", "bearish", None}
     # And every mark says which filter made it, so the drawing can hue them apart.
-    assert {point["type"] for point in points} <= {"two-bar", "reversal-bar", "inside-bar"}
+    assert {point["type"] for point in points} <= {
+        "two-bar",
+        "reversal-bar",
+        "inside-bar",
+        "small-overlap",
+    }
 
 
 def test_the_counts_come_from_leg_reversals_and_not_the_other_series_with_a_found_list(client):

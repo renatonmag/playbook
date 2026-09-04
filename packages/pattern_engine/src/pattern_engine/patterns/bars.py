@@ -27,6 +27,10 @@ Which means each filter answers the direction question its own way:
 - **`inside-bar`** carries `None`. It reads `high` and `low` and no body at all, so it makes no
   claim about a direction and is not going to be given one. Anything filtering by direction has
   to decide what to do with these; the monitor keeps them whatever the checkboxes say.
+- **`small-overlap`** carries the colour of the bar itself, and exactly one direction can hold: the
+  two readings demand opposite colours. It is the odd one out in what the direction *means* — the
+  other three mark a bar that might turn the move, this one marks a bar that carried it, closing
+  clear of the range before it. A `bullish` small overlap is a bull bar, not a candidate bottom.
 
 What it costs, stated rather than hidden:
 
@@ -44,6 +48,7 @@ carries its `(params)`.
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 from ..candles import Candle
 from ..engine import BARS, INSTRUMENT
@@ -51,11 +56,18 @@ from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..shape import Direction, FormaRule, marks, shape_of
 from ..timeframes import Timeframe
-from .reversal_filters import MarkType, nests, reverses
+from .reversal_filters import MarkType, clears, nests, reverses
 
 #: Both turns, in the order the marks are emitted in. A tuple rather than the two names written
-#: out at each of the two loops that walk them, so the emitted order is stated once.
+#: out at each of the three loops that walk them, so the emitted order is stated once.
 BOTH: tuple[Direction, ...] = ("bullish", "bearish")
+
+#: The readings this Pattern can emit — the three reversal filters plus the one only it asks.
+#:
+#: Its own alias rather than a wider `MarkType`, because `MarkType` is what a *leg* can be marked
+#: with and `LegReversalsPattern` cannot produce a `small-overlap`. Widening it there would put a
+#: value in `LegBar['type']`, on the wire and in the web app's types, that no leg ever carries.
+BarMarkType = MarkType | Literal["small-overlap"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +84,7 @@ class BarMark(Candle):
     key a mark on `time` alone; `time`, `type` and `direction` together name one.
     """
 
-    type: MarkType
+    type: BarMarkType
     #: The turn this mark is a candidate for — **not** a leg's move, which is the inversion
     #: `LegReversals.direction` carries. `None` for `inside-bar`, which has no body to have a
     #: colour and so makes no directional claim at all.
@@ -113,9 +125,10 @@ class BarsPattern(Pattern):
     def run(self, ctx: Ctx) -> BaseSeries[BarMark]:
         """One Point per finding, in bar order, grouped by the bar they are about.
 
-        The per-bar emission order is fixed — inside bar, then the pair, then the rule, each of
-        the last two in `BOTH` — so the Series is sorted by `time` without a sort, and a bar's
-        marks arrive together. Anything reading them in pairs relies on that grouping.
+        The per-bar emission order is fixed — inside bar, then the small overlap, then the pair,
+        then the rule, each of the last three in `BOTH` — so the Series is sorted by `time` without
+        a sort, and a bar's marks arrive together. Anything reading them in pairs relies on that
+        grouping.
         """
         bars: BaseSeries[Candle] = ctx[BARS][self.emits]
 
@@ -127,10 +140,16 @@ class BarsPattern(Pattern):
         points: list[BarMark] = []
         for i, bar in enumerate(history):
             # Above the shape guard on purpose, and for the reason `marked_bars` gives:
-            # containment is read off `high` and `low`, so unlike the two below it has something
-            # to say about a bar that traded at a single price.
+            # containment is read off `high` and `low`, so unlike the two shape-reading filters
+            # below it has something to say about a bar that traded at a single price.
             if nests(history, i, self.emits):
                 points.append(BarMark.anchored(bar, type="inside-bar", direction=None))
+
+            for direction in BOTH:
+                # Above the shape guard for the same reason, and it needs no dedupe: a bull reading
+                # and a bear one demand opposite colours, so at most one can hold per bar.
+                if clears(history, i, direction, self.emits):
+                    points.append(BarMark.anchored(bar, type="small-overlap", direction=direction))
 
             shape = shapes[i]
             if shape is None:
