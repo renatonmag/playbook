@@ -12,7 +12,7 @@ import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
-import { Badge } from '~/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -282,19 +282,45 @@ function toggle(producer: string) {
 }
 
 /**
- * Producers whose control block is unfolded under the chips.
+ * Producers whose control block is unfolded under the picker.
  *
- * Deliberately not `shown`: a chip opens the controls of a Pattern, and `Mostrar` inside them is
+ * Deliberately not `shown`: picking a Pattern opens its controls, and `Mostrar` inside them is
  * what reaches the chart. One checkbox used to answer both questions, which meant you could not
  * read a Series' filters without drawing it, or leave it drawn without its controls in the way.
  *
- * The exception again, and for the reason `shown` is one: the column opens as chips alone.
+ * The exception again, and for the reason `shown` is one: the column opens as the picker alone.
  */
 const open = ref(new Set<string>())
 
-function toggleOpen(producer: string) {
-  if (open.value.has(producer)) open.value.delete(producer)
-  else open.value.add(producer)
+/**
+ * Everything the picker offers: the drawable Series, then the wick tool.
+ *
+ * The tool is in the list for the reason its chip used to sit in the row beside the Patterns —
+ * from here it is one more thing you can put on the chart, and giving it a control of its own
+ * would turn "no server ran for it" into a layout decision. Its dot is `WICK_HUES.high`, a
+ * colour actually on the chart, where a Pattern's is its palette slot.
+ */
+const controls = computed(() => [
+  ...overlays.value.map(overlay => ({
+    key: overlay.producer,
+    label: overlay.label,
+    // Where a total, unique, unreadable string belongs: the row's tooltip, not its text.
+    title: overlay.producer,
+    color: overlay.color,
+  })),
+  { key: WICK_KEY, label: 'Pavio', title: 'pavios do candle sob o cursor', color: WICK_HUES.high },
+])
+
+/** `open` as the array the select speaks. The Set stays canonical — every block below asks it. */
+const openList = computed(() => [...open.value])
+
+/**
+ * `reka-ui` types its emit as a single value even under `multiple`, where what arrives is the
+ * array. Hence `:model-value` and a handler rather than `v-model`: the cast lives here, in one
+ * named place, instead of failing the workspace's strict typecheck at the binding.
+ */
+function setOpen(value: unknown) {
+  open.value = new Set(value as string[])
 }
 
 /**
@@ -1078,57 +1104,51 @@ function isVisible(overlay: { producer: string }) {
           Nenhum padrão desenhável nesta janela.
         </p>
 
-        <!-- A chip per Pattern, and under them the control block of whichever chips are on. The
-             chip itself draws nothing — it opens and closes the control — and `Mostrar` inside the
-             control is what reaches the chart. Those are two facts about one Pattern, and the
-             checkbox this replaced had to stand for both at once.
+        <!-- One picker, and under it the control block of whichever entries are ticked. Ticking
+             draws nothing — it opens and closes the control — and `Mostrar` inside the control is
+             what reaches the chart. Those are two facts about one Pattern, and the checkbox this
+             all replaced had to stand for both at once.
 
-             No longer the `v-else` of the message above: the last chip in the row is the wick tool,
-             which reads the candles and has something to draw whether or not the pipeline found
-             anything. The message stays, because it is still true of the Patterns. -->
+             This was a chip per Pattern until the pipeline reached eight of them: the row then
+             wrapped to four lines inside an `lg:w-80` column and pushed the control blocks — the
+             thing you opened the sidebar for — below the fold. A `multiple` select trades the
+             chips' one advantage, every choice legible at rest, for a single line of chrome.
+
+             Not the `v-else` of the message above: the last entry is the wick tool, which reads
+             the candles and has something to draw whether or not the pipeline found anything. The
+             message stays, because it is still true of the Patterns. -->
         <div>
-          <div class="mt-3 flex flex-wrap gap-1.5">
-            <!-- `as="button"` so a chip is focusable and answers the keyboard: it is a control, and
-                 its variant is the only thing on screen saying which controls are open. -->
-            <Badge
-              v-for="overlay in overlays"
-              :key="overlay.producer"
-              as="button"
-              :variant="open.has(overlay.producer) ? 'default' : 'secondary'"
-              :title="overlay.producer"
-              @click="toggleOpen(overlay.producer)"
-            >
-              <!-- Lit in the Series' palette colour while it is drawn and hollow while it is not,
-                   so a folded control still says whether its Pattern is on the chart. Always
-                   rendered: a dot that appeared would resize the chip under the cursor. -->
-              <span
-                class="size-1.5 shrink-0 rounded-full border"
-                :style="shown.has(overlay.producer)
-                  ? { backgroundColor: overlay.color, borderColor: overlay.color }
-                  : { backgroundColor: 'transparent', borderColor: 'currentColor', opacity: 0.4 }"
-              />
-              {{ overlay.label }}
-            </Badge>
-
-            <!-- The wick tool, last in the row and deliberately in it: from here it is one more
-                 thing you can put on the chart, and a section of its own would have made the fact
-                 that no server ran for it into a layout decision. Its dot is `WICK_HUES.high`,
-                 which is a colour actually on the chart — unlike a Pattern's palette slot. -->
-            <Badge
-              as="button"
-              :variant="open.has(WICK_KEY) ? 'default' : 'secondary'"
-              title="pavios do candle sob o cursor"
-              @click="toggleOpen(WICK_KEY)"
-            >
-              <span
-                class="size-1.5 shrink-0 rounded-full border"
-                :style="shown.has(WICK_KEY)
-                  ? { backgroundColor: WICK_HUES.high, borderColor: WICK_HUES.high }
-                  : { backgroundColor: 'transparent', borderColor: 'currentColor', opacity: 0.4 }"
-              />
-              Pavio
-            </Badge>
-          </div>
+          <!-- `:model-value` with a handler rather than `v-model` — see `setOpen`. -->
+          <Select multiple :model-value="openList" @update:model-value="setOpen">
+            <SelectTrigger size="sm" class="mt-3 w-full">
+              <!-- A count, not the values: under `multiple` the default renderer joins the raw
+                   producer keys, and those are `zig-zag(3)`-shaped and unreadable at any width.
+                   Which ones are ticked is answered by the list, and by the blocks below it. -->
+              <span :class="open.size ? '' : 'text-muted-foreground'">
+                {{ open.size ? `${open.size} ${open.size === 1 ? 'padrão' : 'padrões'}` : 'Escolher padrões' }}
+              </span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem
+                v-for="control in controls"
+                :key="control.key"
+                :value="control.key"
+                :title="control.title"
+              >
+                <!-- Lit in the Series' palette colour while it is drawn and hollow while it is
+                     not, so the list still says what is on the chart — a question the tick to its
+                     right does not answer. Always rendered: a dot that appeared would resize the
+                     row under the cursor. -->
+                <span
+                  class="size-1.5 shrink-0 rounded-full border"
+                  :style="shown.has(control.key)
+                    ? { backgroundColor: control.color, borderColor: control.color }
+                    : { backgroundColor: 'transparent', borderColor: 'currentColor', opacity: 0.4 }"
+                />
+                {{ control.label }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
 
           <!-- `v-for` and `v-if` cannot share an element, and the condition is per-Pattern. -->
           <template v-for="overlay in overlays" :key="overlay.producer">
