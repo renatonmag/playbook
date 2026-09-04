@@ -277,7 +277,12 @@ const overlays = computed(() =>
 const shown = ref(new Set<string>())
 
 function toggle(producer: string) {
-  if (shown.value.has(producer)) shown.value.delete(producer)
+  if (shown.value.has(producer)) {
+    shown.value.delete(producer)
+    // The auto-hide button below unmounts with the Series; a timer left running would come back
+    // marking a control whose moment has passed.
+    stopFlash(producer)
+  }
   else shown.value.add(producer)
 }
 
@@ -682,10 +687,45 @@ const autoHide = ref(new Set<string>())
  */
 const hideTimer = useHideTimer(bar.epoch, () => autoHide.value.size > 0)
 
+/** How long the button that just stopped hiding its levels keeps calling attention to itself. */
+const FLASH_MS = 90_000
+
+/**
+ * Producers whose `Ocultar entre candles` button is still marked, keyed the way `autoHide` is.
+ *
+ * Turning the switch off is the click that puts the levels back on the chart for good, and it is
+ * the one click here with no immediate picture of its own: the levels were probably on screen
+ * already, inside a window the timer had opened. So the button says so itself for a minute and a
+ * half — long enough to read the chart and come back to the control that undoes it, short enough
+ * that a sidebar of Series is not a sidebar of blinking buttons.
+ *
+ * Per producer, and not one flag for the page the way `hideTimer` is one timer for it: the whole
+ * question is *which* button, and a shared flag would mark every one of them and answer nothing.
+ */
+const flashing = ref(new Set<string>())
+const flashTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function stopFlash(producer: string) {
+  const timer = flashTimers.get(producer)
+  if (timer !== undefined) clearTimeout(timer)
+  flashTimers.delete(producer)
+  flashing.value.delete(producer)
+}
+
+onScopeDispose(() => {
+  for (const timer of flashTimers.values()) clearTimeout(timer)
+})
+
 function toggleAutoHide(producer: string) {
-  if (autoHide.value.has(producer)) autoHide.value.delete(producer)
+  if (autoHide.value.has(producer)) {
+    autoHide.value.delete(producer)
+    flashing.value.add(producer)
+    flashTimers.set(producer, setTimeout(() => stopFlash(producer), FLASH_MS))
+  }
   else {
     autoHide.value.add(producer)
+    // Green again: this is no longer the button that changed.
+    stopFlash(producer)
     // Turning it on means "get out of the way", so it goes now rather than in half a minute. The
     // timer takes over at the next bar, which is the only moment it was ever measuring.
     hideTimer.hide()
@@ -1349,9 +1389,12 @@ function isVisible(overlay: { producer: string }) {
                 <ClientOnly>
                   <button
                     class="rounded border px-2 py-0.5 text-xs"
-                    :class="autoHide.has(overlay.producer)
-                      ? 'border-green-600 bg-green-50 text-green-700'
-                      : 'border-gray-300 text-gray-500'"
+                    :class="[
+                      autoHide.has(overlay.producer)
+                        ? 'border-green-600 bg-green-50 text-green-700'
+                        : 'border-gray-300 text-gray-500',
+                      flashing.has(overlay.producer) ? 'stay-flash' : '',
+                    ]"
                     @click="toggleAutoHide(overlay.producer)"
                   >
                     Ocultar entre candles
@@ -1662,3 +1705,27 @@ function isVisible(overlay: { producer: string }) {
     </div>
   </main>
 </template>
+
+<style scoped>
+/* An unhurried beat, because it runs for a minute and a half: any quicker and it reads as an
+   alarm, and nothing here is wrong. Slower and the amber leaves before it has arrived, which is
+   a fade rather than a mark. Only the background moves — border and text staying put keep it the same control
+   throughout. It rests on `transparent` rather than a colour: this only ever runs on the button's
+   off state, which has no fill of its own, and naming one here would repaint the sidebar's ground.
+   `infinite` and not a count: `flashing` decides when it ends, in one place.
+
+   Reduced motion drops the pulse rather than slowing it: the grey border and the missing
+   `· oculto / visível` suffix already say the switch is off. */
+@keyframes stay-flash {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: var(--color-amber-200); }
+}
+
+.stay-flash {
+  animation: stay-flash 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stay-flash { animation: none; }
+}
+</style>
