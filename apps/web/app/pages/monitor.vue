@@ -849,6 +849,37 @@ function removeMove(producer: string, key: string) {
 const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, confirmedOnly })
 
 /**
+ * `Ctrl+Z` over the two of those six that are a selection rather than a preference. See
+ * `useSelectionHistory` for why it is those two, and why it watches them instead of being called
+ * from `togglePin` and the three functions beside it.
+ */
+const history = useSelectionHistory({ pinned, moves })
+
+/**
+ * The shortcuts, on the window because the chart is a canvas and the sidebar is a column of buttons
+ * — there is no one element that could hold the focus this belongs to, and asking the page to be
+ * clicked before `Ctrl+Z` works would be a rule nobody can see.
+ *
+ * A text field keeps its own undo: the Forma rule's inputs are on this page, and stealing `Ctrl+Z`
+ * from a number somebody is halfway through typing would be a worse trade than any pin is worth.
+ * `preventDefault` only when a step actually happened, for the same reason — at the ends of the
+ * history the browser should get its default back rather than have the key silently swallowed.
+ */
+function onKeyDown(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  if (event.key.toLowerCase() !== 'z') return
+
+  const target = event.target
+  if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return
+
+  if (event.shiftKey ? history.redo() : history.undo()) event.preventDefault()
+}
+
+// `globalThis` rather than `window`, which on this page is the time window a few hundred lines up.
+onMounted(() => globalThis.addEventListener('keydown', onKeyDown))
+onBeforeUnmount(() => globalThis.removeEventListener('keydown', onKeyDown))
+
+/**
  * `Restaurar`'s click: the saved layout, and then the hide it stands for.
  *
  * `hideTimer.hide()` for the reason `toggleAutoHide` calls it. `Ocultar entre candles` is two facts
@@ -857,9 +888,13 @@ const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, confirm
  * edge of `enabled`, so a switch that arrives already on has no moment to hide *at*: the chart
  * would draw in full under a button reading `oculto`, which is worse than not restoring it. A
  * restore is that moment, exactly as the click is.
+ *
+ * The history is dropped rather than extended by one: a selection arriving whole from another visit
+ * is not a step, and `Ctrl+Z` out of it would land on whatever this page happened to hold first.
  */
 function restoreLayout() {
   layout.load()
+  history.reset()
   if (autoHide.value.size > 0) hideTimer.hide()
 }
 
