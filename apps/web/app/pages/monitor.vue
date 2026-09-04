@@ -777,6 +777,30 @@ function clearPins(producer: string) {
 }
 
 /**
+ * The five sets above, remembered between visits — everything about the sidebar that is keyed by
+ * producer and nothing that is not. See `useStoredOverlays` for why the write is automatic and the
+ * read is the button beside the heading.
+ *
+ * Here rather than beside `shown`, because it needs all five and `pinned` is the last of them.
+ */
+const layout = useStoredOverlays({ shown, open, pinned, autoHide, confirmedOnly })
+
+/**
+ * `Restaurar`'s click: the saved layout, and then the hide it stands for.
+ *
+ * `hideTimer.hide()` for the reason `toggleAutoHide` calls it. `Ocultar entre candles` is two facts
+ * — which Series listen to the timer, and whether the timer is in its hidden phase — and only the
+ * first is a preference worth storing. `useHideTimer` deliberately refuses to hide on the rising
+ * edge of `enabled`, so a switch that arrives already on has no moment to hide *at*: the chart
+ * would draw in full under a button reading `oculto`, which is worse than not restoring it. A
+ * restore is that moment, exactly as the click is.
+ */
+function restoreLayout() {
+  layout.load()
+  if (autoHide.value.size > 0) hideTimer.hide()
+}
+
+/**
  * The pinned levels of one Series as things with a colour, a role and a price — what the list under
  * the checkbox shows.
  *
@@ -1126,10 +1150,36 @@ function isVisible(overlay: { producer: string }) {
            Only at `lg`, for the reason the row is only a row there: stacked under the chart, a
            nested scroll area is worse than the page scroll it would replace. -->
       <aside class="w-full shrink-0 border-y border-gray-200 p-4 lg:w-80 lg:overflow-y-auto lg:border-l">
-        <h2 class="flex items-baseline justify-between text-sm font-semibold">
+        <h2 class="flex items-baseline justify-between gap-2 text-sm font-semibold">
           Padrões
-          <!-- The run is now started by editing a field, so it needs to say it is running. -->
-          <span v-if="patternsPending" class="text-xs font-normal text-gray-400">rodando…</span>
+          <span class="flex shrink-0 items-baseline gap-2 font-normal">
+            <!-- The run is now started by editing a field, so it needs to say it is running. -->
+            <span v-if="patternsPending" class="text-xs text-gray-400">rodando…</span>
+
+            <!-- Puts back what the sidebar looked like when you left it: which Patterns were
+                 unfolded, which were drawn, what was pinned under each. The saving happens by
+                 itself; this is the half that is a decision, so it is a button — a reload that
+                 silently redrew the chart would be the page choosing for you.
+
+                 `ClientOnly` because whether there is anything to load is a fact only the browser
+                 has, the same guard the timepicker and the rule controls need. -->
+            <ClientOnly>
+              <button
+                class="rounded border px-2 py-0.5 text-xs"
+                :class="layout.saved.value
+                  ? 'border-gray-300 text-gray-500 hover:text-gray-700'
+                  : 'border-gray-200 text-gray-300'"
+                :disabled="!layout.saved.value"
+                title="restaurar padrões e fixados salvos"
+                @click="restoreLayout()"
+              >
+                Restaurar
+              </button>
+              <template #fallback>
+                <div class="h-[22px] w-20" />
+              </template>
+            </ClientOnly>
+          </span>
         </h2>
 
         <!-- The run is now unattended, so the page has to say when it last happened: overlays
