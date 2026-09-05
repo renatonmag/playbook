@@ -428,6 +428,12 @@ function onKeyDown(event: KeyboardEvent) {
  * The id check is not a formality. Every primitive on the chart reports into the same field, and
  * there are now three of them — a click on a level or a gap would otherwise read as a click on a
  * line.
+ *
+ * While the hide timer is hiding there is no bar half to be had. `onlyPinned` takes the fan off the
+ * chart and leaves the selected lines — see `segmentsToDraw` — and a focus is read against the fan
+ * it was picked out of, so a click naming a bar there moves the highlight somewhere nobody can
+ * watch it land, then hands it back dimmed when the next candle brings the fan in. The line half of
+ * the click is untouched: what survived the hide is on screen, and clicking it still deselects it.
  */
 function onClick(param: MouseEventParams<Time>) {
   // The click the library makes out of a drag's release. It named a line, but it did not mean it.
@@ -445,6 +451,11 @@ function onClick(param: MouseEventParams<Time>) {
     else emit('pin', id)
     return
   }
+
+  // Below the branch above and not at the top of the handler, which is the whole point: the lines
+  // the timer kept are still drawn and still answer clicks. It is only the fan they were picked out
+  // of that is gone, and with it the question a bar answers.
+  if (props.onlyPinned) return
 
   // A bar time is a number on this chart's scale; anything else — or a click past the last bar,
   // where `time` is absent — names no bar.

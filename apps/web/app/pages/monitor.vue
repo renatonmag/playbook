@@ -687,6 +687,23 @@ const autoHide = ref(new Set<string>())
  */
 const hideTimer = useHideTimer(bar.epoch, () => autoHide.value.size > 0)
 
+/**
+ * A highlight lives as long as the fan it was picked out of.
+ *
+ * A focused pivot is read against the lines arriving at it, so when the timer takes those lines off
+ * the chart the answer goes with the question: a window that closes and reopens on the next candle
+ * would otherwise bring the fan back dimmed against a bar chosen minutes ago, which is the stale
+ * highlight `toggleFocusMode` already refuses to park. The `Destacar por ponto` switch stays on —
+ * the next window wants a fresh click, not a fresh setup.
+ *
+ * Only the Series listening to the timer: `hidden` is one flag for the page, and what each Series
+ * makes of it is `onlyPinned`. See `extraProps`.
+ */
+watch(hideTimer.hidden, (hidden) => {
+  if (!hidden) return
+  for (const producer of autoHide.value) focusBar.value.delete(producer)
+})
+
 /** How long the button that just stopped hiding its levels keeps calling attention to itself. */
 const FLASH_MS = 90_000
 
@@ -729,6 +746,9 @@ function toggleAutoHide(producer: string) {
     // Turning it on means "get out of the way", so it goes now rather than in half a minute. The
     // timer takes over at the next bar, which is the only moment it was ever measuring.
     hideTimer.hide()
+    // What the watcher above cannot see: joining `autoHide` inside a window that is already closed
+    // flips no flag, and this Series' fan still goes away on this click.
+    focusBar.value.delete(producer)
   }
 }
 
