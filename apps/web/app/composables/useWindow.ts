@@ -12,10 +12,14 @@ export interface Window {
  *
  * These are not cosmetic. The routes cap a response at 1000 bars and answer 400 rather than
  * truncating, so a window has to stay under that ceiling. B3 trades ~7h a day, so a 5m session
- * is ~84 bars: five days leaves headroom, thirty would not.
+ * is ~84 bars: seven days spans at most five sessions, ~420 bars, well inside the cap.
+ *
+ * They are calendar days, and deliberately generous rather than exact: the window is a flat
+ * subtraction from `to`, so a span has to be wide enough to swallow a weekend and the partial
+ * session it ends in before it reaches the number of sessions someone means to look at.
  */
 const LOOKBACK_DAYS: Record<Timeframe, number> = {
-  '5m': 5,
+  '5m': 7,
   '15m': 15,
   '1h': 60,
   '1d': 3 * 365,
