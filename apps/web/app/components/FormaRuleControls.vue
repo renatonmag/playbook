@@ -5,14 +5,14 @@ import { COLOUR_MODES, type Rule } from '~/utils/rule'
  * The Forma rule editor in the monitor's sidebar — the only thing on that page the browser
  * composes and the server runs.
  *
- * A component rather than the inline block it started as, because two Patterns read the rule now:
- * `leg-reversals` and `bars` are the same three filters asked with and without a leg, and the
- * comparison between them is the point of having both. **They share one rule and one request.**
- * There is a single `useStoredRule` on the page and a single `/patterns` query, so an edit made
- * under either chip re-runs both Series and lights the "ajustada" badge on both. That is the
- * intended behaviour — tuning them apart would make the two Series incomparable — but it does mean
- * this control appears twice showing one state, and a reader who expects per-Series settings would
- * be wrong in a way nothing on screen says out loud.
+ * A component rather than the inline block it started as, because the rule is not a property of
+ * the chip it is edited under. **The page holds one rule and sends one request**: there is a
+ * single `useStoredRule` and a single `/patterns` query, so this control renders once per ruled
+ * Series and every copy shows the same state. One Series reads the rule today, so nothing on
+ * screen gives that away; the moment a second one does, an edit made under either chip re-runs
+ * both and lights the "ajustada" badge on both. That is intended — tuning two readings of the
+ * same filters apart would make any comparison between them meaningless — but a reader expecting
+ * per-Series settings would be wrong in a way the sidebar does not say out loud.
  *
  * Owns nothing: the rule, whether it is adjusted, and the saved list all arrive as props, and every
  * edit leaves as an event. `setRatio` and `setBody` are here because they are field logic over the

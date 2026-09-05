@@ -32,7 +32,7 @@ export function gapState(point: BarGap): GapState {
  * record of one that is gone.
  *
  * Both are clear of everything else on the monitor: the page's four palette colours, the candles'
- * green and red, `EXTREME_HUES`' violet/cyan/lime, and `LegReversalsOverlay`'s sky, amber and pink.
+ * green and red, `EXTREME_HUES`' violet/cyan/lime, and `BAR_HUES`' sky, amber, pink and grey.
  * The red is a rose rather than the candles' own `#dc2626`, so a washed-out band behind a down
  * candle does not read as part of the candle.
  */

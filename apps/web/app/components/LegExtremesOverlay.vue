@@ -12,7 +12,7 @@ import type { LegExtremes } from '~/types/pattern'
  * primitive** — see `LevelSegments` for why neither of the built-ins can express a level with a
  * length. It is the first primitive in this app.
  *
- * `directions` is the sidebar's bull/bear filter, exactly as on `LegReversalsOverlay`: which legs'
+ * `directions` is the sidebar's bull/bear filter, exactly as on `BarsOverlay`: which legs'
  * points to draw. Absent means both, so the registry — which knows nothing of legs — gets the
  * whole Series.
  *
@@ -70,7 +70,7 @@ const SPAN = 4
 
 /**
  * `props.color` is accepted for the registry's sake and then ignored, the same trade
- * `LegReversalsOverlay` makes: *which* of the three levels a segment is is the information here,
+ * `BarsOverlay` makes: *which* of the three levels a segment is is the information here,
  * and one Series-wide colour cannot carry it. The sidebar swatch still shows the palette colour,
  * which is a legend for the checkbox and not for the segments — hence the key beside it, which
  * reads `EXTREME_HUES` from the same module this does.

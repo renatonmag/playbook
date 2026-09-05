@@ -53,15 +53,14 @@ function when(bar: { time: number } | undefined) {
   return bar ? barMoment(bar.time) : '—'
 }
 
-/** Price to the instrument's own precision, as `LegReversalsVerify` formats it. */
+/** Price to the instrument's own precision, as every table on this page formats it. */
 function price(value: number | null) {
   return value === null ? '—' : value.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
 }
 
 /**
  * The two roles, told apart at a glance. A lookup keyed on the boolean rather than a ternary in
- * the template, for the reason `LegReversalsVerify`'s `BADGES` gives: a lookup fails loudly where
- * a ternary shows the last branch confidently.
+ * the template: a lookup fails loudly where a ternary shows the last branch confidently.
  */
 const ROLES: Record<'true' | 'false', { label: string, badge: string }> = {
   true: { label: 'avanço', badge: 'bg-emerald-100 text-emerald-700' },

@@ -5,7 +5,6 @@ import { producerName, type BarGap, type LegExtremes, type PatternPoint, type Tr
 import { parseRule, PIPELINE_RULE, sameRule } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
-import LegReversalsOverlay from '~/components/LegReversalsOverlay.vue'
 import BarsOverlay from '~/components/BarsOverlay.vue'
 import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 import BarGapOverlay from '~/components/BarGapOverlay.vue'
@@ -36,9 +35,10 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  * markers, because its Points carry no second bar to mark. What the two overlays share is the
  * line, and that went to `useLineOverlay` rather than into this map.
  *
- * The third is the other half of the same test: `leg-reversals` is markers with no line, and its
- * dots are coloured by a field of the Point rather than by this file's palette. Between them the
- * three cover line-only, markers-only, and both — which is the case for keeping the map.
+ * The third is the other half of the same test: `bars` is markers with no line, and its dots are
+ * coloured by a field of the Point — which filter marked the bar — rather than by this file's
+ * palette. Between them the three cover line-only, markers-only, and both, which is the case for
+ * keeping the map.
  *
  * The fourth settles it: `leg-extremes` is a canvas **series primitive**, because a level with a
  * length is neither a marker nor a line series. It shares no drawing code with the other three at
@@ -58,19 +58,11 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
   'simple-leg': SimpleLegOverlay,
-  'leg-reversals': LegReversalsOverlay,
-  // The eighth, and the first that draws *the same picture* as an entry already here:
-  // `bars` is the same three filters with the leg taken away, so it is markers hued by filter
-  // type, exactly as above. It is a second component rather than a second key pointing at the
-  // first because the Points are shaped differently — a flat mark instead of a leg holding a
-  // `found` list — and the shared part is the marker arithmetic, which lives in `utils/bars`
-  // borrowing `REVERSAL_HUES` from `utils/leg-reversals`. Sharing between the two utils rather
-  // than in this map is the shape this registry was hoping for.
   'bars': BarsOverlay,
   'leg-extremes': LegExtremesOverlay,
   'bar-gap': BarGapOverlay,
-  // Markers-only again, like `leg-reversals`, but drawn in the palette colour: a turn of the
-  // general direction carries no per-type hue to protect, only a side.
+  // Markers-only again, like `bars`, but drawn in the palette colour: a turn of the general
+  // direction carries no per-type hue to protect, only a side.
   'general-direction': GeneralDirectionOverlay,
   'trend-lines': TrendLinesOverlay,
 }
@@ -135,12 +127,12 @@ function pin(value: string) {
 }
 
 /**
- * The Forma rule the pipeline should apply to `leg-reversals`, kept in `localStorage`.
+ * The Forma rule the pipeline should apply to `bars`, kept in `localStorage`.
  *
  * This is the one thing on this page the server does not decide. It is here rather than on
  * `/rules` because the bench judges `/shapes` in the browser and this Pattern cannot be judged
- * that way — it reads the leg's internals, which never cross the wire — so the numbers travel
- * instead. See the module docstring on `/patterns`.
+ * that way — it reads the average amplitude behind each bar, which never crosses the wire — so
+ * the numbers travel instead. See the module docstring on `/patterns`.
  */
 const { rule, update: updateRule, reset: resetRule } = useStoredRule()
 
@@ -349,7 +341,7 @@ type Direction = typeof DIRECTIONS[number]['value']
  * spread, the checkboxes, the colour key. Those fell out of step the moment a second Pattern
  * qualified, and the failure is quiet: filter checkboxes that render while nothing reads them.
  */
-const DIRECTIONAL = new Set(['leg-reversals', 'leg-extremes', 'bar-gap', 'bars'])
+const DIRECTIONAL = new Set(['leg-extremes', 'bar-gap', 'bars'])
 
 /**
  * The Patterns whose overlay draws clickable things, and so get the pin machinery: the auto-hide
@@ -597,13 +589,16 @@ const confirmedOnly = ref(new Set<string>())
 /**
  * The Patterns whose marks the next bar can confirm, and so get the switch above.
  *
- * A set for the reason `DIRECTIONAL` is one: the condition is asked in two places — the props
- * spread and the button — and it fell out of step the moment a second Pattern qualified. What
- * "confirmed" means is each util's own business, and the two do not agree on the arithmetic:
- * `reversalMarkers` is handed the leg's move and inverts it, `barMarkers` reads the mark's own
- * direction and does not.
+ * A set rather than a comparison for the reason `DIRECTIONAL` is one: the condition is asked in
+ * two places — the props spread and the button — and it fell out of step once before, when a
+ * second Pattern qualified and only one of the two sites learned about it. One entry today is not
+ * an argument for spelling it twice.
+ *
+ * What "confirmed" means stays each util's own business: `barMarkers` reads the mark's own
+ * direction, and a Series reporting the *move* a mark sits at rather than the turn it is a
+ * candidate for would have to invert that. Nothing here decides it.
  */
-const CONFIRMABLE = new Set(['leg-reversals', 'bars'])
+const CONFIRMABLE = new Set(['bars'])
 
 /**
  * The Patterns the Forma rule reaches, and so get the rule editor under them.
@@ -612,7 +607,7 @@ const CONFIRMABLE = new Set(['leg-reversals', 'bars'])
  * quiet in both directions: a missing entry hides an editor for a Series the rule does move, and
  * a spurious one offers an editor that changes nothing on the Series it sits under.
  */
-const RULED = new Set(['leg-reversals', 'bars'])
+const RULED = new Set(['bars'])
 
 function toggleConfirmedOnly(producer: string) {
   if (confirmedOnly.value.has(producer)) confirmedOnly.value.delete(producer)
@@ -623,11 +618,11 @@ function toggleConfirmedOnly(producer: string) {
  * A map from a bar's `time` to the bar that immediately follows it, over the loaded window plus
  * any live bars — the input the confirmation filter reads.
  *
- * One map for the page rather than per Series, because every `leg-reversals` Series is measured
+ * One map for the page rather than per Series, because every confirmable Series is measured
  * against the same candle history: the anchor moves with the pipeline run, but the bars don't.
  * A missing key means the bar is the newest one on screen, and the filter keeps such marks — see
- * `confirmed` in `utils/leg-reversals`. `mergedBars` puts the live bars in time order after the
- * loaded window, so the seam between the two links across like any other pair.
+ * `confirmed` in `utils/bars`. `mergedBars` puts the live bars in time order after the loaded
+ * window, so the seam between the two links across like any other pair.
  */
 const nextBarByTime = computed(() => {
   const map = new Map<number, { high: number, low: number }>()
@@ -1411,11 +1406,10 @@ function isVisible(overlay: { producer: string }) {
 
               <!-- Trims each Series' marks to those the *next* bar confirmed: a bull-turn
                    candidate needs the next bar to break above its high, a bear-turn candidate to
-                   break below its low. On `leg-reversals` the direction on screen is the leg's,
-                   so the test reads inverted there — see the two utils. Off is what the chart drew
-                   before this switch — every mark shown, undecided included. Marks on the newest
-                   bar stay whichever way the switch is set, as do inside bars, which predict
-                   nothing for a break to confirm. -->
+                   break below its low. Which field that test reads is the util's business, not
+                   this button's. Off is what the chart drew before this switch — every mark shown,
+                   undecided included. Marks on the newest bar stay whichever way the switch is
+                   set, as do inside bars, which predict nothing for a break to confirm. -->
               <div
                 v-if="CONFIRMABLE.has(overlay.name) && shown.has(overlay.producer)"
                 class="mt-1"
@@ -1532,8 +1526,8 @@ function isVisible(overlay: { producer: string }) {
 
               <!-- The three levels are told apart by colour alone, and the dot on the chip above is
                    the *Series'* palette colour, which this overlay ignores. Without a key
-                   the picture cannot be read at all. `leg-reversals` colours its dots the same way
-                   and has no key either; that is left as it is rather than quietly widened here. -->
+                   the picture cannot be read at all. `bars` colours its dots the same way and has
+                   no key either; that is left as it is rather than quietly widened here. -->
               <div
                 v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
                 class="mt-1 flex flex-wrap gap-x-3 gap-y-1"

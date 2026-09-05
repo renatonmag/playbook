@@ -7,7 +7,7 @@
  * here, with no round trip, so a rule parameter there would buy nothing.
  *
  * One rule does travel to the server, and the exception is worth stating rather than leaving to
- * be discovered. `/monitor` sends these same thresholds to `/patterns`, because `leg-reversals`
+ * be discovered. `/monitor` sends these same thresholds to `/patterns`, because `bars`
  * applies them *inside* the engine — over legs whose internals never cross the wire — and the
  * browser cannot do for it what it does for `/shapes`. The old objection to that was "a
  * detection rule on the server with nothing naming it"; the answer is that such a rule is always

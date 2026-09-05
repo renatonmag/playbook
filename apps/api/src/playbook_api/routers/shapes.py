@@ -6,9 +6,9 @@ own rather than borrowed: the bench holds every one of these rows already and co
 them with no round trip, so a `wf_min` here would buy nothing and would create a second place a
 rule can live — one that no screen names and nothing compares against the client's.
 
-`/patterns` did have to open that door, for `leg-reversals` alone: it applies its rule inside the
-engine, over legs whose internals never cross the wire, so the browser cannot evaluate it the way
-it evaluates these rows. That argument does not reach this route, and until it does, `/shapes`
+`/patterns` did have to open that door, for `bars` alone: it applies its rule inside the engine,
+over quantities that never cross the wire — the average amplitude behind a bar above all — so the
+browser cannot evaluate it the way it evaluates these rows. That argument does not reach this route, and until it does, `/shapes`
 measures and the client judges.
 
 Separate from `/candles` because the two have opposite appetites. The chart wants a few hundred

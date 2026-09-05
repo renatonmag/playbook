@@ -3,7 +3,6 @@ import type { Component } from 'vue'
 import { isTimeframe, TIMEFRAMES, type Timeframe } from '~/types/candle'
 import { producerName, type PatternPoint } from '~/types/pattern'
 import AdvancingLegsVerify from '~/components/AdvancingLegsVerify.vue'
-import LegReversalsVerify from '~/components/LegReversalsVerify.vue'
 import LegWindowVerify from '~/components/LegWindowVerify.vue'
 import NestedLegsVerify from '~/components/NestedLegsVerify.vue'
 
@@ -33,7 +32,6 @@ const DEFAULT_TIMEFRAME: Timeframe = '5m'
  */
 const VERIFIERS: Record<string, Component> = {
   'leg-window': LegWindowVerify,
-  'leg-reversals': LegReversalsVerify,
   'nested-legs': NestedLegsVerify,
   'advancing-legs': AdvancingLegsVerify,
 }

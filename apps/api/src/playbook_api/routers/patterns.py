@@ -11,11 +11,11 @@ Pattern applies** — the eight thresholds of `FormaRule`, and nothing else.
 That exception was made with the reason written down rather than assumed. The bench on `/rules`
 evaluates a candidate rule in the browser, over Shapes that `/shapes` already handed it, which is
 why `/shapes` takes no rule parameters and why `marks` lives in `apps/web/app/utils/rule.ts`. The
-monitor cannot do the same. `leg-reversals` applies its rule *inside* the engine, against the
-global bar history, to legs whose internals never cross the wire — the average amplitude behind a
-bar, the pivot the leg closed on, the bars that straddle a leg boundary. Re-deriving that in the
-client would be a third implementation of arithmetic that `shape.py` and `rule.ts` already
-document as a cost paid reluctantly. So the thresholds travel to the server, and only those.
+monitor cannot do the same. `bars` applies its rule *inside* the engine, against the global bar
+history, over quantities that never cross the wire — the average amplitude behind a bar, the bar
+before it, the session boundaries the run walks through. Re-deriving that in the client would be
+a third implementation of arithmetic that `shape.py` and `rule.ts` already document as a cost
+paid reluctantly. So the thresholds travel to the server, and only those.
 
 Three things keep this from becoming "the browser authors the pipeline":
 
@@ -25,8 +25,8 @@ Three things keep this from becoming "the browser authors the pipeline":
   The cost `FormaRule.__str__` declares is paid here in full: two requests carrying different
   numbers answer under the same key, and the response does not say which numbers ran. That is
   deliberate, and the screen carries the badge that keeps it honest.
-- **`direction` is never a parameter**, because `FormaRule` has no such field. The leg decides
-  which reversal is looked for — see `LegReversalsPattern`.
+- **`direction` is never a parameter**, because `FormaRule` has no such field. Every bar is asked
+  for both turns and the mark says which one it is a candidate for — see `BarsPattern`.
 - **A rule is all-or-nothing.** Seven of the eight fields arrive together or not at all; `wcr` is
   exempt because "no proportional frontier" is a real setting whose absence says nothing. A
   half-specified rule is a 400, not a rule wearing this server's defaults wherever the caller went

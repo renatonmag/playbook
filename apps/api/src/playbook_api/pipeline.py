@@ -30,7 +30,6 @@ from pattern_engine.patterns import (
     GeneralDirectionPattern,
     LegExtremesPattern,
     LegPattern,
-    LegReversalsPattern,
     LegWindowPattern,
     NestedLegsPattern,
     SimpleLegPattern,
@@ -70,10 +69,11 @@ RULE_K = FormaRule(
 def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
     """The Patterns this installation runs, in run order, with `rule` applied where one is read.
 
-    Two Patterns read it today — `leg-reversals` and `bars` — and they get the *same* rule, not a
-    rule each. That is the whole point of a single argument: the two are the same three filters
-    asked with and without a leg, and letting the browser tune them apart would make the
-    comparison meaningless.
+    One Pattern reads it today — `bars` — and the argument is still one rule for the pipeline
+    rather than one per Pattern. That is deliberate and outlives the current list: the reversal
+    filters are the same three questions however they are asked, so a second Series that asks
+    them differently gets the rule the first one got. Letting the browser tune two readings apart
+    would make any comparison between them meaningless before it was drawn.
 
     The detectors are bound to local names rather than declared inline because the slicers below
     take the detector *instance*, not its producer key — one source of truth for a key that is
@@ -134,32 +134,16 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # answer, and a second copy on `simple_leg` doubles the heaviest payload on the wire to
         # answer a question nothing is asking yet.
         leg_windows,
-        # And the first look *inside* those bars: which of them either reversal filter marks.
-        # Two sources, because a `LegWindow` anchors on its opening vertex and does not say which
-        # extreme its close is — and the direction to filter for is exactly that. `k`,
-        # `similarity` and `expansion` are the dials that stay here, at the pipeline site, for
-        # the same reason `ahead` and `depth` are: they are what someone tuning the detector will
-        # come looking for. `rule` is the one that left, because the screen can edit it and only
-        # the engine can evaluate it.
-        LegReversalsPattern(
-            source=leg_windows,
-            pivots=zigzag,
-            rule=rule,
-            k=DEFAULT_K,
-            similarity=DEFAULT_SIMILARITY,
-            expansion=DEFAULT_EXPANSION,
-            reads=("5m",),
-            emits="5m",
-        ),
-        # And the same three filters again, with the leg taken away: every bar in the window,
-        # asked for both turns. Same arithmetic — `reversal_filters` is the one copy of it — and
-        # the same `rule`, so the browser's override reaches both Series at once and the two can
-        # be read against each other on the chart. It reads the bars alone, so it has no ordering
-        # constraint and sits here only because it belongs next to what it is a variant of.
+        # And the first look *inside* the bars: which of them the three reversal filters mark.
+        # Every bar in the window, asked for both turns — there is no leg narrowing the history
+        # first and no single direction to filter for, so a bar is judged for a bullish turn and
+        # a bearish one alike. `reversal_filters` is the one copy of that arithmetic.
         #
-        # Expect it to be much the heavier of the two: nothing narrows the history first, and a
-        # bar is judged for a bullish turn and a bearish one rather than for the single one its
-        # leg was a candidate for.
+        # It reads the bars alone, so it has no ordering constraint and could sit anywhere below
+        # the detectors. `k`, `similarity` and `expansion` are the dials that stay here, at the
+        # pipeline site, for the same reason `ahead` and `depth` are: they are what someone
+        # tuning the detector will come looking for. `rule` is the one that left, because the
+        # screen can edit it and only the engine can evaluate it.
         BarsPattern(
             rule=rule,
             k=DEFAULT_K,
@@ -171,8 +155,10 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # And the other question about those same bars: not which of them could be the turn, but
         # how far the leg got. Three answers per leg — the extreme it reached, the extreme it
         # closed at, and the level it held throughout — which are usually three different bars.
-        # Two sources for the same reason `leg-reversals` needs two, and no dials of its own: an
-        # extreme is an extreme, and how far past the close to look is `ahead`, set once above.
+        # Two sources, because a `LegWindow` anchors on its opening vertex and does not say which
+        # extreme its close is — and which end of the move to measure from is exactly that. No
+        # dials of its own: an extreme is an extreme, and how far past the close to look is
+        # `ahead`, set once above.
         # Reports **closed legs only** — the newest leg's vertex is still provisional, so it is
         # skipped, and this Series runs one Point behind `leg-windows`. Not a dial either.
         LegExtremesPattern(source=leg_windows, pivots=zigzag, reads=("5m",), emits="5m"),

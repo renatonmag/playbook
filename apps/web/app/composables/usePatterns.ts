@@ -10,7 +10,7 @@ import { ruleKey, toPatternQuery, type Rule } from '~/utils/rule'
  * omission: the pipeline is declared in code on the server, and it names the instrument while
  * each Pattern declares the timeframes it reads.
  *
- * The one thing a caller may compose is `rule` — the Forma rule `leg-reversals` applies. It is
+ * The one thing a caller may compose is `rule` — the Forma rule `bars` applies. It is
  * optional, and omitting it is not the same as passing the pipeline's own numbers: with no rule
  * parameters at all the route runs the very tuple a tick worker would import. Everything else
  * about the pipeline — which Patterns, in what order, at what tuning — stays declared on the

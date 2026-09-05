@@ -44,8 +44,8 @@ export const WICK_END_LABELS: Record<WickEnd, string> = {
  * its Pattern's segments rather than inside its component.
  *
  * Chosen clear of everything already on this chart: the page's four palette colours (`#2563eb`,
- * `#c026d3`, `#ea580c`, `#0d9488`), `EXTREME_HUES`' violet, cyan and lime, `LegReversalsOverlay`'s
- * sky, amber and pink, and the candles' own green and red.
+ * `#c026d3`, `#ea580c`, `#0d9488`), `EXTREME_HUES`' violet, cyan and lime, `BAR_HUES`' sky,
+ * amber, pink and grey, and the candles' own green and red.
  *
  * By side rather than by end: which wick a line belongs to is the thing you read at a glance, and
  * the pair's two members are told apart by being the two ends of one wick, which the picture already

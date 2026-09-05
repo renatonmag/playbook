@@ -7,12 +7,12 @@ import type { LevelSegment } from '~/utils/level-segments'
  *
  * Shared between the overlay that draws the segments and the key beside the sidebar's checkbox,
  * which is the whole reason it is here rather than a `const` in the component.
- * `LegReversalsOverlay` keeps its own table and `LegReversalsVerify` restates it by hand, held
- * together by a comment; that is survivable for two lists of dots read side by side and is not
- * survivable for a colour *key*, which is a claim about what the picture means.
+ * `BAR_HUES` lives beside `barMarkers` and gets away with it — a dot's colour is only ever read
+ * off the dot next to it there. That is not survivable for a colour *key*, which is a claim about
+ * what the picture means and has to be the same claim the picture makes.
  *
  * Chosen clear of everything else already on the monitor: the page's four palette colours, the
- * candles' green and red, and `LegReversalsOverlay`'s sky, amber and pink.
+ * candles' green and red, and `BAR_HUES`' sky, amber, pink and grey.
  */
 export const EXTREME_HUES: Record<LegPoint['type'], string> = {
   reach: '#7c3aed',

@@ -8,9 +8,10 @@ import { type Turn, barMarkers } from '~/utils/bars'
  *
  * Renders no markup. It reaches the chart through `inject` and draws through the chart API.
  *
- * The same picture `LegReversalsOverlay` draws, off a flatter Series: there is no leg here, so
- * every mark is its own Point and there is no `found` list to walk into. What differs on screen is
- * only how much of it there is — nothing narrowed the history first, and both turns were asked.
+ * Markers with no line, which is the case this registry entry exists to prove: a `bars` Point is
+ * anchored on the bar it is about and carries no second bar to draw to, so there is nothing here
+ * for `useLineOverlay` to hang a segment on. Expect a lot of dots — nothing narrows the history
+ * first, and every bar was asked for both turns.
  *
  * `directions` is the sidebar's bull/bear filter. Absent means both, so the registry — which knows
  * nothing of turns — gets the whole Series. Inside bars carry no direction and are drawn whatever

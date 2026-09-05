@@ -100,73 +100,33 @@ export interface Leg extends PatternPoint {
 }
 
 /**
- * One bar inside a leg that a reversal filter marked.
+ * One finding about one bar — a Point of the `bars` Series.
  *
- * Not a Point of any Series — these arrive nested in `LegReversals.found`, so `time` here is just
- * the bar's own, and it is the field the whole Pattern exists to produce: the timestamp to look up
- * on the real chart.
- */
-export interface LegBar extends PatternPoint {
-  /** Index into `bars` of the `LegWindow` at the same anchor. Meaningless without it. */
-  at: number
-  /**
-   * Which filter marked it. `two-bar` means the bar belongs to a matching pair — with the bar
-   * before it or the one after — listed once either way, so an alternating run reads as several
-   * entries with contiguous `at` rather than one per pair. `inside-bar` means the previous bar
-   * already covered this one's range, both extremes included.
-   *
-   * The three are not exclusive: `inside-bar` reads only the extremes, so it lands on bars the
-   * other two also marked, and `found` then holds one entry per reading. Key a mark on `at` and
-   * `type` together — never on `at` or `time` alone.
-   */
-  type: 'two-bar' | 'reversal-bar' | 'inside-bar'
-}
-
-/**
- * One leg's marked bars and which way it ran, anchored where its `LegWindow` is.
- *
- * Carries those two and nothing else: `since` and `end` are on the `LegWindow` Point at the same
- * `time`, and restating them would be two Series claiming one fact. An empty `found` is a leg that
- * matched nothing, which is not the same as a leg missing.
- */
-export interface LegReversals extends PatternPoint {
-  /** An array on the wire: the Python tuple serializes as a list. */
-  found: LegBar[]
-  /**
-   * The leg's **own** move: `bullish` when it closed on a high, `bearish` on a low.
-   *
-   * Not the direction the filters hunted, which is the opposite one — the bar that turns a fall is
-   * a bullish bar, so a `bearish` leg holds bullish candidates. Read it as "which end of the move
-   * these marks sit at", which is what a drawing needs and what `found` cannot say on its own.
-   */
-  direction: 'bullish' | 'bearish'
-}
-
-/**
- * One finding about one bar, with no leg around it — a Point of the `bars` Series.
- *
- * The flat counterpart to `LegBar`: there is no window to index into, so there is no `at`, and the
- * mark is not nested inside anything — `time` here *is* the anchor. Several can share it, since
- * the three filters are a union and the Forma rule can match a bar for both turns, so `time`,
- * `type` and `direction` together name one.
+ * A mark *is* a Point here: nothing nests it, so `time` is the anchor and it is the field the
+ * whole Pattern exists to produce — the timestamp to look up on the real chart. Several marks can
+ * share a `time`, since the four filters are a union and the Forma rule can match a bar for both
+ * turns, so `time`, `type` and `direction` together name one. Never key a mark on `time` alone.
  */
 export interface BarMark extends PatternPoint {
   /**
-   * Which filter marked it — the three readings `LegBar['type']` documents, plus one no leg can
-   * carry.
+   * Which filter marked it.
    *
-   * `small-overlap` means the bar closed clear of the range of the bar before it: a bull bar above
-   * the previous high, a bear bar below the previous low. Only this Pattern asks it, which is why
-   * it widens the union here instead of in `LegBar`.
+   * `two-bar` means the bar belongs to a matching pair — with the bar before it or the one after
+   * — listed once either way, so an alternating run reads as several entries on contiguous bars
+   * rather than one per pair. `inside-bar` means the previous bar already covered this one's
+   * range, both extremes included. `small-overlap` means the bar closed clear of the range of the
+   * bar before it: a bull bar above the previous high, a bear bar below the previous low.
+   *
+   * The four are not exclusive: `inside-bar` reads only the extremes, so it lands on bars the
+   * others also marked, and the Series then holds one Point per reading.
    */
-  type: LegBar['type'] | 'small-overlap'
+  type: 'two-bar' | 'reversal-bar' | 'inside-bar' | 'small-overlap'
   /**
    * The turn this mark is a candidate for — a `bearish` mark is a candidate top.
    *
-   * **The opposite convention to `LegReversals.direction`**, which reports the leg's own move and
-   * leaves the reader to invert it. There is no leg here to invert, so the mark says outright what
-   * it is a candidate for. `null` on an `inside-bar`, which reads only the extremes and makes no
-   * directional claim at all.
+   * Read it outright rather than inverting anything: the mark says which turn it is a candidate
+   * for, not which way the move around it ran. `null` on an `inside-bar`, which reads only the
+   * extremes and makes no directional claim at all.
    *
    * `small-overlap` is the exception to the sentence above: there the direction is the bar's own
    * colour, so it marks a move that *continued* rather than one that might turn. Read alongside
@@ -206,7 +166,7 @@ export interface LegPoint extends PatternPoint {
  * One leg's three defining points and which way it ran, anchored where its `LegWindow` is.
  *
  * `found` always holds exactly three entries, in the fixed order `reach`, `close`, `hold` — role
- * order, not `at` order, unlike `LegReversals.found`.
+ * order, not `at` order: read the third entry as "the level it held", never as "the last one".
  *
  * Ties keep the earliest bar: the first bar to reach a level owns it, and a later bar equalling it
  * does not take it over. And note `reach` can land in the tail, past `end` of the `LegWindow` at
@@ -219,8 +179,8 @@ export interface LegExtremes extends PatternPoint {
   /**
    * The leg's **own** move: `bullish` when it closed on a high, `bearish` on a low.
    *
-   * The same direction the three points were measured for. There is no mirror here, unlike
-   * `LegReversals`, whose marks are candidates for the opposite turn.
+   * The same direction the three points were measured for — this Series answers how far the move
+   * got, so there is no inversion to keep straight, unlike a mark that is a candidate for a turn.
    */
   direction: 'bullish' | 'bearish'
 }

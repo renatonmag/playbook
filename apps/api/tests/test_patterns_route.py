@@ -12,7 +12,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from pattern_engine import BaseSeries, Ctx, Pattern, SeriesIdentity
-from pattern_engine.patterns import BarsPattern, LegExtremesPattern, LegReversalsPattern
+from pattern_engine.patterns import BarsPattern, LegExtremesPattern
 
 from playbook_api.db import get_session
 from playbook_api.main import app
@@ -38,27 +38,21 @@ PRODUCERS = [pattern.producer for pattern in PIPELINE]
 #: the wire by the same schema — so the tests below say `ZIGZAG` only to have something to name.
 ZIGZAG = PIPELINE[0].producer
 
-#: The first of the two Patterns a rule override reaches — see `BARS` for the other. Derived,
-#: like `PRODUCERS`, and for the same reason.
+#: The one Pattern a rule override reaches. Derived, like `PRODUCERS`, and for the same reason.
 #:
-#: Found by **class**, not by position. `PIPELINE[-1]` said the same thing only for as long as
-#: `leg-reversals` happened to be declared last, and the first Pattern appended after it — one
-#: that also has a `found` list — pointed this constant at an unrelated Series, where the counts
-#: below simply stopped responding to the rule. A retuned parameter still cannot break this.
-LEG_REVERSALS = next(
-    pattern.producer for pattern in PIPELINE if isinstance(pattern, LegReversalsPattern)
-)
+#: Found by **class**, not by position. A predecessor of this constant read `PIPELINE[-1]`, which
+#: said the right thing only for as long as the ruled Pattern happened to be declared last: the
+#: first Pattern appended after it pointed the constant at an unrelated Series, and the counts
+#: below simply stopped responding to the rule while still passing. A retuned parameter, a
+#: reordering and an appended Pattern all leave this correct.
+BARS = next(pattern.producer for pattern in PIPELINE if isinstance(pattern, BarsPattern))
 
-#: The other Series with a `found` list. Named so that the counts below can be shown to come
-#: from `leg-reversals` and not from this one — the failure the constant above now guards.
+#: A Series no rule reaches. Named so that the counts below can be shown to come from `bars` and
+#: not from a Series that would report the same number whatever the rule said — the failure the
+#: note above describes, asserted rather than assumed.
 LEG_EXTREMES = next(
     pattern.producer for pattern in PIPELINE if isinstance(pattern, LegExtremesPattern)
 )
-
-#: The *other* Pattern a rule override reaches, and the reason the note above says "one Pattern"
-#: no longer. Found by class for the same reason, and kept separate rather than folded into a set:
-#: its Points are marks, not legs holding a `found` list, so it is counted differently below.
-BARS = next(pattern.producer for pattern in PIPELINE if isinstance(pattern, BarsPattern))
 
 #: A full override that marks everything, spelled in the short keys `toQuery` emits — so the wire
 #: format is under test and not only the parsing. Chosen to be far looser than `RULE_K`, which on
@@ -68,8 +62,17 @@ LOOSE_RULE = {"pre": "0", "wf": "0", "wc": "1", "bmin": "0", "bmax": "1", "cor":
 
 
 def found(body: dict) -> int:
-    """How many bars the `leg-reversals` Series claimed, across every leg in it."""
-    return sum(len(point["found"]) for point in body["series"][LEG_REVERSALS]["points"])
+    """How many bars the `bars` Series marked as a `reversal-bar`.
+
+    That one filter and not the whole Series, because it is the only one the Forma rule decides:
+    `two-bar`, `inside-bar` and `small-overlap` are answers about two adjacent bars and would go
+    on being marked under a rule that admits nothing. Counting them here would put a floor under
+    every number below, and `test_a_binding_ratio_is_applied` — which asserts the count reaches
+    exactly zero — would fail on marks the parameter it is testing never touched.
+    """
+    return sum(
+        1 for point in body["series"][BARS]["points"] if point["type"] == "reversal-bar"
+    )
 
 
 def wave(count: int = 60) -> list[Candle]:
@@ -303,11 +306,12 @@ def test_an_override_reaches_the_pattern_and_changes_what_it_marks(client):
     assert found(loose) > found(strict)
 
 
-def test_the_override_reaches_bars_too(client):
-    """One rule, two Series. `build_pipeline` hands the same `FormaRule` to both on purpose.
+def test_the_override_widens_the_whole_series_and_not_only_the_counted_filter(client):
+    """The test above counts `reversal-bar` alone; this one counts every mark in the Series.
 
-    Counted on the Points themselves rather than on a `found` list, because that is the shape
-    difference the Pattern exists for: with no leg to hold them, a mark *is* a Point.
+    Worth both: `found` narrows to the one filter the rule decides, which is what makes it a
+    sharp instrument and also what would hide a rule that reached that filter while breaking the
+    Series around it. The Point count is the blunt reading, and it has to move the same way.
     """
     strict = client.get("/patterns", params=WINDOW).json()
     loose = client.get("/patterns", params={**WINDOW, **LOOSE_RULE}).json()
@@ -315,15 +319,19 @@ def test_the_override_reaches_bars_too(client):
     assert len(loose["series"][BARS]["points"]) > len(strict["series"][BARS]["points"])
 
 
-def test_bars_reports_both_turns_where_leg_reversals_reports_one_per_leg(client):
-    """The behavioural difference, asserted on the wire rather than only in the engine tests."""
+def test_bars_reports_both_turns(client):
+    """Every bar is asked for a bullish turn and a bearish one, asserted on the wire.
+
+    The engine tests make the same claim; this one makes it about what actually crosses the
+    schema, where a `direction` could be dropped or flattened without any of them noticing.
+    """
     body = client.get("/patterns", params={**WINDOW, **LOOSE_RULE}).json()
     points = body["series"][BARS]["points"]
 
     directions = {point["direction"] for point in points}
-    # Both turns, in one Series, over bars a single leg could only have been read one way. `None`
-    # is not asserted present: the triangular wave never contains a bar in its predecessor, so it
-    # produces no `inside-bar` at all — which is a fact about the fixture, not about the Pattern.
+    # Both turns, in one Series, over the same bars. `None` is not asserted present: the
+    # triangular wave never contains a bar in its predecessor, so it produces no `inside-bar` at
+    # all — which is a fact about the fixture, not about the Pattern.
     assert {"bullish", "bearish"} <= directions
     assert directions <= {"bullish", "bearish", None}
     # And every mark says which filter made it, so the drawing can hue them apart.
@@ -335,13 +343,14 @@ def test_bars_reports_both_turns_where_leg_reversals_reports_one_per_leg(client)
     }
 
 
-def test_the_counts_come_from_leg_reversals_and_not_the_other_series_with_a_found_list(client):
-    """`leg-extremes` also serialises `found`, and a rule does not reach it.
+def test_a_series_the_rule_does_not_reach_is_unmoved_by_one(client):
+    """The control for every count above: `leg-extremes` answers the same however the rule is set.
 
-    Written after `LEG_REVERSALS` was derived as `PIPELINE[-1]` and a Pattern was appended behind
-    it: the constant moved, every count came from a Series no rule can change, and the two tests
-    above went from proving the override to proving nothing. A Series that ignores the rule is
-    exactly what a mis-aimed constant looks like, so it is worth stating that this one does.
+    Written after the ruled Series was named by position and a Pattern was appended behind it:
+    the constant moved, every count came from a Series no rule can change, and the tests above
+    went from proving the override to proving nothing while still passing. A Series that ignores
+    the rule is exactly what a mis-aimed constant looks like, so it is worth having one on
+    record — the counts above are only evidence if this one holds still.
     """
     strict = client.get("/patterns", params=WINDOW).json()
     loose = client.get("/patterns", params={**WINDOW, **LOOSE_RULE}).json()
