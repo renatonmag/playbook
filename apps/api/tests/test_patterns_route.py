@@ -12,9 +12,10 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from pattern_engine import BaseSeries, Ctx, Pattern, SeriesIdentity
-from pattern_engine.patterns import BarsPattern, LegExtremesPattern
+from pattern_engine.patterns import BarsPattern, LegExtremesPattern, LineRelationsPattern
 
 from playbook_api.db import get_session
+from playbook_api.lines_body import MAX_LINES
 from playbook_api.main import app
 from playbook_api.models.candle import Candle
 from playbook_api.pipeline import PIPELINE, RULE_K, build_pipeline
@@ -445,3 +446,169 @@ def test_an_out_of_range_threshold_is_refused(client, field):
     without this the caller sees an empty Series and no way to tell a typo from a strict rule.
     """
     assert client.get("/patterns", params={**WINDOW, **LOOSE_RULE, **field}).status_code == 422
+
+
+# --- the lines a browser drew ----------------------------------------------------------------
+
+
+def touching(count: int = 60) -> list[int]:
+    """The closed bars of `wave()` whose wicks hold `LINE_PRICE`, by index.
+
+    Derived from the fixture rather than counted by hand, for the reason `PRODUCERS` is: the wave
+    is a fixture and the assertions below are about the wiring, not about its shape. The last row
+    is dropped because the run never sees it — see `test_the_bar_at_the_live_edge_is_withheld`.
+    """
+    marks = []
+    for row in wave(count)[:-1]:
+        if float(row.low) <= LINE_PRICE <= float(row.high):
+            marks.append(int(row.time.timestamp()))
+    return marks
+
+
+#: A price the wave's wicks reach and its bodies never cross — every bar of `wave()` opens and
+#: closes at its midpoint, so a breakout is impossible there and a touch is the only event this
+#: fixture can produce. Enough: which events the arithmetic finds is the engine's business, and
+#: what is under test here is that the body reached it at all.
+LINE_PRICE = 101.0
+
+#: The Series a body can change, found by class for the reason `BARS` is.
+LINES = next(
+    pattern.producer for pattern in PIPELINE if isinstance(pattern, LineRelationsPattern)
+)
+
+#: One line, anchored on the window's first bar so every later bar is asked about.
+PINNED = {"lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "price": LINE_PRICE}]}
+
+
+def test_the_get_runs_the_line_pattern_with_no_lines(client):
+    """Present and empty, never absent: an empty Series and a missing key are different facts."""
+    body = client.get("/patterns", params=WINDOW).json()
+    assert LINES in body["series"]
+    assert body["series"][LINES]["points"] == []
+
+
+def test_a_posted_line_reaches_the_pattern(client):
+    body = client.post("/patterns", params=WINDOW, json=PINNED).json()
+    points = body["series"][LINES]["points"]
+
+    assert [point["time"] for point in points] == touching()
+    assert {point["line"] for point in points} == {"wick:1:high:end"}
+    assert {point["kind"] for point in points} == {"touch"}
+    # The line's price, not the bar's — and the bar's own OHLCV rides along beside it.
+    assert {point["price"] for point in points} == {LINE_PRICE}
+    assert {"time", "open", "high", "low", "close", "volume", "line", "price", "kind", "wick", "side", "since"} == set(points[0])
+
+
+def test_posting_lines_does_not_move_the_producer_keys(client):
+    """`PinnedLines.__str__` earning its keep on the wire, as `LOOSE_RULE` does for the rule."""
+    posted = client.post("/patterns", params=WINDOW, json=PINNED).json()
+    assert list(posted["series"]) == PRODUCERS
+    assert posted["failed"] == []
+
+
+def test_two_bodies_of_different_lines_answer_under_one_key(client):
+    """The cost the docstring declares, asserted rather than left as a claim."""
+    other = {"lines": [{"id": "b", "time": int(OPEN.timestamp()), "price": LINE_PRICE + 1}]}
+    first = client.post("/patterns", params=WINDOW, json=PINNED).json()
+    second = client.post("/patterns", params=WINDOW, json=other).json()
+
+    assert list(first["series"]) == list(second["series"])
+    assert first["series"][LINES]["points"] != second["series"][LINES]["points"]
+
+
+def test_the_rest_of_the_pipeline_is_unmoved_by_a_line(client):
+    """A line adds data to a question; it must not change any other Series' answer."""
+    plain = client.get("/patterns", params=WINDOW).json()
+    posted = client.post("/patterns", params=WINDOW, json=PINNED).json()
+
+    assert {key: value for key, value in posted["series"].items() if key != LINES} == {
+        key: value for key, value in plain["series"].items() if key != LINES
+    }
+
+
+def test_a_line_whose_bar_is_outside_the_window_is_answered_not_refused(client):
+    """The reading the monitor gives a pin that scrolled away — silence, and a 200."""
+    away = {"lines": [{"id": "a", "time": int(OPEN.timestamp()) - 86_400, "price": LINE_PRICE}]}
+    response = client.post("/patterns", params=WINDOW, json=away)
+
+    assert response.status_code == 200
+    assert response.json()["series"][LINES]["points"] == []
+
+
+def test_an_empty_list_of_lines_is_a_run_with_no_lines(client):
+    posted = client.post("/patterns", params=WINDOW, json={"lines": []}).json()
+    assert posted["series"][LINES]["points"] == []
+
+
+def test_two_lines_sharing_an_id_are_refused(client):
+    """The ids come back untouched, so a duplicate would report one line's answers twice under a
+    name that cannot tell them apart."""
+    doubled = {"lines": [PINNED["lines"][0], {**PINNED["lines"][0], "price": 105.0}]}
+    response = client.post("/patterns", params=WINDOW, json=doubled)
+
+    assert response.status_code == 400
+    assert "wick:1:high:end" in response.json()["detail"]
+
+
+def test_more_lines_than_the_ceiling_are_refused(client):
+    many = {
+        "lines": [
+            {"id": f"line-{n}", "time": int(OPEN.timestamp()), "price": LINE_PRICE}
+            for n in range(MAX_LINES + 1)
+        ]
+    }
+    response = client.post("/patterns", params=WINDOW, json=many)
+
+    assert response.status_code == 400
+    assert str(MAX_LINES) in response.json()["detail"]
+
+
+def test_exactly_the_ceiling_is_allowed(client):
+    """The boundary, so the refusal above is a ceiling and not an off-by-one below it."""
+    many = {
+        "lines": [
+            {"id": f"line-{n}", "time": int(OPEN.timestamp()), "price": LINE_PRICE}
+            for n in range(MAX_LINES)
+        ]
+    }
+    assert client.post("/patterns", params=WINDOW, json=many).status_code == 200
+
+
+def test_a_rule_and_lines_travel_together(client):
+    """Neither parameter is a choice against the other: the body is the only thing that is new."""
+    loose = client.get("/patterns", params={**WINDOW, **LOOSE_RULE}).json()
+    both = client.post("/patterns", params={**WINDOW, **LOOSE_RULE}, json=PINNED).json()
+
+    assert found(both) == found(loose)
+    assert both["series"][LINES]["points"]
+
+
+def test_a_half_specified_rule_is_refused_on_the_post_too(client):
+    """The same `Depends`, so the same refusal — asserted, because a second handler is where a
+    dependency quietly goes missing."""
+    params = {**WINDOW, **{key: value for key, value in LOOSE_RULE.items() if key != "wf"}}
+    assert client.post("/patterns", params=params, json=PINNED).status_code == 400
+
+
+def test_an_invalid_window_is_refused_on_the_post_too(client):
+    window = {"from": "2026-08-12T00:00:00Z", "to": "2026-08-11T00:00:00Z"}
+    assert client.post("/patterns", params=window, json=PINNED).status_code == 400
+
+
+def test_the_browser_may_preflight_the_post(client):
+    """The `POST` is useless from a browser unless CORS admits the method.
+
+    Written after the real failure: `allow_methods` listed `GET` alone, so the preflight this
+    body provokes answered 400 and the `POST` never left the page — with nothing on the server
+    side to see, because no handler had run. A route the monitor cannot reach is not a route.
+    """
+    response = client.options(
+        "/patterns",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert "POST" in response.headers["access-control-allow-methods"]

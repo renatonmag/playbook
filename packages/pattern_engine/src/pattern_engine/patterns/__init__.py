@@ -14,6 +14,20 @@ from .leg_extremes import (
 from .leg_processor import Leg, LegPattern, bar_positions, position_of, split_legs
 from .leg_reversals import LegBar, LegReversals, LegReversalsPattern, marked_bars
 from .leg_window import LegWindow, LegWindowPattern, split_leg_windows
+from .line_relations import (
+    NO_LINES,
+    Line,
+    LineRelation,
+    LineRelationsPattern,
+    PinnedLines,
+    RelationKind,
+    Side,
+    Wick,
+    breaks_out,
+    line_relations,
+    side_of,
+    touches,
+)
 from .nested_legs import NestedLegs, NestedLegsPattern, nested_legs
 # Re-exported from here rather than from `leg_reversals`, where they used to live: they are the
 # arithmetic two Patterns share, and the names a pipeline imports must not move because of it.
@@ -60,14 +74,22 @@ __all__ = [
     "LegReversalsPattern",
     "LegWindow",
     "LegWindowPattern",
+    "Line",
     "LineEnd",
+    "LineRelation",
+    "LineRelationsPattern",
     "MarkType",
+    "NO_LINES",
     "NestedLegs",
     "NestedLegsPattern",
     "PbMark",
+    "PinnedLines",
+    "RelationKind",
+    "Side",
     "SimpleLegPattern",
     "TrendLine",
     "TrendLinesPattern",
+    "Wick",
     "ZigZagIndidicator",
     "ZigZagPattern",
     "ZigZagPivot",
@@ -76,6 +98,7 @@ __all__ = [
     "alike",
     "bar_gaps",
     "bar_positions",
+    "breaks_out",
     "clear",
     "dominates",
     "expands",
@@ -83,13 +106,16 @@ __all__ = [
     "general_direction",
     "implied_body_min",
     "leg_ends",
+    "line_relations",
     "marked_bars",
     "nested_legs",
     "nests",
     "position_of",
     "reverses",
+    "side_of",
     "split_leg_windows",
     "split_legs",
+    "touches",
     "trend_lines",
     "trim_tail",
 ]

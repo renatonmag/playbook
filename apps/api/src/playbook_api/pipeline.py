@@ -13,10 +13,16 @@ The list is produced by `build_pipeline`, and `PIPELINE` is that function at its
 defaults. The importable-list property is unchanged: a tick worker imports `PIPELINE` and gets
 what it always got. What the function buys is that `/patterns` can run this same pipeline with
 the Forma rule replaced, without a second hand-maintained copy of the tuple drifting from this
-one. It takes exactly one argument, deliberately: `depth`, `ahead`, `k`, `similarity`
-and `expansion` stay written below, because they are what someone tuning the *detector* comes
-looking for, and only the Forma rule is a thing the browser can edit and cannot evaluate for
-itself. See the module docstring on `routers/patterns.py` for why that one exception exists.
+one.
+
+What it takes as arguments is decided by one test, and not by convenience: a caller may hand in
+what the browser cannot evaluate for itself and what is not detector tuning. `depth`, `ahead`,
+`k`, `similarity` and `expansion` fail it and stay written below, because they are what someone
+tuning the *detector* comes looking for. Two things pass. The **Forma rule**, which the screen
+can edit but only the engine can apply — see the module docstring on `routers/patterns.py`. And
+the **lines somebody drew**, which are the stronger case of the two: a pinned level exists
+nowhere but in the browser holding it, so no argument about where it is better computed arises.
+Neither changes the shape of the pipeline, and that is the line being held.
 """
 
 from pattern_engine import FormaRule, Pattern, Timeframe
@@ -24,6 +30,7 @@ from pattern_engine.patterns import (
     DEFAULT_EXPANSION,
     DEFAULT_K,
     DEFAULT_SIMILARITY,
+    NO_LINES,
     AdvancingLegsPattern,
     BarGapPattern,
     BarsPattern,
@@ -31,7 +38,9 @@ from pattern_engine.patterns import (
     LegExtremesPattern,
     LegPattern,
     LegWindowPattern,
+    LineRelationsPattern,
     NestedLegsPattern,
+    PinnedLines,
     SimpleLegPattern,
     TrendLinesPattern,
     ZigZagPattern,
@@ -66,8 +75,10 @@ RULE_K = FormaRule(
 )
 
 
-def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
-    """The Patterns this installation runs, in run order, with `rule` applied where one is read.
+def build_pipeline(
+    rule: FormaRule = RULE_K, lines: PinnedLines = NO_LINES
+) -> tuple[Pattern, ...]:
+    """The Patterns this installation runs, in run order, reading `rule` and `lines` where asked.
 
     One Pattern reads it today — `bars` — and the argument is still one rule for the pipeline
     rather than one per Pattern. That is deliberate and outlives the current list: the reversal
@@ -188,6 +199,17 @@ def build_pipeline(rule: FormaRule = RULE_K) -> tuple[Pattern, ...]:
         # `LegWindow`, which anchors on its opening vertex and cannot say which extreme its close
         # is. Last in the tuple because declaration order is run order.
         LegExtremesPattern(source=advancing, reads=("5m",), emits="5m"),
+        # And last, the only Pattern here that is *told* where to look. Every one above finds its
+        # own levels; this one is handed the lines a person pinned on the monitor and reports what
+        # the bars since have done about them — touched, broken through, or crossed and crossed
+        # back. It reads `ctx["bars"]` and nothing else, so like `bar-gap` it has no ordering
+        # constraint and sits here by meaning rather than by necessity: everything above answers
+        # about the market, and this answers about the market *and a person's question*.
+        #
+        # With no lines it emits an empty Series rather than being left out of the tuple, so the
+        # `ctx` key exists on every run and "nobody drew a line" is not indistinguishable from a
+        # Pattern that failed.
+        LineRelationsPattern(lines=lines, reads=("5m",), emits="5m"),
     )
 
 
@@ -201,8 +223,8 @@ def timeframes(pipeline: tuple[Pattern, ...] = PIPELINE) -> set[Timeframe]:
     """Every Timeframe `pipeline` reads — the Candles a run has to be handed.
 
     Takes the pipeline rather than reading the module global. Today that is provably a no-op: the
-    only thing `build_pipeline` varies is a `FormaRule`, which cannot change any Pattern's
-    `reads`. It is written this way anyway, because the alternative is a function that answers
+    only things `build_pipeline` varies are a `FormaRule` and a set of lines, neither of which
+    can change any Pattern's `reads`. It is written this way anyway, because the alternative is a function that answers
     about one tuple while the caller runs another — the exact "both appearing to work" failure
     the module docstring above is written against.
     """
