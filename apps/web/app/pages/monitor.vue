@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
-import { producerName, type BarGap, type LegExtremes, type PatternPoint, type TrendLine } from '~/types/pattern'
-import { parseRule, PIPELINE_RULE, sameRule } from '~/utils/rule'
+import { producerName, type BarGap, type LegExtremes, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
+import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import BarsOverlay from '~/components/BarsOverlay.vue'
@@ -12,6 +12,10 @@ import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '~/components/ui/dropdown-menu'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/components/ui/resizable'
+import { useElementSize } from '@vueuse/core'
+import { ChevronRight, Ellipsis } from '@lucide/vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -22,6 +26,17 @@ const SYMBOLS = ['WIN@N'] as const
 
 const DEFAULT_SYMBOL = 'WIN@N'
 const DEFAULT_TIMEFRAME: Timeframe = '5m'
+
+/** The height of the Log's title row: what a folded Log leaves behind, and its own handle. */
+const LOG_STRIP_PX = 36
+
+/**
+ * The shortest a Log that is actually open may be. Dragging below it folds the panel instead, and
+ * it is also what the first expand opens to — the splitter falls back to `minSize` when there is
+ * no earlier size to restore, so this is the height of a Log nobody has dragged yet rather than a
+ * token floor.
+ */
+const LOG_MIN_PX = 160
 
 /**
  * Which component draws which Pattern, keyed by the producer's class part — `zig-zag`, without
@@ -135,6 +150,11 @@ function pin(value: string) {
  * the numbers travel instead. See the module docstring on `/patterns`.
  */
 const { rule, update: updateRule, reset: resetRule } = useStoredRule()
+
+// Reached directly rather than through `usePatterns`, which owns the automatic `GET`. `calculate`
+// below asks the same route with a body, and that is not a fetch a composable keyed by a window
+// and a rule can express.
+const { public: { apiBase } } = useRuntimeConfig()
 
 /** Whether the numbers differ from what the pipeline runs unattended. */
 const adjusted = computed(() => !sameRule(rule.value, PIPELINE_RULE))
@@ -857,7 +877,7 @@ function removeMove(producer: string, key: string) {
 /**
  * The six sets above, remembered between visits — everything about the sidebar that is keyed by
  * producer and nothing that is not. See `useStoredOverlays` for why the write is automatic and the
- * read is the button beside the heading.
+ * read is the `Restaurar` item in the menu beside the heading.
  *
  * Here rather than beside `shown`, because it needs all six and `moves` is the last of them.
  */
@@ -911,6 +931,83 @@ function restoreLayout() {
   layout.load()
   history.reset()
   if (autoHide.value.size > 0) hideTimer.hide()
+}
+
+/**
+ * The pinned lines as the pipeline wants them: an id, the bar they start on, and a price.
+ *
+ * Read back through `pinnedSegments` and `pinnedWicks` rather than off `pinned` directly, so the
+ * lines that travel are exactly the ones on the screen — a pin whose leg is gone, whose bar has
+ * scrolled out of the window, or whose side is unchecked resolves to nothing in both, and asking
+ * the server about a line nobody can see would put an answer in the response with nothing to
+ * attach it to.
+ *
+ * Only the two the question is about. `bar-gap` is a band and `trend-lines` is sloped; neither is
+ * a level, and `line-relations` reads one price per line. A sloped line is a real question and a
+ * different Pattern, not a wider parameter on this one.
+ *
+ * `ExtremeSegment` and `WickLevel` both extend `LevelSegment`, which is already `{ id, time,
+ * price }` — so this is a narrowing, not a mapping, and there is no second definition of what a
+ * pinned line is.
+ */
+const pinnedLines = computed(() =>
+  [
+    ...overlays.value
+      .filter(overlay => overlay.name === 'leg-extremes')
+      .flatMap(overlay => pinnedSegments(overlay)),
+    ...pinnedWicks(),
+  ].map(({ id, time, price }) => ({ id, time, price })),
+)
+
+/** What the last `Calcular` answered, and what it is doing. Nothing draws these yet. */
+const relations = ref<PatternResponse | null>(null)
+const calculating = ref(false)
+const calculateError = ref<string | null>(null)
+
+/**
+ * `Calcular`'s click: the pipeline again, this time told about the lines on the screen.
+ *
+ * This is the one run the automatic ones cannot be. `usePatterns` re-fetches on every closed bar
+ * and on every rule edit, but it asks a `GET` and a `GET` carries no lines — the pinned set is a
+ * `Set<string>` in this page and nowhere else, so the server has no way to know a level exists
+ * until somebody hands it over. Hence a menu item rather than a watcher: the run is a question a
+ * person asks about lines they just placed, and re-asking it on every bar would send a body the
+ * size of the selection at a cadence nobody chose.
+ *
+ * `$fetch` and not `useFetch`, deliberately. This is an imperative action with no key: the
+ * response is not state Nuxt should cache, hydrate, or dedupe against the `GET` that shares its
+ * URL, and `useFetch`'s own key knows nothing about a body.
+ *
+ * The result stays in its own ref and is *not* merged into `patterns`. That data belongs to
+ * `useFetch`, whose key names a window and a rule and cannot name a set of lines — writing into
+ * it would make the next automatic re-run silently drop the answer.
+ *
+ * The same window and the same rule the automatic run uses, so the two answers are about one
+ * pipeline over one span of bars. See the module docstring on `/patterns` for why the rule and
+ * the lines are the only two things this page may hand the server.
+ */
+async function calculate() {
+  if (calculating.value || pinnedLines.value.length === 0) return
+
+  calculating.value = true
+  calculateError.value = null
+
+  try {
+    relations.value = await $fetch<PatternResponse>('/patterns', {
+      baseURL: apiBase,
+      method: 'POST',
+      query: { ...runWindow.value, ...(rule.value ? toPatternQuery(rule.value) : {}) },
+      body: { lines: pinnedLines.value },
+    })
+  }
+  catch (error) {
+    // Kept rather than thrown: a failed manual run must not take the chart down with it.
+    relations.value = null
+    calculateError.value = error instanceof Error ? error.message : String(error)
+  }
+  finally {
+    calculating.value = false
+  }
 }
 
 /**
@@ -1056,6 +1153,61 @@ const lastBarLabel = computed(() => {
   if (bar.last.value === null) return null
   return barLabel(bar.last.value - SECONDS[timeframe.value])
 })
+
+/**
+ * The splitter between the chart and the Log, in the pixels its two constants are written in.
+ *
+ * `reka-ui` lays panels out in percentages, so every height here has to be divided by the box the
+ * two share — measured, because that box is whatever the window leaves after the header. Hence
+ * the wrapper the ref sits on: it has a height of its own (`h-[560px] lg:h-full`) before the
+ * splitter inside it has laid anything out, which is what makes it measurable at all.
+ */
+const splitArea = ref<HTMLElement | null>(null)
+const { height: observedHeight } = useElementSize(splitArea)
+
+/**
+ * The same height, read once by hand at mount.
+ *
+ * A `ResizeObserver` does not fire while the tab is hidden, and a page opened in a background tab
+ * is the ordinary way to open one: without this the splitter would wait for its first
+ * measurement, and the chart would be a blank box until the tab was looked at. The observer is
+ * still what keeps the number honest afterwards, so it wins as soon as it has anything to say.
+ */
+const measuredHeight = ref(0)
+
+// Watched rather than read in `onMounted`: the wrapper is inside a `<ClientOnly>`, which renders
+// its children a tick *after* this page has mounted, so at `onMounted` the ref is still null.
+watch(splitArea, (element) => {
+  if (element) measuredHeight.value = element.getBoundingClientRect().height
+}, { flush: 'post' })
+
+const splitBox = computed(() => observedHeight.value || measuredHeight.value)
+
+const logStored = useStoredLogHeight()
+
+/** Zero while the box is unmeasured — the splitter is not rendered until it is. */
+function splitPercent(px: number) {
+  return splitBox.value > 0 ? Math.min(100, (px / splitBox.value) * 100) : 0
+}
+
+const logStripPercent = computed(() => splitPercent(LOG_STRIP_PX))
+const logMinPercent = computed(() => splitPercent(LOG_MIN_PX))
+
+/** The remembered height, or the folded strip on a first visit. */
+const logStartPercent = computed(() => splitPercent(Math.max(logStored.height.value ?? 0, LOG_STRIP_PX)))
+
+/**
+ * Both halves of the split are known: the box has been measured and storage has been read. The
+ * splitter takes its layout from props once, so it must not be rendered before either answer.
+ */
+const splitReady = computed(() => splitBox.value > 0 && logStored.ready.value)
+
+/** Back into pixels, which is the only unit worth keeping — see `useStoredLogHeight`. */
+function rememberSplit(sizes: number[]) {
+  const log = sizes[1]
+  if (log === undefined || splitBox.value <= 0) return
+  logStored.remember((log / 100) * splitBox.value)
+}
 
 /**
  * The props only one overlay takes, spread into the `component` so the others never see them —
@@ -1225,52 +1377,116 @@ function isVisible(overlay: { producer: string }) {
 
            No height here: `flex-1` is `flex: 1 1 0%`, and in the column this becomes below `lg`
            that basis would beat any `h-*` written on this tag. The height goes on the chart
-           inside, where nothing overrides it. -->
+           inside — on the splitter, which is what divides this panel between the chart and the
+           Log. -->
       <section class="min-w-0 flex-1 overflow-hidden border-y border-gray-200">
-        <p v-if="pending" class="p-8 text-center text-sm text-gray-500">
-          Carregando candles…
-        </p>
+        <!-- Client-only as a whole, not just around the canvas: the split is measured off the DOM
+             and read back from `localStorage`, neither of which the server can do. The fallback
+             holds the same box so the page does not jump when the real one arrives. -->
+        <ClientOnly>
+          <!-- The box the two panels divide, and the only tag here with a height of its own. The
+               splitter works in percentages, so something has to say what they are a percentage
+               *of*; `h-[560px]` below `lg` is the 520px chart the page has always shown plus the
+               folded Log strip. -->
+          <div ref="splitArea" class="h-[560px] w-full lg:h-full">
+            <!-- The chart and the Log are two panels of one splitter rather than a chart with a
+                 `Collapsible` under it: how much of the screen a log is worth changes by the
+                 minute, and that judgement belongs to the reader's drag. Folding survives as the
+                 Log panel collapsing to its own title row, which is the half of the old control
+                 worth keeping.
 
-        <div v-else-if="error" class="p-8 text-center text-sm">
-          <p class="text-red-600">Não foi possível carregar os candles.</p>
-          <p class="mt-1 font-mono text-xs text-gray-500">{{ error.message }}</p>
-          <button class="mt-3 rounded border border-gray-300 px-3 py-1 text-sm" @click="refresh()">
-            Tentar de novo
-          </button>
-        </div>
+                 Held back until `splitReady`, because a splitter reads its layout from these
+                 props once: rendered a tick early it would lay out against an unmeasured box and
+                 then have to be shoved into place, which is a jump the reader would see. -->
+            <ResizablePanelGroup
+              v-if="splitReady"
+              direction="vertical"
+              class="h-full"
+              @layout="rememberSplit"
+            >
+              <ResizablePanel :min-size="30" class="min-w-0 overflow-hidden">
+                <p v-if="pending" class="p-8 text-center text-sm text-gray-500">
+                  Carregando candles…
+                </p>
 
-        <p v-else-if="!candles?.length" class="p-8 text-center text-sm text-gray-500">
-          Nenhum candle para {{ symbol }} · {{ timeframe }} nesta janela.
-        </p>
+                <div v-else-if="error" class="p-8 text-center text-sm">
+                  <p class="text-red-600">Não foi possível carregar os candles.</p>
+                  <p class="mt-1 font-mono text-xs text-gray-500">{{ error.message }}</p>
+                  <button class="mt-3 rounded border border-gray-300 px-3 py-1 text-sm" @click="refresh()">
+                    Tentar de novo
+                  </button>
+                </div>
 
-        <ClientOnly v-else>
-          <!-- `CandleChart` has no height of its own — the box is the caller's to state. At `lg`
-               that is whatever the row gives this section; stacked below it, it is the 520px the
-               page has always shown. -->
-          <CandleChart class="h-[520px] lg:h-full" :candles="candles" :live-bars="live.bars.value">
-            <component
-              :is="overlay.component"
-              v-for="overlay in overlays"
-              :key="overlay.producer"
-              :points="overlay.points"
-              :color="overlay.color"
-              :visible="isVisible(overlay)"
-              v-bind="extraProps(overlay)"
-            />
-            <!-- Not one of the overlays above, and so not in the loop: it draws off the candles
-                 rather than off a Series the pipeline produced, and has no Points, no colour from
-                 the palette and no producer. What it shares with them is the chip and the pins. -->
-            <WickLevelsOverlay
-              :bars="barsByTime"
-              :visible="shown.has(WICK_KEY)"
-              :sides="wickSides()"
-              :pinned="pinsFor(WICK_KEY)"
-              :tracking="!wickPaused"
-              @pin="(id: string) => togglePin(WICK_KEY, id)"
-            />
-          </CandleChart>
+                <p v-else-if="!candles?.length" class="p-8 text-center text-sm text-gray-500">
+                  Nenhum candle para {{ symbol }} · {{ timeframe }} nesta janela.
+                </p>
+
+                <!-- `CandleChart` has no height of its own — the box is the caller's to state, and
+                     the box is now this panel, at whatever the drag has left it. The library
+                     resizes itself from there: it runs with `autoSize`. -->
+                <CandleChart v-else class="h-full" :candles="candles" :live-bars="live.bars.value">
+                  <component
+                    :is="overlay.component"
+                    v-for="overlay in overlays"
+                    :key="overlay.producer"
+                    :points="overlay.points"
+                    :color="overlay.color"
+                    :visible="isVisible(overlay)"
+                    v-bind="extraProps(overlay)"
+                  />
+                  <!-- Not one of the overlays above, and so not in the loop: it draws off the candles
+                       rather than off a Series the pipeline produced, and has no Points, no colour from
+                       the palette and no producer. What it shares with them is the chip and the pins. -->
+                  <WickLevelsOverlay
+                    :bars="barsByTime"
+                    :visible="shown.has(WICK_KEY)"
+                    :sides="wickSides()"
+                    :pinned="pinsFor(WICK_KEY)"
+                    :tracking="!wickPaused"
+                    @pin="(id: string) => togglePin(WICK_KEY, id)"
+                  />
+                </CandleChart>
+              </ResizablePanel>
+
+              <!-- No grip: the seam already reads as the border between the two panels, and a pill
+                   pinned to its middle is a mark across the chart for a drag the cursor announces
+                   by itself. The class is not decoration — neither reka nor the wrapper draws a
+                   resize cursor, so it has to be asked for. -->
+              <ResizableHandle class="cursor-row-resize" />
+
+              <!-- Inside this panel rather than under the whole row, so the sidebar keeps running the
+                   full height beside it: the Log is about what the chart is showing, not about the
+                   page. Empty on purpose — what goes in it is the next decision; this settles where
+                   it lives and that the chart, not the sidebar, gives up the space.
+
+                   The title row is the whole hit area, and clicking it is the same fold that dragging
+                   past `LOG_MIN_PX` performs: both end up in `isCollapsed`, so the chevron cannot
+                   disagree with the panel about which way it is. -->
+              <ResizablePanel
+                v-slot="{ isCollapsed, collapse, expand }"
+                collapsible
+                :collapsed-size="logStripPercent"
+                :default-size="logStartPercent"
+                :min-size="logMinPercent"
+                class="flex min-w-0 flex-col overflow-hidden"
+              >
+                <button
+                  class="flex w-full shrink-0 items-center gap-2 px-4 py-2 text-left text-sm font-semibold hover:bg-gray-50"
+                  @click="isCollapsed ? expand() : collapse()"
+                >
+                  <ChevronRight
+                    class="size-3.5 shrink-0 text-gray-400 transition-transform"
+                    :class="!isCollapsed && 'rotate-90'"
+                  />
+                  Log
+                </button>
+                <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-3" />
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+
           <template #fallback>
-            <div class="h-[520px] w-full lg:h-full" />
+            <div class="h-[560px] w-full lg:h-full" />
           </template>
         </ClientOnly>
       </section>
@@ -1288,27 +1504,49 @@ function isVisible(overlay: { producer: string }) {
             <!-- The run is now started by editing a field, so it needs to say it is running. -->
             <span v-if="patternsPending" class="text-xs text-gray-400">rodando…</span>
 
-            <!-- Puts back what the sidebar looked like when you left it: which Patterns were
-                 unfolded, which were drawn, what was pinned under each. The saving happens by
-                 itself; this is the half that is a decision, so it is a button — a reload that
-                 silently redrew the chart would be the page choosing for you.
+            <!-- The sidebar's own actions, which are about the panel rather than about any one
+                 Pattern. `Restaurar` puts back what the sidebar looked like when you left it:
+                 which Patterns were unfolded, which were drawn, what was pinned under each. The
+                 saving happens by itself; this is the half that is a decision, so it is a click —
+                 a reload that silently redrew the chart would be the page choosing for you.
+
+                 The trigger stays enabled when there is nothing saved and only the item goes dim:
+                 a dead ellipsis would hide `Calcular` behind a fact that has nothing to do with
+                 it, and say nothing about which of the two is unavailable.
 
                  `ClientOnly` because whether there is anything to load is a fact only the browser
                  has, the same guard the timepicker and the rule controls need. -->
             <ClientOnly>
-              <button
-                class="rounded border px-2 py-0.5 text-xs"
-                :class="layout.saved.value
-                  ? 'border-gray-300 text-gray-500 hover:text-gray-700'
-                  : 'border-gray-200 text-gray-300'"
-                :disabled="!layout.saved.value"
-                title="restaurar padrões e fixados salvos"
-                @click="restoreLayout()"
-              >
-                Restaurar
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <button
+                    class="flex size-[22px] items-center justify-center rounded border border-gray-300 text-gray-500 hover:text-gray-700"
+                    title="ações do painel"
+                  >
+                    <Ellipsis class="size-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" class="text-xs">
+                  <DropdownMenuItem
+                    :disabled="!layout.saved.value"
+                    title="restaurar padrões e fixados salvos"
+                    @select="restoreLayout()"
+                  >
+                    Restaurar
+                  </DropdownMenuItem>
+                  <!-- Dim with nothing pinned: this run exists to ask about lines, and with none
+                       it would send an empty body for an answer nobody could read. -->
+                  <DropdownMenuItem
+                    :disabled="calculating || !pinnedLines.length"
+                    title="rodar o pipeline sobre as linhas fixadas"
+                    @select="calculate()"
+                  >
+                    Calcular
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <template #fallback>
-                <div class="h-[22px] w-20" />
+                <div class="size-[22px]" />
               </template>
             </ClientOnly>
           </span>
