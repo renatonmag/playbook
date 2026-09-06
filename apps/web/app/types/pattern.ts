@@ -336,6 +336,32 @@ export interface TrendLine extends PatternPoint {
   provisional: boolean
 }
 
+/**
+ * One thing a pinned line did on one bar: the line was touched, broken through, or the breakout
+ * before it was undone.
+ *
+ * The Series is sparse — most bars say nothing about most lines — and it is bar-major, so its
+ * anchors never go backwards. One bar and one line make at most one crossing, and a crossing that
+ * undoes a recent one arrives as a `seam` **instead of** a `breakout`, never as both: to see every
+ * crossing, read the two kinds together. A bar repeats only when several lines answer on it.
+ *
+ * `price` is the **line's** price, not the bar's: the OHLCV every Point carries is already the
+ * bar's, and repeating one of its numbers here would say nothing.
+ */
+export interface LineRelation extends PatternPoint {
+  /** The browser's own segment id, handed over on the `POST` and returned unparsed. */
+  line: string
+  /** The line's price — the level the bar met, not anything about the bar. */
+  price: number
+  kind: 'touch' | 'breakout' | 'seam'
+  /** Which wick reached the line. Only on `touch`. */
+  wick: 'high' | 'low' | null
+  /** Which side the bar **opened** on. `null` only when the open sits exactly on the line. */
+  side: 'above' | 'below' | null
+  /** The bar that broke out first, whole. Only on `seam`. */
+  since: PatternPoint | null
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   /**
    * What the Pattern calls itself — one line, written on the class, for a person reading a list.

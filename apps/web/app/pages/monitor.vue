@@ -11,6 +11,7 @@ import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
+import PatternLog from '~/components/PatternLog.vue'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '~/components/ui/dropdown-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/components/ui/resizable'
@@ -1456,8 +1457,12 @@ function isVisible(overlay: { producer: string }) {
 
               <!-- Inside this panel rather than under the whole row, so the sidebar keeps running the
                    full height beside it: the Log is about what the chart is showing, not about the
-                   page. Empty on purpose — what goes in it is the next decision; this settles where
-                   it lives and that the chart, not the sidebar, gives up the space.
+                   page — and the chart, not the sidebar, is what gives up the space.
+
+                   What it holds is the Series that are read rather than drawn, fed from `relations`
+                   and not from `patterns`. Line relations is about the lines a person pinned, and
+                   only the manual run carries them, so the automatic response has nothing to say
+                   here — see `calculate` above.
 
                    The title row is the whole hit area, and clicking it is the same fold that dragging
                    past `LOG_MIN_PX` performs: both end up in `isCollapsed`, so the chevron cannot
@@ -1480,7 +1485,9 @@ function isVisible(overlay: { producer: string }) {
                   />
                   Log
                 </button>
-                <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-3" />
+                <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-3">
+                  <PatternLog :response="relations" :pending="calculating" :error="calculateError" />
+                </div>
               </ResizablePanel>
             </ResizablePanelGroup>
           </div>
