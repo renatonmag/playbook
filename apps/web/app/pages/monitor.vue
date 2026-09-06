@@ -281,7 +281,7 @@ function toggle(producer: string) {
 /**
  * Producers whose control block is unfolded under the picker.
  *
- * Deliberately not `shown`: picking a Pattern opens its controls, and `Mostrar` inside them is
+ * Deliberately not `shown`: picking a Pattern opens its controls, and `Ligar` inside them is
  * what reaches the chart. One checkbox used to answer both questions, which meant you could not
  * read a Series' filters without drawing it, or leave it drawn without its controls in the way.
  *
@@ -358,7 +358,7 @@ const PINNABLE = new Set(['leg-extremes', 'bar-gap', 'trend-lines'])
  * The wick tool's key, standing where a producer key stands.
  *
  * It is not a Pattern — nothing runs on the server for it, and it draws off the candles themselves —
- * but it is a chip beside them, with a control block, a `Mostrar` and pins. Giving it a key buys the
+ * but it is a chip beside them, with a control block, a `Ligar` and pins. Giving it a key buys the
  * whole of that bookkeeping unchanged: `shown`, `open`, `pinned`, `pinsFor`, `togglePin`,
  * `clearPins`. The alternative was a parallel set of each, which is four more places for the two
  * kinds of thing on this sidebar to drift apart.
@@ -400,9 +400,9 @@ function toggleWickSide(side: WickSide) {
 /**
  * The wick tool's cursor is being held still.
  *
- * `Mostrar` used to answer two questions at once: put the tool on the chart, *and* give the cursor a
+ * `Ligar` used to answer two questions at once: put the tool on the chart, *and* give the cursor a
  * new meaning. Those come apart the moment something is pinned — the pins are what you wanted to
- * keep, and the cursor goes on painting four lines over them on its way anywhere else. So `Mostrar`
+ * keep, and the cursor goes on painting four lines over them on its way anywhere else. So `Ligar`
  * now means the tool is on the chart, which with the cursor held still means the pinned levels, and
  * this is the second question.
  *
@@ -1112,7 +1112,7 @@ function extraProps(overlay: { producer: string, name: string }) {
 }
 
 /**
- * Whether a Series is drawn right now, which is the `Mostrar` button and nothing else.
+ * Whether a Series is drawn right now, which is the `Ligar` button and nothing else.
  *
  * The hide timer used to be the second half of this and is not any more: with pins it decides
  * *which* segments a `leg-extremes` Series draws rather than whether it draws at all, and that is
@@ -1332,7 +1332,7 @@ function isVisible(overlay: { producer: string }) {
         </p>
 
         <!-- One picker, and under it the control block of whichever entries are ticked. Ticking
-             draws nothing — it opens and closes the control — and `Mostrar` inside the control is
+             draws nothing — it opens and closes the control — and `Ligar` inside the control is
              what reaches the chart. Those are two facts about one Pattern, and the checkbox this
              all replaced had to stand for both at once.
 
@@ -1401,10 +1401,10 @@ function isVisible(overlay: { producer: string }) {
                   : 'border-gray-300 text-gray-500'"
                 @click="toggle(overlay.producer)"
               >
-                {{ shown.has(overlay.producer) ? 'Ocultar' : 'Mostrar' }}
+                {{ shown.has(overlay.producer) ? 'Desligar' : 'Ligar' }}
               </button>
 
-              <!-- Only under a Series that is actually drawn: with `Mostrar` off there is nothing
+              <!-- Only under a Series that is actually drawn: with `Ligar` off there is nothing
                    for these to filter, and leaving them visible would suggest otherwise. -->
               <div
                 v-if="DIRECTIONAL.has(overlay.name) && shown.has(overlay.producer)"
@@ -1791,7 +1791,7 @@ function isVisible(overlay: { producer: string }) {
                 : 'border-gray-300 text-gray-500'"
               @click="toggle(WICK_KEY)"
             >
-              {{ shown.has(WICK_KEY) ? 'Ocultar' : 'Mostrar' }}
+              {{ shown.has(WICK_KEY) ? 'Desligar' : 'Ligar' }}
             </button>
 
             <!-- The second question the button above used to answer as well: whether the cursor
@@ -1813,7 +1813,7 @@ function isVisible(overlay: { producer: string }) {
               <span class="ml-1 text-gray-500">· {{ wickPaused ? 'pausado' : 'ativo' }}</span>
             </button>
 
-            <!-- Only while the tool is on, as with every filter row on this page: with `Mostrar`
+            <!-- Only while the tool is on, as with every filter row on this page: with `Ligar`
                  off there is nothing for these to filter. -->
             <div v-if="shown.has(WICK_KEY)" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
               <label

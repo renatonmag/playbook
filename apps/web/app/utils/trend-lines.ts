@@ -111,7 +111,7 @@ export interface DrawnTrend extends TrendSegment {
  * It dims rather than filters, which is the whole point. This Series is a fan of some hundreds of
  * strokes, and a handful of lines converging on a bar is only legible against the ones they were
  * picked out of — drop the rest and the picture stops saying anything about the pivot. So this is
- * emphasis, not a fourth filter: the side checkboxes and `Mostrar` still decide what exists.
+ * emphasis, not a fourth filter: the side checkboxes and `Ligar` still decide what exists.
  *
  * A `focus` no line reaches dims the whole fan, deliberately: "nothing ends on this bar" is an
  * answer, and silently keeping the previous highlight would be a different bar's answer shown for
