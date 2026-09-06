@@ -2,7 +2,9 @@
 
 The arithmetic first — `touches`, `side_of` and `breaks_out` are three independent questions about
 one bar and one price, and each is settled without a Series in sight. Then `line_relations`, which
-is only the bookkeeping that carries a breakout forward far enough for the next one to answer it.
+is only the bookkeeping that carries a crossing forward far enough for the next one to answer it,
+and the naming that follows from it — a crossing that answers an earlier one is a seam *instead of*
+a breakout, which is what most of the assertions below are counting.
 Then the Pattern through a real engine, which is where the producer key is pinned: the key must not
 name the lines, and that is the one property of this Pattern nothing else would catch breaking.
 
@@ -169,14 +171,22 @@ def test_a_touch_names_the_wick_and_where_the_bar_opened() -> None:
 
 @pytest.mark.parametrize("specs", [SEAMED, flipped(SEAMED)])
 def test_a_breakout_and_its_reversal_are_a_seam(specs: tuple) -> None:
-    """Three Points on the closing bar's index: its own touch is absent, the seam follows the
-    breakout, and never replaces it."""
+    """The reversing bar answers once, and the answer is `seam` — the breakout it would otherwise
+    have been is not emitted beside it."""
     found = line_relations(series(*specs).points, lines(("a", 0)))
     assert [(index, kind) for index, kind, _, _ in kinds(found)] == [
         (1, "breakout"),
-        (2, "breakout"),
         (2, "seam"),
     ]
+
+
+@pytest.mark.parametrize("specs", [SEAMED, flipped(SEAMED)])
+def test_a_seam_is_the_only_point_its_bar_emits(specs: tuple) -> None:
+    """The property the naming rests on, asserted on the bar rather than on the whole run."""
+    found = line_relations(series(*specs).points, lines(("a", 0)))
+    reversing = [point for point in found if point.time == at(2)]
+
+    assert [point.kind for point in reversing] == ["seam"]
 
 
 def test_a_seam_carries_the_bar_that_broke_out_first() -> None:
@@ -198,7 +208,6 @@ def test_a_reversal_two_bars_later_is_still_a_seam() -> None:
     found = line_relations(series(*specs).points, lines(("a", 0)))
     assert [(index, kind) for index, kind, _, _ in kinds(found)] == [
         (1, "breakout"),
-        (3, "breakout"),
         (3, "seam"),
     ]
 
@@ -227,7 +236,8 @@ def test_two_breakouts_the_same_way_are_not_a_seam() -> None:
 
 
 def test_a_bar_that_closes_one_seam_can_open_the_next() -> None:
-    """Three alternating crossings are two seams — a seam does not consume its bars."""
+    """Three alternating crossings are a breakout and two seams: being named a seam does not take
+    a bar out of the running for the next one."""
     specs = (
         (80.0, 85.0, 79.0, 84.0),
         (90.0, 115.0, 89.0, 110.0),
@@ -237,9 +247,7 @@ def test_a_bar_that_closes_one_seam_can_open_the_next() -> None:
     found = line_relations(series(*specs).points, lines(("a", 0)))
     assert [(index, kind) for index, kind, _, _ in kinds(found)] == [
         (1, "breakout"),
-        (2, "breakout"),
         (2, "seam"),
-        (3, "breakout"),
         (3, "seam"),
     ]
 
@@ -260,9 +268,7 @@ def test_two_lines_are_reported_bar_by_bar_in_the_order_they_arrived() -> None:
     assert [(point.line, point.kind) for point in found] == [
         ("b", "breakout"),
         ("a", "breakout"),
-        ("b", "breakout"),
         ("b", "seam"),
-        ("a", "breakout"),
         ("a", "seam"),
     ]
 
@@ -288,7 +294,6 @@ def test_the_pattern_runs_over_the_engine_bars() -> None:
     assert found.identity == SeriesIdentity(pattern.producer, "WIN@N", "5m")
     assert [(point.line, point.kind, point.side) for point in found.points] == [
         ("a", "breakout", "below"),
-        ("a", "breakout", "above"),
         ("a", "seam", "above"),
     ]
 

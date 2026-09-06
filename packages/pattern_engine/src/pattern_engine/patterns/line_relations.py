@@ -46,12 +46,18 @@ The rules, and what each one deliberately does not say:
   bar between them did, it did not undo anything, or it would be `bar_2` itself.
 
 - **A seam does not consume its bars.** A bar that closes one seam can open the next: three
-  alternating breakouts in a row are two seams, not one. They are two events, and price whipping
-  across a line three times is more of what a seam is about, not less.
+  alternating crossings in a row are two seams, not one. They are two events, and price whipping
+  across a line three times is more of what a seam is about, not less. The bookkeeping says the
+  same thing: a seam bar is still the crossing the next bar measures itself against, so nothing
+  about being named a seam takes a bar out of the running.
 
-- **A breakout also emits its seam, never instead of it.** The two Points sit on the same bar, in
-  that order, so a caller reading only breakouts sees every crossing and a caller reading only
-  seams sees every reversal.
+- **A seam is the breakout, renamed — not a Point beside it.** A crossing that undoes a recent one
+  emits one Point and it is the `seam`; there is no `breakout` on that bar as well. One bar and one
+  line make one event, and emitting both would be naming the same crossing twice.
+
+  What that costs is worth saying plainly: `breakout` no longer enumerates every crossing. A caller
+  that wants all of them reads `breakout` **and** `seam`, and one that wants only the reversals
+  reads `seam` alone — which is the reading the second kind exists for.
 
 What it costs, stated rather than hidden:
 
@@ -256,8 +262,9 @@ def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelat
     if not anchored:
         return []
 
-    #: The last breakout per line: which bar, and which side it closed on. One entry, not a list —
-    #: a seam only ever looks at the most recent one, since anything older is out of `SEAM_SPAN`.
+    #: The last crossing per line, under either name: which bar, and which side it closed on. One
+    #: entry, not a list — a seam only ever looks at the most recent one, since anything older is
+    #: out of `SEAM_SPAN`.
     last: dict[str, tuple[int, Side]] = {}
 
     found: list[LineRelation] = []
@@ -283,26 +290,25 @@ def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelat
             if closed is None:
                 continue
 
-            found.append(
-                LineRelation.anchored(
-                    bar, line=line.id, price=price, kind="breakout",
-                    wick=None, side=side, since=None,
-                )
-            )
-
+            # Which of the two names this crossing gets, decided before anything is emitted: a
+            # crossing that undoes a recent one *is* the seam, and no breakout is emitted beside it.
+            undone: Candle | None = None
             previous = last.get(line.id)
             if previous is not None:
                 before, was = previous
                 if was != closed and at - before <= SEAM_SPAN:
-                    found.append(
-                        LineRelation.anchored(
-                            bar, line=line.id, price=price, kind="seam",
-                            wick=None, side=side, since=bars[before],
-                        )
-                    )
+                    undone = bars[before]
 
-            # After the seam test and unconditionally: this breakout is the one the next bar
-            # measures itself against, whether or not it closed a seam of its own.
+            found.append(
+                LineRelation.anchored(
+                    bar, line=line.id, price=price,
+                    kind="breakout" if undone is None else "seam",
+                    wick=None, side=side, since=undone,
+                )
+            )
+
+            # After the seam test and unconditionally: this crossing is the one the next bar
+            # measures itself against, whether it was named a breakout or a seam.
             last[line.id] = (at, closed)
 
     return found
