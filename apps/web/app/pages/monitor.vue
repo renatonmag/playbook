@@ -525,6 +525,11 @@ function toggleSide(producer: string, side: TrendSide) {
  * Off by default and stored as the exception, the fourth time on this page — and here the rule has
  * a sharper reason than usual: with the switch on, a click on the chart means something it has
  * never meant before, and that is not a thing to turn on for somebody.
+ *
+ * Which is why it goes into the saved layout rather than staying in memory. `useStoredOverlays`
+ * writes by itself but only ever reads on the `Restaurar` click, so the switch surviving a session
+ * costs nobody a chart that silently started answering clicks: coming back is somebody's decision,
+ * the same way turning it on was.
  */
 const focusMode = ref(new Set<string>())
 
@@ -963,16 +968,16 @@ function removeMove(producer: string, key: string) {
 }
 
 /**
- * The six sets above, remembered between visits — everything about the sidebar that is keyed by
+ * The seven sets above, remembered between visits — everything about the sidebar that is keyed by
  * producer and nothing that is not. See `useStoredOverlays` for why the write is automatic and the
  * read is the `Restaurar` item in the menu beside the heading.
  *
- * Here rather than beside `shown`, because it needs all six and `moves` is the last of them.
+ * Here rather than beside `shown`, because it needs all seven and `moves` is the last of them.
  */
-const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, confirmedOnly })
+const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, confirmedOnly, focusMode })
 
 /**
- * `Ctrl+Z` over the two of those six that are a selection rather than a preference. See
+ * `Ctrl+Z` over the two of those seven that are a selection rather than a preference. See
  * `useSelectionHistory` for why it is those two, and why it watches them instead of being called
  * from `togglePin` and the three functions beside it.
  */
@@ -1021,6 +1026,11 @@ onBeforeUnmount(() => globalThis.removeEventListener('keydown', onKeyDown))
  * edge of `enabled`, so a switch that arrives already on has no moment to hide *at*: the chart
  * would draw in full under a button reading `oculto`, which is worse than not restoring it. A
  * restore is that moment, exactly as the click is.
+ *
+ * `focusMode` comes back and `focusBar` does not, which is the same split for the same reason: the
+ * switch is the preference, the bar is an answer to a question asked minutes ago in another window.
+ * So a restored Series arrives armed and unfocused — exactly the state `toggleFocusMode` leaves,
+ * hint and all, waiting for the click that is the whole feature.
  *
  * The history is dropped rather than extended by one: a selection arriving whole from another visit
  * is not a step, and `Ctrl+Z` out of it would land on whatever this page happened to hold first.
@@ -1610,7 +1620,8 @@ function isVisible(overlay: { producer: string }) {
 
             <!-- The sidebar's own actions, which are about the panel rather than about any one
                  Pattern. `Restaurar` puts back what the sidebar looked like when you left it:
-                 which Patterns were unfolded, which were drawn, what was pinned under each. The
+                 which Patterns were unfolded, which were drawn, what was pinned under each, and
+                 which of them were reading clicks on the chart. The
                  saving happens by itself; this is the half that is a decision, so it is a click —
                  a reload that silently redrew the chart would be the page choosing for you.
 

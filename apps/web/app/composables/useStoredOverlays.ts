@@ -27,15 +27,20 @@ const KEY = 'playbook:monitor:overlays'
  * somebody made about a line, not an exception to a default — and it resolves the same way, against
  * the current Points and the current bars, so a move whose line is gone is simply never consulted.
  *
+ * `focusMode` is the one that is not about what is drawn: it is what a click on the chart *means*
+ * for that Series. It is here anyway, because it is a decision somebody made about a Series and it
+ * is keyed like every other one — and because it only ever comes back on the `Restaurar` click, so
+ * no reload arms the chart behind anybody's back.
+ *
  * Every one of them is a `Set<string>` of producer keys — which is what makes one composable
- * enough for six pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
+ * enough for seven pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
  * `hiddenStates`) deliberately are not: those are keyed `producer:value` and store the *exception*,
  * so a stale entry from an older window is a checkbox silently off rather than a Series simply not
  * found. They stay in memory.
  */
-type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'confirmedOnly'
+type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'confirmedOnly' | 'focusMode'
 
-const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'confirmedOnly']
+const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'confirmedOnly', 'focusMode']
 
 /** Total, like `parseRule`: anything that is not an array of strings reads as an empty set. */
 function readList(value: unknown): string[] {
@@ -56,7 +61,7 @@ export function useStoredOverlays(sets: Record<Stored, Ref<Set<string>>>) {
     saved.value = localStorage.getItem(KEY) !== null
   })
 
-  // Client-only, and without `immediate`: a page that has just opened holds five empty sets, and
+  // Client-only, and without `immediate`: a page that has just opened holds seven empty sets, and
   // writing those would erase the snapshot the button exists to restore. The first real toggle is
   // the first write, which is the cost this composable's docblock names.
   if (import.meta.client) {
