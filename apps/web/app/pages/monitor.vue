@@ -15,6 +15,7 @@ import PatternLog from '~/components/PatternLog.vue'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '~/components/ui/dropdown-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/components/ui/resizable'
+import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/components/ui/command'
 import { useElementSize } from '@vueuse/core'
 import { ChevronRight, Ellipsis } from '@lucide/vue'
 
@@ -774,6 +775,92 @@ function toggleAutoHide(producer: string) {
 }
 
 /**
+ * The command palette is open.
+ *
+ * Its whole job is the switches you hit while *reading* the chart rather than while setting it up:
+ * `Destacar por ponto` and `Ocultar entre candles` on a Series, and `Seguir o cursor` on the wick
+ * tool. Each sits several folds down a 20rem column that scrolls inside itself, so reaching one
+ * costs the chart your eyes. `Ctrl+K` costs nothing.
+ *
+ * Deliberately not a component. Every row it offers is a call into this page's state — `autoHide`,
+ * `shown`, `focusMode`, `focusBar`, `wickPaused`, `hideTimer` — and lifting it out would mean
+ * threading eight refs and three callbacks through props to save a template.
+ *
+ * Just as deliberately, it does not mirror the sidebar. `Ligar`, the filters, the pinned lists and
+ * `Restaurar` are setup: they are read as much as they are clicked, and a palette that hid them
+ * behind a search box would be a worse version of the column they already live in.
+ */
+const paletteOpen = ref(false)
+
+/**
+ * A Series whose auto-hide switch is on the sidebar, and so has a row in the palette.
+ *
+ * The same condition the button renders under, asked here as well — which is the moment it becomes
+ * a function, for the reason `DIRECTIONAL` and `PINNABLE` are sets. A palette listing a switch the
+ * sidebar is not showing would toggle a flag with no picture attached to it.
+ */
+function hasAutoHide(overlay: { producer: string, name: string }) {
+  return PINNABLE.has(overlay.name) && shown.value.has(overlay.producer)
+}
+
+/**
+ * The palette's `Ocultar entre candles` rows: one per drawn pinnable Series.
+ *
+ * Only that group. `Seguir o cursor` is one row belonging to one tool with no Series behind it —
+ * no palette colour, no producer, a different verb — and folding it in here would mean a list whose
+ * entries mean two things, sorted into groups again at the other end. It is written out in the
+ * template, exactly as the wick tool's control block is written out below the loop of Patterns.
+ *
+ * Labels only — no state word. Whether a Series is currently hiding is decided by a timer that
+ * exists only in the browser, so it is read in the template, inside the `ClientOnly` the dialog
+ * already needs. Keeping this computed evaluable on the server is what lets the row carry its
+ * palette dot and its key without a second, client-only copy of the list.
+ *
+ * The key is the producer, which `CommandItem` wants as its `value` and which is already unique —
+ * `WICK_KEY` cannot collide with one, for the reason its own docblock gives.
+ */
+const hideActions = computed(() => overlays.value.filter(hasAutoHide).map(overlay => ({
+  key: overlay.producer,
+  label: overlay.label,
+  color: overlay.color,
+  run: () => toggleAutoHide(overlay.producer),
+})))
+
+/**
+ * A Series whose `Destacar por ponto` switch is on the sidebar, and so has a row in the palette.
+ *
+ * `overlay.name === 'trend-lines'` written out rather than a set, for the reason `STATES` gives:
+ * two places ask it, and this is the second. Promote it the moment a third Pattern draws a fan.
+ */
+function hasFocusMode(overlay: { producer: string, name: string }) {
+  return overlay.name === 'trend-lines' && shown.value.has(overlay.producer)
+}
+
+/**
+ * The palette's `Destacar por ponto` rows: one per drawn `trend-lines` Series.
+ *
+ * The switch belongs here more than either of the other two: turning it on changes nothing by
+ * itself — what it changes is what the *next* click on the chart means. Reaching it from the
+ * sidebar therefore costs a trip back to the chart before the feature starts; reaching it from the
+ * palette leaves the cursor where the click has to land.
+ *
+ * Shaped like `hideActions` and running `toggleFocusMode` unchanged, which includes its rule that
+ * switching off forgets the focused bar rather than parking it.
+ */
+const focusActions = computed(() => overlays.value.filter(hasFocusMode).map(overlay => ({
+  key: overlay.producer,
+  label: overlay.label,
+  color: overlay.color,
+  run: () => toggleFocusMode(overlay.producer),
+})))
+
+/** Running an action closes the palette: it is a switch flipped, not a menu to work down. */
+function runAction(action: { run: () => void }) {
+  action.run()
+  paletteOpen.value = false
+}
+
+/**
  * Levels somebody clicked on the chart, keyed `producer|segmentId` — the same two-part key
  * `directionKey` makes, and for the same reason: one Series' pins must not read as another's.
  *
@@ -903,10 +990,20 @@ const history = useSelectionHistory({ pinned, moves })
  */
 function onKeyDown(event: KeyboardEvent) {
   if (!(event.ctrlKey || event.metaKey) || event.altKey) return
-  if (event.key.toLowerCase() !== 'z') return
+
+  const key = event.key.toLowerCase()
+  if (key !== 'z' && key !== 'k') return
 
   const target = event.target
   if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return
+
+  // Toggle rather than open: `Ctrl+K` is how it arrived, and reaching for the same keys to make it
+  // go away is what a shortcut that opened only would refuse. `Esc` closes it too, from the dialog.
+  if (key === 'k') {
+    paletteOpen.value = !paletteOpen.value
+    event.preventDefault()
+    return
+  }
 
   if (event.shiftKey ? history.redo() : history.undo()) event.preventDefault()
 }
@@ -2127,6 +2224,108 @@ function isVisible(overlay: { producer: string }) {
             </ClientOnly>
           </div>
         </div>
+
+        <!-- `Ctrl+K`. Anchored at the end of the sidebar because that is where the switches it
+             reaches live, but it draws over the page rather than in the column — see `paletteOpen`
+             for why it exists and for the far longer list it deliberately refuses to offer.
+
+             `ClientOnly` for the reason the auto-hide button below is wrapped: every row here quotes
+             a state word decided by a timer the server does not have. -->
+        <ClientOnly>
+          <CommandDialog
+            v-model:open="paletteOpen"
+            title="Ações"
+            description="Os interruptores que se usa lendo o gráfico"
+            :show-close-button="false"
+          >
+            <CommandInput placeholder="Buscar ação…" class="font-medium" />
+            <CommandList>
+              <CommandEmpty>Nenhuma ação.</CommandEmpty>
+
+              <!-- `CommandEmpty` only speaks once something has been typed, and an empty box says
+                   nothing about why. With no Series drawn there is no action to offer, and the
+                   sidebar is where that is fixed — so the palette says so rather than looking
+                   broken. -->
+              <div
+                v-if="!hideActions.length && !focusActions.length && !shown.has(WICK_KEY)"
+                class="py-6 text-center text-sm text-gray-500"
+              >
+                Nada no gráfico ainda.
+              </div>
+
+              <!-- A group per verb rather than one flat list: the actions do different things, and
+                   the Series' name alone would not say which. Each renders only with rows, which is
+                   why nothing drawn leaves `Nenhuma ação.` standing on its own.
+
+                   In the sidebar's own order, so the two surfaces cannot be read as disagreeing
+                   about which switch comes first. -->
+              <CommandGroup v-if="focusActions.length" heading="Destacar por ponto">
+                <CommandItem
+                  v-for="action in focusActions"
+                  :key="action.key"
+                  :value="action.key"
+                  class="font-medium"
+                  @select="runAction(action)"
+                >
+                  <span
+                    class="size-1.5 shrink-0 rounded-full"
+                    :style="{ backgroundColor: action.color }"
+                  />
+                  {{ action.label }}
+                  <span class="sr-only">Destacar por ponto</span>
+                  <!-- Which candle is being asked about, where the sidebar's button says it. With
+                       the switch on and no bar yet, the state word is the instruction: the sidebar
+                       says that in a paragraph, and a row has no room for one. -->
+                  <span class="ml-auto text-xs font-normal text-gray-500">
+                    {{ !focusMode.has(action.key)
+                      ? 'desligado'
+                      : focusFor(action.key) === null ? 'clique num candle' : barLabel(focusFor(action.key)!) }}
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+
+              <CommandGroup v-if="hideActions.length" heading="Ocultar entre candles">
+                <CommandItem
+                  v-for="action in hideActions"
+                  :key="action.key"
+                  :value="action.key"
+                  class="font-medium"
+                  @select="runAction(action)"
+                >
+                  <!-- The picker's dot, lit the same way and for the same reason: the palette and
+                       the list above it must name a Series identically. -->
+                  <span
+                    class="size-1.5 shrink-0 rounded-full"
+                    :style="{ backgroundColor: action.color }"
+                  />
+                  {{ action.label }}
+                  <!-- The search reads a row's own text, and a group heading is not part of it: a
+                       row would be findable by its Series and not by what it does to it. Repeating
+                       the verb here answers both, and `sr-only` keeps it out of a list where the
+                       heading has already said it once. -->
+                  <span class="sr-only">Ocultar entre candles</span>
+                  <!-- Left at the default weight under a `font-medium` row: this is an annotation
+                       on the action, not part of its name, and taking the row's weight would
+                       flatten the two into one line of text. -->
+                  <span class="ml-auto text-xs font-normal text-gray-500">
+                    {{ autoHide.has(action.key) ? (hideTimer.hidden.value ? 'oculto' : 'visível') : 'desligado' }}
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+
+              <CommandGroup v-if="shown.has(WICK_KEY)" heading="Pavio do candle">
+                <CommandItem :value="WICK_KEY" class="font-medium" @select="toggleWickTracking(); paletteOpen = false">
+                  <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: WICK_HUES.high }" />
+                  Seguir o cursor
+                  <span class="sr-only">Pavio do candle</span>
+                  <span class="ml-auto text-xs font-normal text-gray-500">
+                    {{ wickPaused ? 'pausado' : 'ativo' }}
+                  </span>
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </CommandDialog>
+        </ClientOnly>
 
         <!-- A Pattern that raised drew nothing, and so did a Pattern that found nothing. Without
              this the two are indistinguishable on the chart. -->
