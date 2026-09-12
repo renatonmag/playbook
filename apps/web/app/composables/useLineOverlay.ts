@@ -30,10 +30,15 @@ export function useLineOverlay(
 
       line ??= chartApi.addSeries(LineSeries, {
         lineWidth: 1,
-        // Both belong to the candles, not to a derived line: a zigzag's last vertex is not a
-        // price level, and a label for it on the scale would read as one.
+        // All three belong to the candles, not to a derived line: a zigzag's last vertex is not a
+        // price level, and a label for it on the scale would read as one. The crosshair marker is
+        // the same objection drawn on the pane — a ringed dot of the same size and shape as the
+        // trend lines' grab handles, parked on the very bars those lines are anchored to. It has
+        // no hit test of its own, so it offers nothing to aim at while looking exactly like the
+        // thing that does.
         priceLineVisible: false,
         lastValueVisible: false,
+        crosshairMarkerVisible: false,
       })
 
       line.setData(points)
