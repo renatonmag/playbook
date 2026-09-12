@@ -17,7 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/components/ui/resizable'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/components/ui/command'
 import { useElementSize } from '@vueuse/core'
-import { ChevronRight, Ellipsis } from '@lucide/vue'
+import { ChevronRight, Ellipsis, Link2, Link2Off } from '@lucide/vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -292,6 +292,12 @@ const shown = ref(new Set<string>())
 
 function toggle(producer: string) {
   if (shown.value.has(producer)) {
+    // The whole link goes with it, and not just this Series' half of it. A link is a claim about a
+    // *pair* of switches, and one of them is about to leave the sidebar: keeping either end would
+    // mean the two icons disagreeing about whether a link exists the moment the Series comes back,
+    // or a switch quietly pressing one that is not on screen. Untick and re-tick is the one act
+    // that undoes it — link buttons are otherwise how a link is made and unmade.
+    for (const key of hideGroup(producer)) hideLinked.value.delete(key)
     shown.value.delete(producer)
     // The auto-hide button below unmounts with the Series; a timer left running would come back
     // marking a control whose moment has passed.
@@ -706,6 +712,42 @@ const barsByTime = computed(() => {
 const autoHide = ref(new Set<string>())
 
 /**
+ * Producers whose `Ocultar entre candles` switch presses together with its siblings', keyed the
+ * way `autoHide` is.
+ *
+ * The pipeline runs the same Pattern twice — two `leg-extremes` Series, measuring different legs —
+ * and their levels bury the candles together, so getting the chart out of the way means two presses
+ * several folds apart in a column that scrolls inside itself. Linked, either press is both.
+ *
+ * Membership is the *whole group*, never one member: two link buttons that disagreed about whether
+ * a link exists would be a control saying two things at once. Which is also why linking turns both
+ * switches on — see `toggleHideLink`.
+ *
+ * Keyed by producer rather than held as one flag for the page, for `flashing`'s reason: the whole
+ * question is *which* Series press together, and a third Pattern with two instances would want its
+ * own answer.
+ */
+const hideLinked = ref(new Set<string>())
+
+/**
+ * The Series a press of this one's switch reaches: the drawn, pinnable Series running the same
+ * Pattern, this one included.
+ *
+ * Asked by Pattern name rather than written against `leg-extremes`, for the reason `DIRECTIONAL`
+ * and `PINNABLE` are sets — a second `bar-gap` would want exactly this — and it costs nothing,
+ * because a Series with no sibling never renders the link button at all.
+ *
+ * Through `hasAutoHide`, which already asks the question the button renders under: a group member
+ * whose switch is not on the sidebar is a flag toggled with no picture attached to it.
+ */
+function hideGroup(producer: string): string[] {
+  const name = producerName(producer)
+  return overlays.value
+    .filter(overlay => overlay.name === name && hasAutoHide(overlay))
+    .map(overlay => overlay.producer)
+}
+
+/**
  * One timer for the whole page, not one per producer.
  *
  * Every Series is measured by the same bar clock, so per-producer timers would be several copies of
@@ -760,8 +802,14 @@ onScopeDispose(() => {
   for (const timer of flashTimers.values()) clearTimeout(timer)
 })
 
-function toggleAutoHide(producer: string) {
-  if (autoHide.value.has(producer)) {
+/**
+ * One Series' switch put in a named state, which is what linking needs and toggling does not: a
+ * linked pair is set from the state the *clicked* Series is heading for, never toggled member by
+ * member. Two members that had drifted apart would otherwise move in opposite directions on one
+ * press — a link that unhides as much as it hides.
+ */
+function setAutoHide(producer: string, on: boolean) {
+  if (!on) {
     autoHide.value.delete(producer)
     flashing.value.add(producer)
     flashTimers.set(producer, setTimeout(() => stopFlash(producer), FLASH_MS))
@@ -776,6 +824,48 @@ function toggleAutoHide(producer: string) {
     // What the watcher above cannot see: joining `autoHide` inside a window that is already closed
     // flips no flag, and this Series' fan still goes away on this click.
     focusBar.value.delete(producer)
+  }
+}
+
+/**
+ * The `Ocultar entre candles` click — this Series', and every Series linked to it.
+ *
+ * The target state is read once, from the Series that was clicked, and then *set* on the group.
+ * See `setAutoHide` for why it is not a toggle each.
+ *
+ * The group is filtered by `hideLinked` again rather than taken whole: `hideGroup` answers with the
+ * Series that *could* be linked, and a stored layout naming a producer this one is not linked to —
+ * or a link made before a sibling was drawn — would otherwise reach a switch nobody tied to it.
+ *
+ * Still the only entry point, so the palette's rows (`hideActions`) follow a link without knowing
+ * one exists.
+ */
+function toggleAutoHide(producer: string) {
+  const on = !autoHide.value.has(producer)
+  const targets = hideLinked.value.has(producer)
+    ? hideGroup(producer).filter(key => hideLinked.value.has(key))
+    : [producer]
+  for (const key of targets) setAutoHide(key, on)
+}
+
+/**
+ * The link button's click: the group joins or leaves `hideLinked` as one.
+ *
+ * Linking also turns every member's switch **on**. Two switches in different states under a lit
+ * link icon would be the control contradicting itself, and of the two ways to settle it this is the
+ * one somebody would have clicked anyway: linking these is asked for when the levels are in the way,
+ * and it is undone by the very next press. Unlinking settles nothing — it leaves the pair exactly as
+ * it found them, because there is no longer any claim to keep true.
+ */
+function toggleHideLink(producer: string) {
+  const group = hideGroup(producer)
+  if (hideLinked.value.has(producer)) {
+    for (const key of group) hideLinked.value.delete(key)
+    return
+  }
+  for (const key of group) {
+    hideLinked.value.add(key)
+    setAutoHide(key, true)
   }
 }
 
@@ -975,16 +1065,16 @@ function removeMove(producer: string, key: string) {
 }
 
 /**
- * The seven sets above, remembered between visits — everything about the sidebar that is keyed by
+ * The eight sets above, remembered between visits — everything about the sidebar that is keyed by
  * producer and nothing that is not. See `useStoredOverlays` for why the write is automatic and the
  * read is the `Restaurar` item in the menu beside the heading.
  *
- * Here rather than beside `shown`, because it needs all seven and `moves` is the last of them.
+ * Here rather than beside `shown`, because it needs all eight and `moves` is the last of them.
  */
-const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, confirmedOnly, focusMode })
+const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, hideLinked, confirmedOnly, focusMode })
 
 /**
- * `Ctrl+Z` over the two of those seven that are a selection rather than a preference. See
+ * `Ctrl+Z` over the two of those eight that are a selection rather than a preference. See
  * `useSelectionHistory` for why it is those two, and why it watches them instead of being called
  * from `togglePin` and the three functions beside it.
  */
@@ -1933,25 +2023,51 @@ function isVisible(overlay: { producer: string }) {
                 class="mt-1"
               >
                 <ClientOnly>
-                  <button
-                    class="rounded border px-2 py-0.5 text-xs"
-                    :class="[
-                      autoHide.has(overlay.producer)
+                  <div class="flex items-center gap-1">
+                    <button
+                      class="rounded border px-2 py-0.5 text-xs"
+                      :class="[
+                        autoHide.has(overlay.producer)
+                          ? 'border-green-600 bg-green-50 text-green-700'
+                          : 'border-gray-300 text-gray-500',
+                        flashing.has(overlay.producer) ? 'stay-flash' : '',
+                      ]"
+                      @click="toggleAutoHide(overlay.producer)"
+                    >
+                      Ocultar entre candles
+                      <!-- The state word alone: "oculto" is not the whole truth with a pin held — the
+                           Series is hidden *except* for it — but the list below ("Fixados",
+                           "Selecionadas") is where that reads properly. Saying it here too made the
+                           button wrap in a 20rem sidebar. -->
+                      <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
+                        · {{ hideTimer.hidden.value ? 'oculto' : 'visível' }}
+                      </span>
+                    </button>
+
+                    <!-- The same Pattern runs twice and its two Series get in the way together, so
+                         the switch beside this is two presses one fold apart. Linked, either is
+                         both.
+
+                         An icon and no word: it is an adjustment to the button it sits against, and
+                         a second label would read as a second switch. Only when there is something
+                         to link to — see `hideGroup`. -->
+                    <button
+                      v-if="hideGroup(overlay.producer).length > 1"
+                      class="rounded border p-1"
+                      :class="hideLinked.has(overlay.producer)
                         ? 'border-green-600 bg-green-50 text-green-700'
-                        : 'border-gray-300 text-gray-500',
-                      flashing.has(overlay.producer) ? 'stay-flash' : '',
-                    ]"
-                    @click="toggleAutoHide(overlay.producer)"
-                  >
-                    Ocultar entre candles
-                    <!-- The state word alone: "oculto" is not the whole truth with a pin held — the
-                         Series is hidden *except* for it — but the list below ("Fixados",
-                         "Selecionadas") is where that reads properly. Saying it here too made the
-                         button wrap in a 20rem sidebar. -->
-                    <span v-if="autoHide.has(overlay.producer)" class="ml-1 text-gray-500">
-                      · {{ hideTimer.hidden.value ? 'oculto' : 'visível' }}
-                    </span>
-                  </button>
+                        : 'border-gray-300 text-gray-500'"
+                      :title="hideLinked.has(overlay.producer)
+                        ? 'Desvincular: cada Série volta a ocultar sozinha'
+                        : 'Vincular: ocultar uma oculta as duas'"
+                      :aria-label="hideLinked.has(overlay.producer) ? 'desvincular' : 'vincular'"
+                      :aria-pressed="hideLinked.has(overlay.producer)"
+                      @click="toggleHideLink(overlay.producer)"
+                    >
+                      <Link2 v-if="hideLinked.has(overlay.producer)" class="size-3.5" />
+                      <Link2Off v-else class="size-3.5" />
+                    </button>
+                  </div>
                   <template #fallback>
                     <div class="h-[24px] w-32" />
                   </template>

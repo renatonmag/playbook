@@ -32,15 +32,20 @@ const KEY = 'playbook:monitor:overlays'
  * is keyed like every other one — and because it only ever comes back on the `Restaurar` click, so
  * no reload arms the chart behind anybody's back.
  *
+ * `hideLinked` is the odd one in what it is *about*: not a Series but a relation between two of
+ * them — whose `Ocultar entre candles` switches press together. It is keyed like the rest anyway,
+ * by the producers taking part, so it survives here for nothing; and like `focusMode` it only comes
+ * back on the `Restaurar` click, so no reload quietly ties two Series together.
+ *
  * Every one of them is a `Set<string>` of producer keys — which is what makes one composable
- * enough for seven pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
+ * enough for eight pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
  * `hiddenStates`) deliberately are not: those are keyed `producer:value` and store the *exception*,
  * so a stale entry from an older window is a checkbox silently off rather than a Series simply not
  * found. They stay in memory.
  */
-type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'confirmedOnly' | 'focusMode'
+type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'hideLinked' | 'confirmedOnly' | 'focusMode'
 
-const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'confirmedOnly', 'focusMode']
+const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'hideLinked', 'confirmedOnly', 'focusMode']
 
 /** Total, like `parseRule`: anything that is not an array of strings reads as an empty set. */
 function readList(value: unknown): string[] {
@@ -61,7 +66,7 @@ export function useStoredOverlays(sets: Record<Stored, Ref<Set<string>>>) {
     saved.value = localStorage.getItem(KEY) !== null
   })
 
-  // Client-only, and without `immediate`: a page that has just opened holds seven empty sets, and
+  // Client-only, and without `immediate`: a page that has just opened holds eight empty sets, and
   // writing those would erase the snapshot the button exists to restore. The first real toggle is
   // the first write, which is the cost this composable's docblock names.
   if (import.meta.client) {
