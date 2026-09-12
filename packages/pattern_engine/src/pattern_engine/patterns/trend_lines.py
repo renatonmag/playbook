@@ -10,12 +10,15 @@ Four rules carry the whole thing:
 - **Same side only.** A `LegMark` is a top (`direction == "high"`) or a bottom (`"low"`), and a
   line joins two marks of one side. Tops to tops is a ceiling, bottoms to bottoms a floor; a line
   from a top to a bottom is a leg, which `simple-leg` already draws.
-- **A candle in the way kills the line.** Between the two endpoints the line sits at an
-  interpolated price on each bar. A bottom line dies the moment some intervening candle's `low`
-  is strictly *below* it, a top line the moment some `high` is strictly *above* it — that is what
-  "in the way" means for a line meant to sit under, or over, the price action. Strictly: a candle
-  resting exactly on the line is a candle the line touched, which is the whole point of a line.
-  Wicks, not bodies — a low is where price actually went.
+- **A candle in the way kills the line, except the two beside its ends.** Between the two
+  endpoints the line sits at an interpolated price on each bar. A bottom line dies the moment some
+  intervening candle's `low` is strictly *below* it, a top line the moment some `high` is strictly
+  *above* it — that is what "in the way" means for a line meant to sit under, or over, the price
+  action. Strictly: a candle resting exactly on the line is a candle the line touched, which is
+  the whole point of a line. Wicks, not bodies — a low is where price actually went. The one bar
+  inward from each endpoint is exempt along with the endpoint itself: it is still inside the turn
+  that made that pivot, price is still at the extreme's own level there, and so it grazes every
+  line drawn through the pivot at any slope. Testing it rejected lines a reader draws by eye.
 - **Every reachable pivot, not the next one.** Each mark is joined to *every* later same-side mark
   it can see, not merely to the first. A line that skips three pivots is the long trend the eye is
   looking for, and it is exactly the one a chain of nearest-neighbour links would never draw.
@@ -56,11 +59,12 @@ What it costs, stated rather than hidden:
   is where it lives. An endpoint can also coincide with the *neighbouring* leg's vertex bar, since
   a leg's span is inclusive at both ends, and the first leg's span is the truncated window head —
   it opens mid-leg, so its extreme is the best of what the window happens to show.
-- **A pair with no bars between it is not a line.** Marks normally alternate sides but two can
+- **A pair fewer than four bars apart is not a line.** Marks normally alternate sides but two can
   merge onto one bar, adjacent same-side marks can sit on neighbouring bars, and two legs can
-  reach their extreme on the very same bar. There is nothing
-  in between for a candle to block, so such a pair connects unconditionally — which is true and
-  useless. Only pairs with at least one bar between them are emitted.
+  reach their extreme on the very same bar. There is nothing in between for a candle to block, so
+  such a pair connects unconditionally — which is true and useless. The exemption above widens the
+  same hole: three bars apart, both bars in between are the ones beside the ends, and there is
+  again nothing a candle could block. Only pairs with a bar no exemption covers are emitted.
 - **Nothing says a line is still unbroken.** It is clear between its endpoints, and says nothing
   at all about the bars after the second one. A line extended past its far pivot is a drawing
   decision, and it is the screen's — see `TrendLinesOverlay`.
@@ -103,11 +107,18 @@ def clear(
     line was drawn through, so testing it would reject every line against itself. And since an
     endpoint is now the leg's furthest bar rather than the bar it was marked on, the extreme that
     used to sit *between* two endpoints and block them is one of them.
+
+    Neither is the one bar inward from each endpoint, for the reason next door: that bar belongs to
+    the same turn as the pivot, price there is still at the extreme's own level, and a line pinned
+    to that extreme grazes it whichever way it leaves. It was the most common way a line died, and
+    the deaths were spurious. The cost is stated rather than hidden: an obstruction sitting exactly
+    one bar in from an end is now invisible, so what this returns is "clear from `start + 2` to
+    `end - 2`", and a caller wanting more has to look itself.
     """
     span = end - start
     slope = (to_price - from_price) / span
 
-    for offset in range(1, span):
+    for offset in range(2, span - 1):
         line = integer(from_price + slope * offset)
         bar = bars[start + offset]
         if side == "low":
@@ -215,9 +226,11 @@ def trend_lines(
         for end, to in located[index + 1 :]:
             if end.direction != start.direction:
                 continue
-            # Nothing in between means nothing to block it: true, and no line anybody drew. Two
-            # legs that reached their extreme on the same bar, or on neighbouring ones, land here.
-            if to - at < 2:
+            # Nothing *testable* in between means nothing to block it: true, and no line anybody
+            # drew. Two legs that reached their extreme on the same bar or on neighbouring ones land
+            # here, and so does any pair whose only bars in between are the two `clear` exempts —
+            # which is what sets the threshold at four rather than at two.
+            if to - at < 4:
                 continue
             if clear(bars, at, to, start.price, end.price, start.direction):
                 pairs.append((start, end))

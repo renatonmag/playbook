@@ -145,58 +145,114 @@ def located(ends: list[tuple[LineEnd, int]]) -> list[tuple[int, float]]:
 
 # --- the collision test ---------------------------------------------------------------------
 
+# Every fixture here spans four bars. That is the shortest span with a bar `clear` actually tests:
+# the endpoints are exempt and so is the bar beside each of them, which leaves bar 2 alone in the
+# middle. A three-bar fixture would pass every one of these vacuously.
+
 
 def test_a_low_above_the_line_leaves_it_clear():
-    """Bar 1 sits at 105 where the line from (0, 100) to (2, 100) sits at 100."""
-    bars = [bar(0, 100.0), bar(1, 105.0), bar(2, 100.0)]
-    assert clear(bars, 0, 2, 100.0, 100.0, "low") is True
+    """Bar 2 sits at 105 where the line from (0, 100) to (4, 100) sits at 100."""
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 105.0), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
 
 
 def test_a_low_below_the_line_blocks_it():
-    bars = [bar(0, 100.0), bar(1, 99.0), bar(2, 100.0)]
-    assert clear(bars, 0, 2, 100.0, 100.0, "low") is False
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 99.0), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is False
 
 
 def test_a_low_exactly_on_the_line_keeps_it():
     """Touching is what a line is for. Strict comparison, so equality survives."""
-    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 100.0)]
-    assert clear(bars, 0, 2, 100.0, 100.0, "low") is True
+    bars = [bar(index, 100.0) for index in range(5)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
 
 
 def test_the_line_is_interpolated_and_not_flat():
-    """Rising floor: the line sits at 101 on bar 1, so a low of 100.5 is under it after all."""
-    bars = [bar(0, 100.0), bar(1, 100.5), bar(2, 102.0)]
-    assert clear(bars, 0, 2, 100.0, 102.0, "low") is False
-    # Half a point higher and it clears the same line.
-    bars[1] = bar(1, 101.5)
-    assert clear(bars, 0, 2, 100.0, 102.0, "low") is True
+    """Rising floor: the line sits at 102 on bar 2, so a low of 101.5 is under it after all."""
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 101.5), bar(3, 104.0), bar(4, 104.0)]
+    assert clear(bars, 0, 4, 100.0, 104.0, "low") is False
+    # A point higher and it clears the same line.
+    bars[2] = bar(2, 102.5)
+    assert clear(bars, 0, 4, 100.0, 104.0, "low") is True
 
 
 def test_a_sub_tick_dip_under_the_line_is_not_a_collision():
     """Both sides go through `integer`, so a rounding artefact is not a candle in the way."""
-    bars = [bar(0, 100.0), bar(1, 100.0 - 1e-9), bar(2, 100.0)]
-    assert clear(bars, 0, 2, 100.0, 100.0, "low") is True
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 100.0 - 1e-9), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
 
 
 def test_a_high_over_the_line_blocks_a_top_line():
     """The mirror comparison: for a ceiling it is the highs that reach through."""
-    bars = [
-        bar(0, 0.0, high=100.0),
-        bar(1, 0.0, high=101.0),
-        bar(2, 0.0, high=100.0),
-    ]
-    assert clear(bars, 0, 2, 100.0, 100.0, "high") is False
-    bars[1] = bar(1, 0.0, high=99.0)
-    assert clear(bars, 0, 2, 100.0, 100.0, "high") is True
+    bars = [bar(index, 0.0, high=100.0) for index in range(5)]
+    bars[2] = bar(2, 0.0, high=101.0)
+    assert clear(bars, 0, 4, 100.0, 100.0, "high") is False
+    bars[2] = bar(2, 0.0, high=99.0)
+    assert clear(bars, 0, 4, 100.0, 100.0, "high") is True
+
+
+# --- the bars beside the ends ----------------------------------------------------------------
+
+
+def test_the_bar_after_the_near_end_cannot_block():
+    """It belongs to the same turn as the pivot, so it grazes every line drawn through it."""
+    bars = [bar(0, 100.0), bar(1, 50.0), bar(2, 100.0), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
+
+
+def test_the_bar_before_the_far_end_cannot_block():
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 100.0), bar(3, 50.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
+
+
+def test_both_flanking_bars_are_exempt_at_once():
+    bars = [bar(0, 100.0), bar(1, 50.0), bar(2, 100.0), bar(3, 50.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
+
+
+def test_the_exemption_is_one_bar_deep_and_not_a_softening():
+    """One bar further in and the same low is a candle in the way again."""
+    bars = [bar(0, 100.0), bar(1, 50.0), bar(2, 50.0), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is False
+
+
+def test_the_flanking_bars_are_exempt_on_a_top_line_too():
+    """The mirror: a high over a ceiling is ignored beside the ends, caught in the middle."""
+    bars = [bar(index, 0.0, high=100.0) for index in range(5)]
+    bars[1] = bar(1, 0.0, high=150.0)
+    bars[3] = bar(3, 0.0, high=150.0)
+    assert clear(bars, 0, 4, 100.0, 100.0, "high") is True
+    bars[2] = bar(2, 0.0, high=150.0)
+    assert clear(bars, 0, 4, 100.0, 100.0, "high") is False
+
+
+def test_a_span_of_three_has_nothing_left_to_test():
+    """Both bars in between are the ones beside the ends, so the line is clear whatever they do.
+
+    `trend_lines` never asks — see `test_ends_three_bars_apart_make_no_line` — and this is only
+    here to say what `clear` answers if something else ever does.
+    """
+    bars = [bar(0, 100.0), bar(1, 1.0), bar(2, 1.0), bar(3, 100.0)]
+    assert clear(bars, 0, 3, 100.0, 100.0, "low") is True
 
 
 # --- where a leg reached --------------------------------------------------------------------
 
-#: A leg that bottoms at bar 2 and is only marked at bar 4 — `simple-leg`'s own gap, since its
-#: turn rule reads one side at a time and can register the turn several bars after the extreme.
+#: A leg that bottoms at bar 4 and is only marked at bar 6 — `simple-leg`'s own gap, since its
+#: turn rule reads one side at a time and can register the turn several bars after the extreme. The
+#: bottom sits four bars from the first endpoint so that the line it makes is one `trend_lines` will
+#: draw at all: closer in, the pair is inside the span where nothing can be tested.
 LATE_MARK: tuple[list[Candle], list[LegMark]] = (
-    [bar(0, 110.0), bar(1, 120.0), bar(2, 100.0), bar(3, 105.0), bar(4, 106.0)],
-    [mark(0, "low", 110.0), mark(4, "low", 106.0)],
+    [
+        bar(0, 110.0),
+        bar(1, 120.0),
+        bar(2, 115.0),
+        bar(3, 118.0),
+        bar(4, 100.0),
+        bar(5, 105.0),
+        bar(6, 106.0),
+    ],
+    [mark(0, "low", 110.0), mark(6, "low", 106.0)],
 )
 
 
@@ -204,12 +260,12 @@ LATE_MARK: tuple[list[Candle], list[LegMark]] = (
 def test_the_line_runs_to_the_bar_the_leg_reached_not_the_bar_it_was_marked_on(case):
     """The regression this rule exists for.
 
-    Drawn from the marks, the line would run bar 0 → bar 4 and bar 2's low of 100 would sit far
+    Drawn from the marks, the line would run bar 0 → bar 6 and bar 4's low of 100 would sit far
     under it, so the bar that made the leg's bottom would be the candle that killed the line
-    through it. Drawn from the extremes it ends at bar 2, and nothing is in the way.
+    through it. Drawn from the extremes it ends at bar 4, and nothing is in the way.
     """
     bars, marks = case
-    assert named(trend_lines(bars, marks)) == [(0, 2)]
+    assert named(trend_lines(bars, marks)) == [(0, 4)]
 
 
 @pytest.mark.parametrize("case", [LATE_MARK, flipped(LATE_MARK)])
@@ -217,7 +273,7 @@ def test_each_mark_is_rewritten_as_the_bar_its_leg_reached(case):
     bars, marks = case
     sign = 1.0 if marks[0].direction == "low" else -1.0
     # The first mark takes the window head, which here is its own bar alone.
-    assert located(leg_ends(bars, marks)) == [(0, sign * 110.0), (2, sign * 100.0)]
+    assert located(leg_ends(bars, marks)) == [(0, sign * 110.0), (4, sign * 100.0)]
 
 
 def test_a_ties_keeps_the_earliest_bar():
@@ -252,41 +308,49 @@ def test_an_end_carries_the_side_and_the_provisional_flag_of_its_mark():
 
 # --- the pairing -----------------------------------------------------------------------------
 
-#: Four bottoms on a descending floor at bars 0, 2, 4, 6, each leg reaching its bottom on its own
+#: Four bottoms on a descending floor at bars 0, 4, 8, 12, each leg reaching its bottom on its own
 #: mark's bar, with nothing in between reaching under any line they can be joined by. Every pair is
 #: therefore drawable — the full fan.
+#:
+#: Four bars apart rather than the two an earlier version used, because two is now inside the span
+#: `trend_lines` refuses: the bars beside a line's ends are exempt, so a pair needs four bars
+#: between its ends before there is anything to test. Spaced at two, half the fan would be missing
+#: for a reason that has nothing to do with the fan.
 CLEAN: tuple[list[Candle], list[LegMark]] = (
     [
         bar(0, 106.0),
         bar(1, 120.0),
-        bar(2, 104.0),
+        bar(2, 121.0),
         bar(3, 122.0),
-        bar(4, 102.0),
-        bar(5, 124.0),
-        bar(6, 100.0),
+        bar(4, 104.0),
+        bar(5, 120.0),
+        bar(6, 121.0),
+        bar(7, 122.0),
+        bar(8, 102.0),
+        bar(9, 120.0),
+        bar(10, 121.0),
+        bar(11, 122.0),
+        bar(12, 100.0),
     ],
     [
         mark(0, "low", 106.0),
-        mark(2, "low", 104.0),
-        mark(4, "low", 102.0),
-        mark(6, "low", 100.0),
+        mark(4, "low", 104.0),
+        mark(8, "low", 102.0),
+        mark(12, "low", 100.0),
     ],
 )
 
-#: The same four bottoms with bar 3 spiking down to 99. Two things follow, and both are the rule:
-#: bar 3 is inside the leg the mark on bar 4 closes, so *that* leg reached 99 at bar 3 and the
+#: The same four bottoms with bar 6 spiking down to 99. Two things follow, and both are the rule:
+#: bar 6 is inside the leg the mark on bar 8 closes, so *that* leg reached 99 at bar 6 and the
 #: endpoint moves there — and the spike still sits under every line that spans it, severing the
-#: window. What survives is the pairs that do not cross bar 3, plus the ones drawn from it.
+#: window. What survives is the pairs that do not cross bar 6, plus the ones drawn from it.
+#:
+#: Bar 6 and not a bar beside an endpoint, deliberately: the two bars flanking a line's ends are
+#: exempt, so a spike there would sever nothing and the fixture would be testing the exemption
+#: instead of the collision. From bar 0 it is six bars out, from bar 12 six back — tested from
+#: either side.
 BLOCKED: tuple[list[Candle], list[LegMark]] = (
-    [
-        bar(0, 106.0),
-        bar(1, 120.0),
-        bar(2, 104.0),
-        bar(3, 99.0),
-        bar(4, 102.0),
-        bar(5, 124.0),
-        bar(6, 100.0),
-    ],
+    [*CLEAN[0][:6], bar(6, 99.0), *CLEAN[0][7:]],
     CLEAN[1],
 )
 
@@ -301,15 +365,22 @@ MIXED: tuple[list[Candle], list[LegMark]] = (
 
 @pytest.mark.parametrize("case", [CLEAN, flipped(CLEAN)])
 def test_every_reachable_pivot_is_connected_not_only_the_next_one(case):
-    """The fan, not a chain: bar 0 reaches 4 and 6 as well as 2."""
+    """The fan, not a chain: bar 0 reaches 8 and 12 as well as 4."""
     bars, marks = case
-    assert named(trend_lines(bars, marks)) == [(0, 2), (0, 4), (0, 6), (2, 4), (2, 6), (4, 6)]
+    assert named(trend_lines(bars, marks)) == [
+        (0, 4),
+        (0, 8),
+        (0, 12),
+        (4, 8),
+        (4, 12),
+        (8, 12),
+    ]
 
 
 @pytest.mark.parametrize("case", [BLOCKED, flipped(BLOCKED)])
 def test_a_candle_in_the_way_drops_that_connection_and_no_other(case):
     bars, marks = case
-    assert named(trend_lines(bars, marks)) == [(0, 2), (0, 3), (3, 6)]
+    assert named(trend_lines(bars, marks)) == [(0, 4), (0, 6), (6, 12)]
 
 
 @pytest.mark.parametrize("case", [MIXED, flipped(MIXED)])
@@ -322,6 +393,20 @@ def test_adjacent_ends_make_no_line():
     """Nothing between them for a candle to block, so the pair is true and says nothing."""
     bars = [bar(0, 101.0), bar(1, 100.0)]
     marks = [mark(0, "low", 101.0), mark(1, "low", 100.0)]
+    assert trend_lines(bars, marks) == []
+
+
+def test_ends_three_bars_apart_make_no_line():
+    """Both bars between them are the ones beside the ends, so there is nothing left to block it.
+
+    Unconditional is what the old `< 2` guard rejected for the adjacent case, and widening the
+    exemption widened that hole to three bars — see the module docstring's cost bullet.
+    """
+    bars = [bar(0, 103.0), bar(1, 104.0), bar(2, 105.0), bar(3, 100.0)]
+    marks = [mark(0, "low", 103.0), mark(3, "low", 100.0)]
+
+    # The endpoints really are bars 0 and 3, so it is the guard dropping the pair and not `leg_ends`.
+    assert located(leg_ends(bars, marks)) == [(0, 103.0), (3, 100.0)]
     assert trend_lines(bars, marks) == []
 
 
@@ -383,15 +468,15 @@ def test_each_point_anchors_on_the_near_end_and_carries_the_far_one_whole():
     assert first.time == at(0)
     assert first.price == 106.0
     assert first.direction == "low"
-    assert first.to.time == at(2)
+    assert first.to.time == at(4)
     assert first.to.price == 104.0
     assert isinstance(first.to, LineEnd)
 
 
 def test_a_point_is_anchored_where_the_leg_reached():
-    """The adapter's half of the regression: the Point sits on bar 2, which no mark is on."""
+    """The adapter's half of the regression: the Point sits on bar 4, which no mark is on."""
     series = run(*LATE_MARK)
-    assert [(point.time, point.to.time) for point in series.points] == [(at(0), at(2))]
+    assert [(point.time, point.to.time) for point in series.points] == [(at(0), at(4))]
     assert series.points[0].to.price == 100.0
 
 
@@ -416,11 +501,11 @@ def test_a_line_is_provisional_when_either_endpoint_is():
     live = [*marks[:-1], running(marks[-1])]
 
     lines = run(bars, live).points
-    ends_on_last = [line for line in lines if line.to.time == at(6)]
+    ends_on_last = [line for line in lines if line.to.time == at(12)]
 
     assert ends_on_last
     assert all(line.provisional for line in ends_on_last)
-    assert not any(line.provisional for line in lines if line.to.time != at(6))
+    assert not any(line.provisional for line in lines if line.to.time != at(12))
 
 
 def test_pattern_runs_over_the_engine_bars():
