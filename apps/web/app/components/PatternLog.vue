@@ -56,7 +56,7 @@ const props = defineProps<{
  * its parameters — exactly as `OVERLAYS` is keyed, so a Pattern is named the same way on both
  * sides. Being in both is allowed and would mean a Series you can look at and read.
  */
-const LOGGED = new Set(['line-relations'])
+const LOGGED = new Set(['line-relations', 'line-respect'])
 
 /** Pulled to the front, so a row says which bar it is before it says anything else. */
 const BASE_COLUMNS = ['time']
@@ -236,14 +236,24 @@ async function copySelection() {
  *
  * `time` goes through `barMoment` — the trading clock, for the reason that module spells out at
  * length. A nested object is a whole bar (`since`), and the only thing worth showing of one here
- * is *which* bar it is, so it collapses to the same reading. `null` is a real answer on several
- * of these fields — a `touch` has no `side`, a `breakout` no `wick` — and reads as `—`.
+ * is *which* bar it is, so it collapses to the same reading. An **array** of bars (`bars`) is a
+ * run, and the same argument applies twice over: what a reader wants of it is where it starts and
+ * how long it is, and the alternative — the raw JSON of a dozen candles in one cell — is not a
+ * reading of anything. The whole run still leaves through `Copiar JSON`, which is what that button
+ * is for. `null` is a real answer on several of these fields — a `touch` has no `side`, a
+ * `breakout` no `wick` — and reads as `—`.
  */
 function cell(point: PatternPoint, key: string): string {
   const value = (point as unknown as Record<string, unknown>)[key]
 
   if (value === null || value === undefined) return '—'
   if (key === 'time' && typeof value === 'number') return barMoment(value)
+
+  if (Array.isArray(value)) {
+    const first = value.at(0) as { time?: unknown } | undefined
+    if (typeof first?.time !== 'number') return JSON.stringify(value)
+    return `${barMoment(first.time)} · ${value.length} ${value.length === 1 ? 'barra' : 'barras'}`
+  }
 
   if (typeof value === 'object') {
     const nested = value as { time?: unknown }

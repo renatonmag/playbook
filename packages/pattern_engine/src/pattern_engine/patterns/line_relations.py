@@ -9,8 +9,8 @@ For each line, every bar **after the bar the line was read off** is asked three 
 
 ```
 touch      the price falls inside one of the bar's two wicks
-breakout   the open and the close sit on opposite sides of the price
-seam       this breakout undoes an earlier one, within two bars
+breakout   the close lands on the other side of the price from where the bar came
+seam       this breakout undoes an earlier one, within three bars
 ```
 
 The rules, and what each one deliberately does not say:
@@ -28,22 +28,39 @@ The rules, and what each one deliberately does not say:
   it" would be a second name for a fact already emitted. This is the one place where an omission
   is load-bearing rather than a gap, which is why it is written down.
 
-- **A breakout is strict on both ends.** Open and close both off the line, and on opposite sides.
-  A close landing exactly on the price has not crossed it, and neither has a bar that opened there.
+  A line at the body's *edge* is a different bar and gets both names. When the open sits exactly on
+  the line the line is the base of a wick, so `touches` answers, and if the close is off the line
+  the bar crossed as well: one bar, one line, a `touch` and a crossing. The two rules are
+  independent and stay that way — suppressing one because the other fired would be a third rule
+  about their interaction, and neither answer is wrong.
 
-- **`side` always means where the bar *opened***, whichever kind the Point is. One meaning across
-  the three kinds rather than one per kind, so a reader never has to ask which. On a breakout it
-  says the whole direction on its own: the close is strictly on the other side, so `above` is a
-  break down and `below` is a break up. It is `None` only when the open sits exactly on the line,
-  which no breakout can do.
+- **A breakout is strict on the close, and only on the close.** The close must be off the line and
+  on the other side of it from where the bar came. A close landing exactly on the price has not
+  crossed it — it stopped at it — and that is the whole of the strictness.
+
+  The open is read where it can be. A bar that opens exactly on the line has no side to have left,
+  and the close alone says which one it took: opening on the line and closing below it is a break
+  down, opening on it and closing above is a break up. Refusing those was refusing the plainest
+  break there is, and it is the reason a bar that steps off the line after an earlier crossing now
+  undoes it.
+
+- **`side` always means the side price *came from***, whichever kind the Point is. One meaning
+  across the three kinds rather than one per kind, so a reader never has to ask which. On every bar
+  that opened off the line that is where it opened; on a breakout that opened *on* the line it is
+  the side it did not close on, which is the only side it can be said to have left.
+
+  So on a breakout it still says the whole direction on its own — `above` is a break down and
+  `below` is a break up — and it is never `None` there. `None` is left for the bar that opened on
+  the line and did not cross it: nothing about it says which side it was on, and a touch is not
+  going to guess.
 
 - **A seam is a breakout undone.** `bar_1` breaks one way, `bar_2` breaks the other, and `bar_2` is
-  at most two bars past `bar_1`. Three bars later is not a seam — that is the whole content of the
-  rule, and there is no dial for it: a different distance is a different claim about what "undone"
-  means, and the caller would have no way to know which one it was reading.
+  at most three bars past `bar_1`. Four bars later is not a seam — that is the whole content of
+  the rule, and there is no dial for it: a different distance is a different claim about what
+  "undone" means, and the caller would have no way to know which one it was reading.
 
   The bars in between are not looked at. `bar_1` and `bar_2` are the two that crossed; whatever the
-  bar between them did, it did not undo anything, or it would be `bar_2` itself.
+  bars between them did, they did not undo anything, or the first of them would be `bar_2` itself.
 
 - **A seam does not consume its bars.** A bar that closes one seam can open the next: three
   alternating crossings in a row are two seams, not one. They are two events, and price whipping
@@ -94,7 +111,7 @@ from ..timeframes import Timeframe
 
 #: How far past `bar_1` a reversing breakout still counts as a seam, in bars. Not a dial — see the
 #: module docstring.
-SEAM_SPAN = 2
+SEAM_SPAN = 3
 
 #: What a Point says happened. Read the module docstring for what each one is; they are not
 #: exclusive, and one bar can carry all three.
@@ -104,8 +121,12 @@ RelationKind = Literal["touch", "breakout", "seam"]
 #: level pinned off a wick and a touch reported on one are named alike.
 Wick = Literal["high", "low"]
 
-#: Where the bar opened, relative to the line. Never `None` on a breakout.
+#: The side of the line price came from. Never `None` on a breakout.
 Side = Literal["above", "below"]
+
+#: The side opposite the one given. Two readings need it: a bar that opened exactly on the line
+#: came from the side it did not close on, and a `seam` respected the side it closed back onto.
+OPPOSITE: dict[Side, Side] = {"above": "below", "below": "above"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +197,8 @@ class LineRelation(Candle):
     #: Which wick the line fell inside. Only on a `touch` — on the other two kinds the line is not
     #: in a wick at all, or not necessarily, and naming one would be a guess.
     wick: Wick | None
-    #: Where the bar opened. `None` only when the open sits exactly on the line.
+    #: The side price came from: where the bar opened, or — on a crossing by a bar that opened
+    #: exactly on the line — the side it did not close on. `None` only where neither can say.
     side: Side | None
     #: On a `seam`, the bar that broke out first — `bar_1`. `None` on the other two kinds.
     #:
@@ -221,19 +243,22 @@ def side_of(bar: Candle, price: float) -> Side | None:
 def breaks_out(bar: Candle, price: float) -> Side | None:
     """The side `bar` *closed* on, if open and close sit on opposite sides of `price`.
 
-    `None` is "no breakout", and covers three cases that need no telling apart: the bar stayed on
-    one side, or it opened on the line, or it closed on it. Returning the closing side rather than
-    a bare `True` is what lets the seam test compare two breakouts without re-reading their bars.
-    """
-    opened = side_of(bar, price)
-    if opened is None:
-        return None
+    The close is read first because it is the strict end: a bar that closed on the line crossed
+    nothing, whatever its open did. `None` then covers the two remaining cases, which need no
+    telling apart: the bar closed on the line, or it closed on the side it opened on.
 
+    A bar that opened exactly on the line is a breakout to the side it closed on. `side_of` answers
+    `None` there, which is not the closing side, so the comparison below reports the crossing
+    without a case of its own. Returning the closing side rather than a bare `True` is what lets
+    the seam test compare two breakouts without re-reading their bars.
+    """
     closed: Side | None = (
         "above" if bar.close > price else "below" if bar.close < price else None
     )
+    if closed is None:
+        return None
 
-    return closed if closed is not None and closed != opened else None
+    return closed if side_of(bar, price) != closed else None
 
 
 def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelation]:
@@ -303,7 +328,12 @@ def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelat
                 LineRelation.anchored(
                     bar, line=line.id, price=price,
                     kind="breakout" if undone is None else "seam",
-                    wick=None, side=side, since=undone,
+                    wick=None,
+                    # A bar that opened on the line still came from somewhere, and a crossing says
+                    # where: the side it did not close on. This is the only place `side` is not
+                    # simply `side_of`, and it is what keeps the field total on both crossings.
+                    side=side if side is not None else OPPOSITE[closed],
+                    since=undone,
                 )
             )
 

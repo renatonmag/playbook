@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
-import { producerName, type BarGap, type LegExtremes, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
+import { producerName, type BarGap, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
@@ -10,6 +10,7 @@ import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
+import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
 import PatternLog from '~/components/PatternLog.vue'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
@@ -71,6 +72,12 @@ const LOG_MIN_PX = 160
  * horizontal or one-value-per-time. It is also the first primitive to draw in the *Series'* palette
  * colour rather than a per-point hue, which is a claim about the picture rather than a shortcut:
  * see `trendSegments`.
+ *
+ * The eighth, `line-respect`, is the fourth primitive and the first drawing on this chart that is
+ * not placed at a price at all: a pill held a fixed *pixel* distance clear of a run's extreme —
+ * the extreme on the side *away* from the line it reports, which is the one surprising thing about
+ * it and is argued in `PLACEMENT`. It is also the first entry fed by the manual run rather than the
+ * automatic one — see `MANUAL`.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
@@ -82,7 +89,21 @@ const OVERLAYS: Record<string, Component> = {
   // direction carries no per-type hue to protect, only a side.
   'general-direction': GeneralDirectionOverlay,
   'trend-lines': TrendLinesOverlay,
+  'line-respect': LineRespectOverlay,
 }
+
+/**
+ * The Patterns whose Series comes off `Calcular` rather than off the automatic `GET`.
+ *
+ * Both of them answer about the lines a person pinned, and a `GET` carries no lines — so the
+ * automatic response holds an empty Series under each of these keys on every run, forever. Listing
+ * them here is what lets `overlays` below take them from `relations` instead and drop the empty
+ * copies, rather than putting a Pattern in the sidebar that can only ever say "0 pontos".
+ *
+ * `line-relations` is in the set although it has no entry in `OVERLAYS`: it is read in the Log, and
+ * what this set decides is *which response a Series comes from*, not whether it is drawn.
+ */
+const MANUAL = new Set(['line-relations', 'line-respect'])
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
 const COLORS = ['#2563eb', '#c026d3', '#ea580c', '#0d9488']
@@ -221,6 +242,19 @@ const {
 } = usePatterns(runWindow, windowKey, rule)
 
 /**
+ * What the last `Calcular` answered, and what it is doing.
+ *
+ * Up here beside `patterns` rather than down by `calculate`, which is where it used to be and where
+ * the reasoning still lives: `overlays` below reads both responses, and a page whose overlay list
+ * depends on a ref declared six hundred lines further on reads as though one of them were an
+ * afterthought. They are two answers about one window, and the difference between them is which
+ * verb asked — see `calculate`, and `MANUAL`.
+ */
+const relations = ref<PatternResponse | null>(null)
+const calculating = ref(false)
+const calculateError = ref<string | null>(null)
+
+/**
  * The rules committed to `docs/forma/rules.json`, so the ones already worth comparing against are
  * a click rather than seven fields of typing. The same fetch and the same `parseRule` the bench
  * uses — it is the same file, and a second reading of it could disagree with the first.
@@ -245,30 +279,35 @@ function loadSaved(name: string) {
 }
 
 /**
- * Every Series the pipeline produced, in a shape the checkbox list and the overlays share.
+ * One response's Series, in the shape the checkbox list and the overlays share.
  *
  * Series of *any* timeframe are listed, including ones the chart is not showing. Marking one of
  * those is allowed and will distort the candle spacing, because the chart's time scale is the
  * union of its series' times — a known and accepted trade.
+ *
+ * `offset` is where this response's slice of the palette starts, so two responses concatenated
+ * still hand out four distinct colours before repeating.
  */
-const overlays = computed(() =>
-  Object.entries(patterns.value?.series ?? {}).map(([producer, series], index) => ({
-    producer,
-    // The class part, kept alongside the component: the sidebar needs to name the Pattern to know
-    // whether it has extra controls, and re-splitting the key in the template would hide that.
-    name: producerName(producer),
-    // What the *Pattern* calls itself, which is what the sidebar shows. Deliberately a second
-    // field rather than a better `name`: the one above is a lookup key into `OVERLAYS` and the
-    // three sets below it, and a label that reads well would break every one of them.
-    label: series.name,
-    component: OVERLAYS[producerName(producer)],
-    // Left as the base Point: each Pattern declares its own, and this list holds all of them.
-    // The overlay a producer maps to is the thing that knows which one it is getting, and it
-    // narrows in its own props.
-    points: series.points as PatternPoint[],
-    timeframe: series.identity.timeframe,
-    color: COLORS[index % COLORS.length]!,
-  }))
+function listed(response: PatternResponse | null, keep: (name: string) => boolean, offset: number) {
+  return Object.entries(response?.series ?? {})
+    .filter(([producer]) => keep(producerName(producer)))
+    .map(([producer, series], index) => ({
+      producer,
+      // The class part, kept alongside the component: the sidebar needs to name the Pattern to know
+      // whether it has extra controls, and re-splitting the key in the template would hide that.
+      name: producerName(producer),
+      // What the *Pattern* calls itself, which is what the sidebar shows. Deliberately a second
+      // field rather than a better `name`: the one above is a lookup key into `OVERLAYS` and the
+      // three sets below it, and a label that reads well would break every one of them.
+      label: series.name,
+      component: OVERLAYS[producerName(producer)],
+      // Left as the base Point: each Pattern declares its own, and this list holds all of them.
+      // The overlay a producer maps to is the thing that knows which one it is getting, and it
+      // narrows in its own props.
+      points: series.points as PatternPoint[],
+      timeframe: series.identity.timeframe,
+      color: COLORS[(offset + index) % COLORS.length]!,
+    }))
     // Series with no entry in `OVERLAYS` are dropped rather than sorted last, which is what the
     // chips cost: a chip is a control that opens a control, and one that opens an empty panel is
     // worse than an absent one. The trade is worth stating plainly — a producer the pipeline emits
@@ -277,8 +316,28 @@ const overlays = computed(() =>
     //
     // After the `map`, so the palette is still handed out in the response's order: a Series keeps
     // its colour whether or not an undrawable one came before it.
-    .filter(overlay => overlay.component),
+    .filter(overlay => overlay.component)
+}
+
+/** Everything the automatic `GET` answered, less the Series only a body can fill. See `MANUAL`. */
+const autoOverlays = computed(() => listed(patterns.value, name => !MANUAL.has(name), 0))
+
+/**
+ * And those Series, from the run that actually carries the lines.
+ *
+ * The one place the two responses are read as one list. It has to be here rather than at the fetch:
+ * `relations` is deliberately not merged into `patterns`, because that data belongs to a `useFetch`
+ * whose key names a window and a rule and cannot name a set of lines — see `calculate`. So they
+ * stay two refs and meet in the sidebar, which is the only thing that wanted them together.
+ *
+ * Before `Calcular` this is empty, and the Pattern is simply not in the picker. That is the honest
+ * reading and the same one the Log gives: without lines there is no question to answer.
+ */
+const manualOverlays = computed(() =>
+  listed(relations.value, name => MANUAL.has(name), autoOverlays.value.length),
 )
+
+const overlays = computed(() => [...autoOverlays.value, ...manualOverlays.value])
 
 /**
  * Drawn producers. Held as the exception rather than the rule so a Series arriving for the
@@ -501,6 +560,26 @@ const SIDES = [
   { value: 'low', label: TREND_LABELS.low },
 ] as const
 
+/** Just the values, for `sidesFor` — the labels are the sidebar's business and not the filter's. */
+const TREND_SIDE_VALUES = SIDES.map(item => item.value)
+
+/**
+ * The same axis for `line-respect`, and the third row of two checkboxes on this page.
+ *
+ * A separate list and not a fourth value on `SIDES`, because the two mean different things and
+ * spell them differently: `SIDES` names which extreme a trend line was drawn along, and this names
+ * which side of a pinned level the bars stood on. Sharing a list would put `topos` and
+ * `respeitada por cima` in one union and leave the reader to work out which Pattern each belonged
+ * to. What they *do* share is `hiddenSides` below, which is keyed by producer and so cannot
+ * confuse them.
+ */
+const RESPECT_SIDES = [
+  { value: 'above', label: RESPECT_LABELS.above },
+  { value: 'below', label: RESPECT_LABELS.below },
+] as const
+
+const RESPECT_SIDE_VALUES = RESPECT_SIDES.map(item => item.value)
+
 /**
  * Sides the top/bottom filters have turned *off*, keyed by producer and side.
  *
@@ -509,17 +588,22 @@ const SIDES = [
  */
 const hiddenSides = ref(new Set<string>())
 
-function sideKey(producer: string, side: TrendSide) {
+function sideKey(producer: string, side: string) {
   return `${producer}:${side}`
 }
 
-function sidesFor(producer: string): TrendSide[] {
-  return SIDES.map(item => item.value).filter(
-    value => !hiddenSides.value.has(sideKey(producer, value)),
-  )
+/**
+ * The sides one Series still draws, from the list *it* asks with.
+ *
+ * Generic over the values rather than fixed to `TrendSide`, since the two Patterns that filter on a
+ * side do not agree on what a side is called. The set underneath is shared and keyed by producer,
+ * so two vocabularies in one `Set<string>` can never be read as each other's.
+ */
+function sidesFor<T extends string>(producer: string, values: readonly T[]): T[] {
+  return values.filter(value => !hiddenSides.value.has(sideKey(producer, value)))
 }
 
-function toggleSide(producer: string, side: TrendSide) {
+function toggleSide(producer: string, side: string) {
   const key = sideKey(producer, side)
   if (hiddenSides.value.has(key)) hiddenSides.value.delete(key)
   else hiddenSides.value.add(key)
@@ -1164,11 +1248,6 @@ const pinnedLines = computed(() =>
   ].map(({ id, time, price }) => ({ id, time, price })),
 )
 
-/** What the last `Calcular` answered, and what it is doing. Nothing draws these yet. */
-const relations = ref<PatternResponse | null>(null)
-const calculating = ref(false)
-const calculateError = ref<string | null>(null)
-
 /**
  * `Calcular`'s click: the pipeline again, this time told about the lines on the screen.
  *
@@ -1285,7 +1364,7 @@ function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color
   return [
     ...trendSegments(
       overlay.points as TrendLine[],
-      sidesFor(overlay.producer),
+      sidesFor(overlay.producer, TREND_SIDE_VALUES),
       overlay.color,
       ids,
     ).filter(segment => ids.has(segment.id)),
@@ -1294,7 +1373,7 @@ function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color
     // move that no longer resolves has already dropped out of `movedSegments`.
     ...movedSegments(
       overlay.points as TrendLine[],
-      sidesFor(overlay.producer),
+      sidesFor(overlay.producer, TREND_SIDE_VALUES),
       overlay.color,
       keys,
       barsByTime.value,
@@ -1432,7 +1511,7 @@ function extraProps(overlay: { producer: string, name: string }) {
     // above however much the two rows look alike. See `SIDES`.
     ...overlay.name === 'trend-lines'
       ? {
-          sides: sidesFor(overlay.producer),
+          sides: sidesFor(overlay.producer, TREND_SIDE_VALUES),
           focus: focusFor(overlay.producer),
           // Only wired while the switch is on. With it off the overlay still reports every click's
           // bar — it cannot know the switch exists — and nothing here is listening, so a click on
@@ -1451,6 +1530,11 @@ function extraProps(overlay: { producer: string, name: string }) {
             ? { onBar: (time: number | null) => setFocusBar(overlay.producer, time) }
             : {},
         }
+      : {},
+    // The same axis on the eighth overlay, and nothing else it needs: a pill has no direction, no
+    // state and nothing to pin. See `RESPECT_SIDES` for why the two lists are not one.
+    ...overlay.name === 'line-respect'
+      ? { sides: sidesFor(overlay.producer, RESPECT_SIDE_VALUES) }
       : {},
     // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
     // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and
@@ -1936,6 +2020,31 @@ function isVisible(overlay: { producer: string }) {
                     :checked="!hiddenSides.has(`${overlay.producer}:${side.value}`)"
                     @change="toggleSide(overlay.producer, side.value)"
                   >
+                  {{ side.label }}
+                </label>
+              </div>
+
+              <!-- `line-respect`'s only filter, and its colour key in the same breath: the two
+                   sides are the two hues, so a row of checkboxes with the swatch on each is one
+                   control where the other Series need two. -->
+              <div
+                v-if="overlay.name === 'line-respect' && shown.has(overlay.producer)"
+                class="mt-1 flex flex-col gap-1"
+              >
+                <label
+                  v-for="side in RESPECT_SIDES"
+                  :key="side.value"
+                  class="flex items-center gap-1.5 text-xs text-gray-500"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="!hiddenSides.has(`${overlay.producer}:${side.value}`)"
+                    @change="toggleSide(overlay.producer, side.value)"
+                  >
+                  <span
+                    class="h-2 w-3 rounded-sm"
+                    :style="{ backgroundColor: RESPECT_HUES[side.value] }"
+                  />
                   {{ side.label }}
                 </label>
               </div>

@@ -343,7 +343,9 @@ export interface TrendLine extends PatternPoint {
  * The Series is sparse — most bars say nothing about most lines — and it is bar-major, so its
  * anchors never go backwards. One bar and one line make at most one crossing, and a crossing that
  * undoes a recent one arrives as a `seam` **instead of** a `breakout`, never as both: to see every
- * crossing, read the two kinds together. A bar repeats only when several lines answer on it.
+ * crossing, read the two kinds together. A bar repeats when several lines answer on it, and on one
+ * bar for one line: a bar that opens exactly on the line touches it with the base of a wick and
+ * crosses it with its close, so it carries a `touch` and a crossing both.
  *
  * `price` is the **line's** price, not the bar's: the OHLCV every Point carries is already the
  * bar's, and repeating one of its numbers here would say nothing.
@@ -356,10 +358,40 @@ export interface LineRelation extends PatternPoint {
   kind: 'touch' | 'breakout' | 'seam'
   /** Which wick reached the line. Only on `touch`. */
   wick: 'high' | 'low' | null
-  /** Which side the bar **opened** on. `null` only when the open sits exactly on the line. */
+  /**
+   * The side price **came from**: where the bar opened, or — on a crossing by a bar that opened
+   * exactly on the line — the side it did not close on. Never `null` on a `breakout` or a `seam`.
+   */
   side: 'above' | 'below' | null
   /** The bar that broke out first, whole. Only on `seam`. */
   since: PatternPoint | null
+}
+
+/**
+ * One stretch over which one pinned line held: the bars, and the side they held it from.
+ *
+ * The reading of `LineRelation` rather than a second look at the market. A stretch runs until a
+ * breakout nothing takes back — touches, seams and the breakouts a seam undid all leave the line
+ * standing, and only a definitive one ends a run. That breakout is in neither the run it closed
+ * nor the one it opened.
+ *
+ * `side` is **not** `LineRelation.side`, despite the spelling. There it is where a bar opened; here
+ * it is which side of the line price was holding, which is why these are two Series and not four
+ * kinds of one. It is total: a run that could never say which side it held is not emitted.
+ *
+ * Anchored on the **last** bar of the run, with `bars[0]` the first — the `since` this Point does
+ * not separately declare. `bars` is contiguous and includes the bars that did nothing about the
+ * line, so the run's extreme can be measured without going back to the candles.
+ */
+export interface LineRespect extends PatternPoint {
+  /** The browser's own segment id, the same one `LineRelation.line` carries. */
+  line: string
+  /** The line's price — the level the bars held, not anything about them. */
+  price: number
+  /** Which side of the line the bars held it from. Never `null`. */
+  side: 'above' | 'below'
+  /** The run, first bar to last. `bars[bars.length - 1]` is this Point's own anchor. */
+  bars: PatternPoint[]
 }
 
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {

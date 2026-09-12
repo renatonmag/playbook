@@ -39,6 +39,7 @@ from pattern_engine.patterns import (
     LegPattern,
     LegWindowPattern,
     LineRelationsPattern,
+    LineRespectPattern,
     NestedLegsPattern,
     PinnedLines,
     SimpleLegPattern,
@@ -109,6 +110,9 @@ def build_pipeline(
     advancing = AdvancingLegsPattern(
         source=nested, pivots=zigzag, marks=simple_leg, reads=("5m",), emits="5m"
     )
+    # And once more, for the one Pattern here that is told its geometry: the grouper at the very
+    # bottom reads this Series' events, and takes this instance rather than its key.
+    relations = LineRelationsPattern(lines=lines, reads=("5m",), emits="5m")
 
     return (
         zigzag,
@@ -199,8 +203,9 @@ def build_pipeline(
         # `LegWindow`, which anchors on its opening vertex and cannot say which extreme its close
         # is. Last in the tuple because declaration order is run order.
         LegExtremesPattern(source=advancing, reads=("5m",), emits="5m"),
-        # And last, the only Pattern here that is *told* where to look. Every one above finds its
-        # own levels; this one is handed the lines a person pinned on the monitor and reports what
+        # Then the two that answer about a person's question rather than about the market. The
+        # first is the only Pattern here that is *told* where to look: every one above finds its
+        # own levels, and this one is handed the lines a person pinned on the monitor and reports what
         # the bars since have done about them — touched, broken through, or crossed and crossed
         # back. It reads `ctx["bars"]` and nothing else, so like `bar-gap` it has no ordering
         # constraint and sits here by meaning rather than by necessity: everything above answers
@@ -209,7 +214,16 @@ def build_pipeline(
         # With no lines it emits an empty Series rather than being left out of the tuple, so the
         # `ctx` key exists on every run and "nobody drew a line" is not indistinguishable from a
         # Pattern that failed.
-        LineRelationsPattern(lines=lines, reads=("5m",), emits="5m"),
+        relations,
+        # The reading of the one above rather than a second look at the market: `line-relations`
+        # answers a bar at a time, and this folds those events into the stretches over which a line
+        # held. A second Pattern and not a fourth `kind` there, because `LineRelation.side` means
+        # "where the bar opened" on every one of its kinds and a group's side cannot — see that
+        # module's docstring, and this one's.
+        #
+        # Immediately after its source, and this one *is* an ordering constraint: it reads a
+        # producer key rather than `ctx["bars"]`, so declared before `relations` it would raise.
+        LineRespectPattern(source=relations, reads=("5m",), emits="5m"),
     )
 
 

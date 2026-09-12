@@ -126,9 +126,19 @@ def test_a_bar_that_stayed_on_one_side_is_no_breakout() -> None:
 
 
 def test_a_close_exactly_on_the_line_is_no_breakout() -> None:
-    """Strict at both ends — a price that is the line has not crossed it."""
+    """Strict on the close — a bar that stopped at the line has not crossed it."""
     assert breaks_out(bar(90.0, 105.0, 89.0, 100.0), LINE) is None
-    assert breaks_out(bar(100.0, 115.0, 99.0, 110.0), LINE) is None
+
+
+def test_a_bar_that_opened_on_the_line_breaks_out_to_the_side_it_closed_on() -> None:
+    """The open is not strict: with no side to have left, the close alone says which one it took."""
+    assert breaks_out(bar(100.0, 115.0, 99.0, 110.0), LINE) == "above"
+    assert breaks_out(bar(100.0, 101.0, 85.0, 90.0), LINE) == "below"
+
+
+def test_a_bar_that_opened_and_closed_on_the_line_is_no_breakout() -> None:
+    """Both ends on the line: it never left, and the strict close is what says so."""
+    assert breaks_out(bar(100.0, 108.0, 92.0, 100.0), LINE) is None
 
 
 # --- the run ----------------------------------------------------------------------------------
@@ -212,11 +222,28 @@ def test_a_reversal_two_bars_later_is_still_a_seam() -> None:
     ]
 
 
-def test_a_reversal_three_bars_later_is_not_a_seam() -> None:
+def test_a_reversal_three_bars_later_is_still_a_seam() -> None:
+    """The far edge of `SEAM_SPAN` from the inside: two bars may sit between the two crossings."""
+    specs = (
+        (80.0, 85.0, 79.0, 84.0),
+        (90.0, 115.0, 89.0, 110.0),
+        (105.0, 112.0, 101.0, 108.0),
+        (105.0, 112.0, 101.0, 108.0),
+        (110.0, 111.0, 85.0, 90.0),
+    )
+    found = line_relations(series(*specs).points, lines(("a", 0)))
+    assert [(index, kind) for index, kind, _, _ in kinds(found)] == [
+        (1, "breakout"),
+        (4, "seam"),
+    ]
+
+
+def test_a_reversal_four_bars_later_is_not_a_seam() -> None:
     """The whole content of `SEAM_SPAN`, and the one case that says the span is real."""
     specs = (
         (80.0, 85.0, 79.0, 84.0),
         (90.0, 115.0, 89.0, 110.0),
+        (105.0, 112.0, 101.0, 108.0),
         (105.0, 112.0, 101.0, 108.0),
         (105.0, 112.0, 101.0, 108.0),
         (110.0, 111.0, 85.0, 90.0),
@@ -233,6 +260,57 @@ def test_two_breakouts_the_same_way_are_not_a_seam() -> None:
     )
     found = line_relations(series(*specs).points, lines(("a", 0)))
     assert [kind for _, kind, _, _ in kinds(found)] == ["breakout", "breakout"]
+
+
+#: A break up, a bar that stops exactly on the line, and a bar that opens on the line and steps off
+#: it downwards. The third bar is the crossing that used to go unseen — see the module docstring of
+#: `line_relations` on the open.
+STEPPED_OFF = (
+    (80.0, 85.0, 79.0, 84.0),
+    (90.0, 115.0, 89.0, 110.0),
+    (105.0, 112.0, 100.0, 100.0),
+    (100.0, 101.0, 85.0, 90.0),
+)
+
+
+@pytest.mark.parametrize("specs", [STEPPED_OFF, flipped(STEPPED_OFF)])
+def test_a_bar_that_steps_off_the_line_undoes_the_break_before_it(specs: tuple) -> None:
+    """The bar between them closed *on* the line and broke nothing, so the reversal is the third.
+
+    Its open is the line, so the line is the base of one of its wicks and it touches as well: the
+    one bar that carries two Points for one line.
+    """
+    found = line_relations(series(*specs).points, lines(("a", 0)))
+    assert [(index, kind) for index, kind, _, _ in kinds(found)] == [
+        (1, "breakout"),
+        (3, "touch"),
+        (3, "seam"),
+    ]
+
+
+def test_a_crossing_off_the_line_came_from_the_side_it_did_not_close_on() -> None:
+    """`side` is the side price came from, and a bar opening on the line has only its close to say
+    so. The touch on the same bar has nothing to go on and says nothing."""
+    found = line_relations(series(*STEPPED_OFF).points, lines(("a", 0)))
+    assert [(kind, side) for _, kind, _, side in kinds(found)] == [
+        ("breakout", "below"),
+        ("touch", None),
+        ("seam", "above"),
+    ]
+
+    up = line_relations(series(*flipped(STEPPED_OFF)).points, lines(("a", 0)))
+    assert [(kind, side) for _, kind, _, side in kinds(up)] == [
+        ("breakout", "above"),
+        ("touch", None),
+        ("seam", "below"),
+    ]
+
+
+def test_a_seam_off_the_line_still_carries_the_break_it_undid() -> None:
+    found = line_relations(series(*STEPPED_OFF).points, lines(("a", 0)))
+    seam = next(point for point in found if point.kind == "seam")
+    assert seam.since is not None
+    assert seam.since.time == at(1)
 
 
 def test_a_bar_that_closes_one_seam_can_open_the_next() -> None:

@@ -16,6 +16,7 @@ from .leg_reversals import LegBar, LegReversals, LegReversalsPattern, marked_bar
 from .leg_window import LegWindow, LegWindowPattern, split_leg_windows
 from .line_relations import (
     NO_LINES,
+    OPPOSITE,
     Line,
     LineRelation,
     LineRelationsPattern,
@@ -27,6 +28,13 @@ from .line_relations import (
     line_relations,
     side_of,
     touches,
+)
+from .line_respect import (
+    LineRespect,
+    LineRespectPattern,
+    line_respects,
+    respected_side,
+    undone_breakouts,
 )
 from .nested_legs import NestedLegs, NestedLegsPattern, nested_legs
 # Re-exported from here rather than from `leg_reversals`, where they used to live: they are the
@@ -78,10 +86,13 @@ __all__ = [
     "LineEnd",
     "LineRelation",
     "LineRelationsPattern",
+    "LineRespect",
+    "LineRespectPattern",
     "MarkType",
     "NO_LINES",
     "NestedLegs",
     "NestedLegsPattern",
+    "OPPOSITE",
     "PbMark",
     "PinnedLines",
     "RelationKind",
@@ -107,10 +118,12 @@ __all__ = [
     "implied_body_min",
     "leg_ends",
     "line_relations",
+    "line_respects",
     "marked_bars",
     "nested_legs",
     "nests",
     "position_of",
+    "respected_side",
     "reverses",
     "side_of",
     "split_leg_windows",
@@ -118,4 +131,5 @@ __all__ = [
     "touches",
     "trend_lines",
     "trim_tail",
+    "undone_breakouts",
 ]

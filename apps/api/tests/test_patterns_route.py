@@ -12,7 +12,12 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from pattern_engine import BaseSeries, Ctx, Pattern, SeriesIdentity
-from pattern_engine.patterns import BarsPattern, LegExtremesPattern, LineRelationsPattern
+from pattern_engine.patterns import (
+    BarsPattern,
+    LegExtremesPattern,
+    LineRelationsPattern,
+    LineRespectPattern,
+)
 
 from playbook_api.db import get_session
 from playbook_api.lines_body import MAX_LINES
@@ -451,8 +456,8 @@ def test_an_out_of_range_threshold_is_refused(client, field):
 # --- the lines a browser drew ----------------------------------------------------------------
 
 
-def touching(count: int = 60) -> list[int]:
-    """The closed bars of `wave()` whose wicks hold `LINE_PRICE`, by index.
+def touching(price: float = 101.0, count: int = 60) -> list[int]:
+    """The closed bars of `wave()` whose wicks hold `price`, by index.
 
     Derived from the fixture rather than counted by hand, for the reason `PRODUCERS` is: the wave
     is a fixture and the assertions below are about the wiring, not about its shape. The last row
@@ -460,7 +465,7 @@ def touching(count: int = 60) -> list[int]:
     """
     marks = []
     for row in wave(count)[:-1]:
-        if float(row.low) <= LINE_PRICE <= float(row.high):
+        if float(row.low) <= price <= float(row.high):
             marks.append(int(row.time.timestamp()))
     return marks
 
@@ -471,13 +476,29 @@ def touching(count: int = 60) -> list[int]:
 #: what is under test here is that the body reached it at all.
 LINE_PRICE = 101.0
 
-#: The Series a body can change, found by class for the reason `BARS` is.
+#: The Series a body can change, found by class for the reason `BARS` is. Two of them now: the
+#: events, and the stretches read off them.
 LINES = next(
     pattern.producer for pattern in PIPELINE if isinstance(pattern, LineRelationsPattern)
 )
+RESPECT = next(
+    pattern.producer for pattern in PIPELINE if isinstance(pattern, LineRespectPattern)
+)
+
+#: A second price, off the bodies rather than on them.
+#:
+#: `LINE_PRICE` sits *exactly* where every touching bar opens, so `side` is `None` on all of them
+#: and no stretch can be read — which is fine for the events and useless for the groups. Nudged
+#: inside the same upper wick, the same bars touch and every one of them says it did so from below.
+RESPECT_PRICE = 101.4
 
 #: One line, anchored on the window's first bar so every later bar is asked about.
 PINNED = {"lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "price": LINE_PRICE}]}
+
+#: The same line at `RESPECT_PRICE`, for the two tests that need a side.
+PINNED_OFF_BODY = {
+    "lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "price": RESPECT_PRICE}]
+}
 
 
 def test_the_get_runs_the_line_pattern_with_no_lines(client):
@@ -497,6 +518,39 @@ def test_a_posted_line_reaches_the_pattern(client):
     # The line's price, not the bar's — and the bar's own OHLCV rides along beside it.
     assert {point["price"] for point in points} == {LINE_PRICE}
     assert {"time", "open", "high", "low", "close", "volume", "line", "price", "kind", "wick", "side", "since"} == set(points[0])
+
+
+def test_the_get_runs_the_respect_pattern_with_no_lines(client):
+    """Empty for the reason its source is, and for the same reason present rather than absent."""
+    body = client.get("/patterns", params=WINDOW).json()
+    assert body["series"][RESPECT]["points"] == []
+
+
+def test_a_posted_line_reaches_the_grouper_through_its_source(client):
+    """The one Series in the pipeline that is changed by a body it never sees."""
+    body = client.post("/patterns", params=WINDOW, json=PINNED_OFF_BODY).json()
+    points = body["series"][RESPECT]["points"]
+
+    # The wave's bodies never cross the line, so no breakout ever closes a run — but the wave only
+    # reaches up to it every few bars, and the quiet bars in between end the runs instead. One
+    # group per touch, each of them one bar long.
+    marks = touching(RESPECT_PRICE)
+    assert [group["time"] for group in points] == marks
+    assert [[bar["time"] for bar in group["bars"]] for group in points] == [[mark] for mark in marks]
+    assert {group["line"] for group in points} == {"wick:1:high:end"}
+    assert {group["price"] for group in points} == {RESPECT_PRICE}
+    # Every touch is a wick reaching *up* to the line, so the bars held it from underneath.
+    assert {group["side"] for group in points} == {"below"}
+    assert {"time", "open", "high", "low", "close", "volume", "line", "price", "side", "bars"} == set(points[0])
+
+
+def test_a_line_the_bodies_open_on_yields_events_but_no_stretch(client):
+    """The cost of reading the side off the bar's open, asserted where it actually bites: on this
+    fixture every touching bar opens *on* `LINE_PRICE`, so nothing can say which side held."""
+    body = client.post("/patterns", params=WINDOW, json=PINNED).json()
+
+    assert body["series"][LINES]["points"]
+    assert body["series"][RESPECT]["points"] == []
 
 
 def test_posting_lines_does_not_move_the_producer_keys(client):
@@ -521,8 +575,9 @@ def test_the_rest_of_the_pipeline_is_unmoved_by_a_line(client):
     plain = client.get("/patterns", params=WINDOW).json()
     posted = client.post("/patterns", params=WINDOW, json=PINNED).json()
 
-    assert {key: value for key, value in posted["series"].items() if key != LINES} == {
-        key: value for key, value in plain["series"].items() if key != LINES
+    moved = {LINES, RESPECT}
+    assert {key: value for key, value in posted["series"].items() if key not in moved} == {
+        key: value for key, value in plain["series"].items() if key not in moved
     }
 
 
