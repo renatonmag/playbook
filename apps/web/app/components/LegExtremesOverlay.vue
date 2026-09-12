@@ -37,20 +37,34 @@ const props = withDefaults(
     pinned?: string[]
     /** The Series' hide timer has fired: only the pinned segments are still worth the space. */
     onlyPinned?: boolean
+    /**
+     * The one segment that is selected right now, or `null` — a dot on its anchor, and the control
+     * bar over the chart is about it.
+     *
+     * One id rather than a set, because the page keeps one selection across every overlay: two
+     * selected levels would make the bar's `Trash` mean two things. An id belonging to another
+     * Series simply never matches, which is the same protection `onClick` gets from `namespace`.
+     */
+    selected?: string | null
   }>(),
   {
     color: undefined,
     directions: () => ['bullish', 'bearish'],
     pinned: () => [],
     onlyPinned: false,
+    selected: null,
   },
 )
 
 /**
- * A segment was clicked. The id is `extremeSegmentId`'s, and what to do about it — pin, unpin — is
- * the page's business: this component has no memory of its own and is redrawn from `pinned`.
+ * A segment was clicked. The id is `extremeSegmentId`'s, and what to do about it is the page's
+ * business: this component has no memory of its own and is redrawn from `pinned` and `selected`.
+ *
+ * `pin` means *add*, not toggle — a level leaves the list through the control bar's `Trash` now,
+ * never through a click on the chart. `select` carries the level a click landed on, or `null` when
+ * the page is being told the selection it holds no longer resolves to anything drawn.
  */
-const emit = defineEmits<{ pin: [id: string] }>()
+const emit = defineEmits<{ pin: [id: string], select: [id: string | null] }>()
 
 const candleSeries = inject(CANDLE_SERIES, shallowRef(null))
 const chart = inject(CHART, shallowRef(null))
@@ -103,7 +117,12 @@ function onClick(param: MouseEventParams<Time>) {
   const id = param.hoveredInfo?.objectId
   if (typeof id !== 'string') return
   if (!drawnIds.has(id)) return
-  emit('pin', id)
+
+  // A first click does both: the level is pinned *and* becomes the selected one, so the actions
+  // for it are one click away rather than two. A click on a level already pinned only selects —
+  // which is the whole change, since that click used to unpin it.
+  if (!props.pinned.includes(id)) emit('pin', id)
+  emit('select', id)
 }
 
 /** The ids currently handed to the primitive, which is exactly what a click can name. */
@@ -132,6 +151,7 @@ watch(
     () => props.directions,
     () => props.pinned,
     () => props.onlyPinned,
+    () => props.selected,
   ],
   ([bars, api]) => {
     if (!bars) return
@@ -157,6 +177,14 @@ watch(
     const segments = props.visible ? segmentsToDraw() : []
     drawnIds = new Set(segments.map(segment => segment.id))
     primitive.setSegments(segments)
+
+    // A selection that no longer resolves — the Series switched off, the pin undone, the leg gone
+    // from the window — is handed back rather than left to rot: the page would otherwise float a
+    // control bar over a level nobody can see. Reported here because this is where what is drawn is
+    // decided, and only a change can reach this line.
+    if (props.selected !== null && !drawnIds.has(props.selected)) emit('select', null)
+
+    primitive.setAnchor(props.selected)
   },
   { immediate: true },
 )

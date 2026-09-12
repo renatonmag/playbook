@@ -71,6 +71,14 @@ const props = withDefaults(
      * and for the same reason — the lookups are by name, one bar at a time, on mouse moves.
      */
     bars?: ReadonlyMap<number, Candle>
+    /**
+     * The one line that is selected right now, or `null` — the line wearing its two dots, and the
+     * line the control bar over the chart is about.
+     *
+     * It is also the only line whose ends can be dragged. See `movable`: a dot now says "this line
+     * is selected" and nothing else, and a grab starts from a selection.
+     */
+    selected?: string | null
   }>(),
   {
     color: '#2563eb',
@@ -81,12 +89,16 @@ const props = withDefaults(
     previewOnHover: false,
     moves: () => [],
     bars: () => new Map(),
+    selected: null,
   },
 )
 
 /**
- * A line was clicked. The id is `trendSegmentId`'s, and what to do about it — select, deselect — is
- * the page's business: this component has no memory of its own and is redrawn from `pinned`.
+ * A line was clicked. The id is `trendSegmentId`'s, and what to do about it is the page's business:
+ * this component has no memory of its own and is redrawn from `pinned`, `moves` and `selected`.
+ *
+ * `pin` means *add*, not toggle. A line no longer leaves the list through a click on the chart —
+ * that click selects it now — and leaves it through the control bar's `Trash` instead.
  *
  * `bar` is the same arrangement for the highlight: the bar a click landed on, `null` when it landed
  * past the data. Whether that sets a focus or means nothing at all is the page's to decide, which is
@@ -96,6 +108,15 @@ const props = withDefaults(
  */
 const emit = defineEmits<{
   pin: [id: string]
+  /**
+   * The line a click landed on, or `null` when the page is being told the selection it holds no
+   * longer resolves to anything drawn.
+   *
+   * The drawn segment's id, not the Point's and not a `moveKey`: it is what the hit test hands back
+   * and what `setHandle` is named in. A move changes it — the line the drag made is a different
+   * drawn line — which is why a release emits this too, with the new id.
+   */
+  select: [id: string | null]
   bar: [time: number | null]
   /**
    * One of a selected line's two ends was dragged onto a candle and released. The payload is
@@ -107,15 +128,9 @@ const emit = defineEmits<{
    * reason `pin` is: this component is redrawn from `moves` and remembers nothing.
    */
   move: [key: string]
-  /**
-   * A moved line was clicked. Its own `moveKey`, and the page is expected to drop it.
-   *
-   * Not `pin`, which is the same gesture on the line beside it, because the two name different
-   * things: `pin`'s id belongs to a Point the pipeline produced, and a moved line answers to no
-   * such Point. What they share is the meaning — clicking a selected line deselects it — and a
-   * moved line is selected by definition, so this is what deselecting one is.
-   */
-  unmove: [key: string]
+  // There is no `unmove`. Removing a line is the control bar's `Trash` now, and which of the two
+  // doors a line leaves by — its pin or its move — is decided where it has always had to be: on the
+  // page, which is what the `Selecionadas` list's `✕` already does.
 }>()
 
 const candleSeries = inject(CANDLE_SERIES, shallowRef(null))
@@ -173,11 +188,16 @@ const hovered = shallowRef<string | null>(null)
  * A line whose ends can be taken hold of: where they currently are, and what a drag of one would be
  * a move *of*.
  *
- * Only selected lines get handles. The fan runs to some hundreds of strokes and a click in it is
+ * The selected line, and only it. The fan runs to some hundreds of strokes and a click in it is
  * already a near thing; making every one of them draggable would turn the gesture that reads the
  * chart into the gesture that edits it. Selecting a line is the deliberate act that says this is
- * the line you are working on, and it is the same act on a line you have already moved — a move is
- * its own pin.
+ * the line you are working on.
+ *
+ * Narrower than it was, and that is the trade the dots now pay for: every *pinned* line used to
+ * grow handles under the cursor and be draggable there and then. A dot said two things at once —
+ * "this can be grabbed" and, once there was such a thing, "this is selected" — and the second is
+ * the one worth keeping. So a line is selected first and dragged second, which is the order every
+ * drawing tool asks for.
  *
  * Both ends are here because a drag of one has to carry the other: a near end placed by hand is not
  * re-derived from the Point on the next drag of the far end, it is kept.
@@ -244,9 +264,10 @@ function moveKeyOf(grab: Grabbable): string {
 /**
  * How far the pointer must travel with the button down before this is a drag rather than a click.
  *
- * The whole reason there is a threshold: a click on a selected line has always meant *deselect*,
- * and it still does. Without a few pixels of slack every attempt to unpin a line would instead
- * commit a move of it to wherever the cursor happened to be.
+ * The whole reason there is a threshold: a press on a dot that turns out to be a click still has
+ * to be a click — it is how the line is selected in the first place, and how a selection is kept
+ * while reaching for its control bar. Without a few pixels of slack every one of those would
+ * instead commit a move of the line to wherever the cursor happened to be.
  */
 const GRAB_THRESHOLD = 3
 
@@ -254,8 +275,9 @@ const GRAB_THRESHOLD = 3
  * How near an endpoint the cursor must be for that end to be the one a press takes hold of, in CSS
  * pixels — a little wider than the dot is, so the aim is the dot rather than its exact centre.
  *
- * Wider than `HIT_TOLERANCE` too, deliberately: the line has to be hovered at all for either dot to
- * be drawn, so this is only ever measured along a line the cursor is already within four pixels of.
+ * Wider than `HIT_TOLERANCE` too, and now it is the only test there is: the dots belong to the
+ * selected line whether the cursor is on the stroke or not, so a dot sitting a few pixels off the
+ * line can be aimed at directly rather than by first finding the line under it.
  */
 const GRAB_RADIUS = 9
 
@@ -281,10 +303,14 @@ let pressed: { grab: Grabbed, x: number, y: number } | null = null
 const dragging = shallowRef<Drag | null>(null)
 
 /**
- * The release that just ended a drag, so the library's own click — which arrives after it — is not
- * read as a click on the line. Consumed once; see `onClick`.
+ * The release that just ended a drag, as the id the line now carries — so the library's own click,
+ * which arrives after it, is not read as a click on the line.
+ *
+ * An id rather than a flag, and that is the whole of what selection cost here: that click has to be
+ * *claimed*, not swallowed. A click nobody claims clears the selection — see `PaneClicks` — so a
+ * silent return would deselect the line the drag was placing. Consumed once; see `onClick`.
  */
-let justDragged = false
+let justDragged: string | null = null
 
 /**
  * Which of a bar's four prices the cursor is nearest, in *pixels* rather than in price.
@@ -422,14 +448,19 @@ function onCrosshairMove(param: MouseEventParams<Time>) {
 
   const id = param.hoveredInfo?.objectId
 
-  // The grab affordance: both of the hovered line's ends, each parked on its own bar, with the one
-  // in reach of the cursor drawn larger. Pushed straight at the primitive rather than through the
-  // watcher, because a dot growing by two pixels is not a reason to reshape a fan of several
-  // hundred lines.
-  const grab = typeof id === 'string' ? movable.get(id) ?? null : null
+  // The grab affordance, read off the *selection* rather than off what the cursor is over: the
+  // selected line's two dots are already drawn by the watcher, and all the cursor decides here is
+  // which of them a press would take — the one in reach, drawn larger. Pushed straight at the
+  // primitive rather than through the watcher, because a dot growing by two pixels is not a reason
+  // to reshape a fan of several hundred lines.
+  //
+  // Not gated on the line being hovered, which is what parking the dots on the anchors earned: a
+  // dot several pixels clear of its own stroke is aimed at directly now, instead of only counting
+  // once the stroke under it had been found.
+  const grab = props.selected === null ? null : movable.get(props.selected) ?? null
   const end = grab && param.point ? nearestEnd(grab, param.point) : null
   grabbable = grab && end ? { ...grab, end } : null
-  primitive?.setHandle(grab ? { id: grab.id, active: end } : null)
+  if (grab) primitive?.setHandle({ id: grab.id, active: end })
 
   const next = props.previewOnHover && typeof id === 'string' && drawnIds.has(id) ? id : null
 
@@ -490,27 +521,43 @@ function onPointerUp() {
   const changed = drag.changed
   endDrag()
 
+  // What the line is called once this release has landed: the drag's own id when it moved, and the
+  // id it already had when it did not.
+  const id = changed
+    ? movedTrendId(drag.fromTime, drag.toTime, drag.side, drag.field, drag.fromField)
+    : drag.id
+
   // The library turns a mouse-up into a click of its own, and it arrives after this. Set before the
   // `changed` test and not after it, because both endings need it: one would deselect the line it
-  // just made, and the other would deselect the line it failed to move. Cleared on the next turn of
-  // the loop, so a drag the library did *not* follow with a click cannot swallow the next real one.
-  justDragged = true
+  // just made, and the other the line it failed to move. Cleared on the next turn of the loop, so a
+  // drag the library did *not* follow with a click cannot swallow the next real one.
+  justDragged = id
   setTimeout(() => {
-    justDragged = false
+    justDragged = null
   })
 
   // A drag that never reached another bar is not a move. Nothing is emitted, and the line is left
-  // exactly as it was — including, if it was one, still pinned.
+  // exactly as it was — including, if it was one, still pinned and still selected.
   if (!changed) return
 
   emit('move', moveKeyOf(drag))
+
+  // Here rather than left to the synthetic click below, which would also get there: between the
+  // redraw `move` triggers and that click the selection would name a line that no longer exists,
+  // and the dots would blink out for a frame in the middle of a gesture that never let go of them.
+  emit('select', id)
 }
 
 /** Give the chart its own drag back, and stop carrying anything. */
 function endDrag() {
   chart.value?.applyOptions({ handleScroll: true, handleScale: true })
   dragging.value = null
-  primitive?.setHandle(null)
+
+  // Back to the selected line's own two dots rather than to none: the drag is over, the line is
+  // still selected, and `null` here would take its dots away until the cursor next moved. A line
+  // the drag renamed does not match anything drawn for the one frame before `select` lands, which
+  // draws no dots and is the same nothing `null` would have.
+  primitive?.setHandle(props.selected === null ? null : { id: props.selected, active: null })
 }
 
 /** Escape abandons the drag: the line goes back to where it was and nothing is emitted. */
@@ -549,19 +596,22 @@ function onKeyDown(event: KeyboardEvent) {
  * the click is untouched: what survived the hide is on screen, and clicking it still deselects it.
  */
 function onClick(param: MouseEventParams<Time>) {
-  // The click the library makes out of a drag's release. It named a line, but it did not mean it.
-  if (justDragged) {
-    justDragged = false
+  // The click the library makes out of a drag's release. It named a line, but it did not mean it —
+  // and it is claimed rather than dropped, because an unclaimed click is what deselects.
+  if (justDragged !== null) {
+    emit('select', justDragged)
+    justDragged = null
     return
   }
 
   const id = param.hoveredInfo?.objectId
   if (typeof id === 'string' && drawnIds.has(id)) {
-    // A line you placed by hand and a line the engine proposed are deselected by the same click,
-    // and they are deselected out of two different places. See `unmove`.
-    const grab = movable.get(id)
-    if (grab && grab.origin !== grab.id) emit('unmove', moveKeyOf(grab))
-    else emit('pin', id)
+    // A first click does both: the line is pinned — which is what extends it to the live edge —
+    // *and* becomes the selected one, so its actions are one click away rather than two. A line
+    // that is already on the list is only selected, which is the whole change: that click used to
+    // take it off. A moved line is never pinned, the move being its own pin.
+    if (!props.pinned.includes(id) && !isMoved(id)) emit('pin', id)
+    emit('select', id)
     return
   }
 
@@ -577,6 +627,19 @@ function onClick(param: MouseEventParams<Time>) {
 
 /** The ids currently handed to the primitive, which is exactly what a click can name. */
 let drawnIds = new Set<string>()
+
+/**
+ * Which of those are hand-placed lines rather than lines the engine proposed.
+ *
+ * Read by `onClick` alone, to keep it from pinning one: a move is its own pin, and there is no
+ * Point behind a moved line for a pin to name. `movable` cannot answer this any more — it holds
+ * the selected line and nothing else.
+ */
+let moved = new Set<string>()
+
+function isMoved(id: string): boolean {
+  return moved.has(id)
+}
 
 /**
  * The subset of those whose ends can be carried, by id — the selected lines and the moved ones.
@@ -617,6 +680,7 @@ watch(
     () => props.previewOnHover,
     () => props.moves,
     () => props.bars,
+    () => props.selected,
     hovered,
     dragging,
   ],
@@ -650,14 +714,14 @@ watch(
     // the same trade both other primitives make: an empty draw is a `return`.
     const segments = props.visible ? segmentsToDraw() : []
     drawnIds = new Set(segments.map(segment => segment.id))
+    moved = new Set(segments.filter(segment => segment.origin !== undefined).map(segment => segment.id))
 
-    const pinned = new Set(props.pinned)
     movable = new Map(
       segments
-        // A selected line, or one already moved — the move being its own pin. Note what this
-        // excludes for free: a dimmed line is `hittable: false`, so it is never hovered and never
-        // offers a handle, whatever the pins say.
-        .filter(segment => segment.origin !== undefined || pinned.has(segment.id))
+        // The selected line, and nothing else. It is a `Map` of one rather than an object because
+        // the drag reads it by id — including, mid-drag, by an id the selection has not caught up
+        // with yet.
+        .filter(segment => segment.id === props.selected)
         .map(segment => [
           segment.id,
           {
@@ -681,9 +745,24 @@ watch(
 
     primitive.setSegments(segments)
 
-    // While a line is being carried the handle follows it: set here rather than at the cursor
-    // because the segment it belongs to is minted afresh on every frame of the drag, under a new id
-    // each time an end reaches another bar. `active` is the end in hand. See `TrendHandle`.
+    // A selection that no longer resolves — the Series switched off, a side filtered out, the line
+    // gone from a re-run — is handed back rather than left to rot: the page would otherwise float a
+    // control bar over a line nobody can see. Not while a drag is in flight, where the id being
+    // drawn is deliberately ahead of the one the page holds.
+    if (props.selected !== null && !dragging.value && !drawnIds.has(props.selected)) emit('select', null)
+
+    // The selected line wears its dots for as long as it is selected — that is what says it is
+    // selected. `active: null` because which dot is in reach is the cursor's business, and
+    // `onCrosshairMove` answers it without coming back through here.
+    primitive.setHandle(
+      props.selected !== null && drawnIds.has(props.selected)
+        ? { id: props.selected, active: null }
+        : null,
+    )
+
+    // While a line is being carried the handle follows it instead: set here rather than at the
+    // cursor because the segment it belongs to is minted afresh on every frame of the drag, under a
+    // new id each time an end reaches another bar. `active` is the end in hand. See `TrendHandle`.
     const drag = dragging.value
     if (drag) {
       primitive.setHandle({

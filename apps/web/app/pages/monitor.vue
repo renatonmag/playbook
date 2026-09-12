@@ -442,6 +442,18 @@ const DIRECTIONAL = new Set(['leg-extremes', 'bar-gap', 'bars'])
 const PINNABLE = new Set(['leg-extremes', 'bar-gap', 'trend-lines'])
 
 /**
+ * And which of those a click *selects* rather than merely pins: the ones drawn as lines.
+ *
+ * A subset of `PINNABLE` and not the same set, which is the one thing to know about it. `bar-gap`
+ * is a filled band: there is no anchor to mark with a dot, so nothing on the chart could say it is
+ * the one selected, and the control bar's only action is the `✕` its sidebar row already carries.
+ * So its click keeps the old meaning — pin, and pin again to unpin.
+ *
+ * The wick tool joins through `WICK_KEY`, the way it joins `PINNABLE`.
+ */
+const SELECTABLE = new Set(['leg-extremes', 'trend-lines'])
+
+/**
  * The wick tool's key, standing where a producer key stands.
  *
  * It is not a Pattern — nothing runs on the server for it, and it draws off the candles themselves —
@@ -1062,10 +1074,31 @@ function pinKey(producer: string, segment: string) {
   return `${producer}|${segment}`
 }
 
+/**
+ * Put a level on the list, or leave it there. Idempotent, and that is what the overlays call.
+ *
+ * Add rather than toggle, which is the shape of the whole change: a click on the chart used to mean
+ * two opposite things depending on what it landed on, and the second of them — a click on a pinned
+ * line throwing it away — is now a click that *selects* it. Taking one off the list is the control
+ * bar's `Trash`, and the `✕` beside it in `Selecionadas`.
+ *
+ * `addPin` rather than `pin`, which the timepicker a few hundred lines up already is — pinning the
+ * *window* to a moment. Two unrelated things the domain calls pinning, and only one of them can
+ * have the bare verb.
+ */
+function addPin(producer: string, segment: string) {
+  pinned.value.add(pinKey(producer, segment))
+}
+
+function unpin(producer: string, segment: string) {
+  pinned.value.delete(pinKey(producer, segment))
+}
+
+/** Still a toggle for `bar-gap`, which is a band rather than a line and is not selectable. */
 function togglePin(producer: string, segment: string) {
   const key = pinKey(producer, segment)
-  if (pinned.value.has(key)) pinned.value.delete(key)
-  else pinned.value.add(key)
+  if (pinned.value.has(key)) unpin(producer, segment)
+  else addPin(producer, segment)
 }
 
 /** The bare segment ids for one Series, which is what its overlay speaks. */
@@ -1078,6 +1111,11 @@ function pinsFor(producer: string): string[] {
 function clearPins(producer: string) {
   for (const key of pinsFor(producer)) pinned.value.delete(pinKey(producer, key))
   for (const key of movesFor(producer)) moves.value.delete(pinKey(producer, key))
+
+  // The overlay would hand the selection back on its next redraw anyway — it reports one that no
+  // longer resolves. Doing it here as well costs a line and means the control bar goes with the
+  // click that emptied the list, rather than a frame later.
+  if (selectedIn(producer) !== null) selected.value = null
 }
 
 /**
@@ -1146,6 +1184,123 @@ function moveOf(segment: DrawnTrend): string | null {
  */
 function removeMove(producer: string, key: string) {
   moves.value.delete(pinKey(producer, key))
+}
+
+/**
+ * The one line the reader is working on, as `pinKey`'s `producer|segment`, or `null`.
+ *
+ * One across every overlay, because the control bar floating over the chart is about *it* and a
+ * second selection would make that bar's `Trash` mean two things. The three overlays that draw
+ * lines each get their own half of it through `selectedIn`, so an id can never be read by the
+ * Series that did not mint it.
+ *
+ * Neither in `useStoredOverlays` nor in `useSelectionHistory`, unlike the two sets above it, and
+ * for the same reason in both cases: this is where the cursor is, not something the reader chose.
+ * Coming back to the page with a line already selected and a bar floating over the chart would be
+ * an answer to a question nobody asked, and `Ctrl+Z` stepping through what was clicked would be a
+ * history of looking rather than of deciding.
+ *
+ * What is selected is always something pinned — a click pins as well as selects — so everything
+ * durable about it is already in `pinned` or `moves`, which are the two that are stored and undone.
+ */
+const selected = ref<string | null>(null)
+
+/** The bare segment id for one Series, which is what its overlay speaks. `pinsFor`'s arrangement. */
+function selectedIn(producer: string): string | null {
+  const key = selected.value
+  if (key === null) return null
+
+  const prefix = `${producer}|`
+  return key.startsWith(prefix) ? key.slice(prefix.length) : null
+}
+
+/**
+ * Whether the click being dispatched right now landed on something. See `onPaneClick`.
+ *
+ * A plain `let`: it lives for the length of one event and nothing renders from it.
+ */
+let claimed = false
+
+/**
+ * An overlay says a line was clicked — or, with `null`, that the selection it was handed no longer
+ * resolves to anything drawn.
+ *
+ * Only the first claims the click. A Series reporting a stale selection is not a click at all; it
+ * arrives from a redraw, and letting it claim one would swallow the deselect owed to whatever the
+ * reader clicks next.
+ */
+function onSelect(producer: string, segment: string | null) {
+  if (segment === null) {
+    if (selectedIn(producer) !== null) selected.value = null
+    return
+  }
+
+  claimed = true
+  selected.value = pinKey(producer, segment)
+}
+
+/**
+ * A click landed on the pane: if nothing claimed it, it was a click on nothing and the selection
+ * ends. That is "click anywhere else on the graph", and it is the only way out other than the
+ * `Trash`.
+ *
+ * Deferred by a microtask rather than decided on the spot, and that is the whole trick. The library
+ * dispatches every click subscriber synchronously from the one event, so by the time a microtask
+ * runs each overlay has already had its say — whichever order they happen to have subscribed in,
+ * and without any of them needing to know the others exist. A click on the control bar itself never
+ * reaches here at all: the bar is a DOM node above the canvas. See `PaneClicks`.
+ */
+function onPaneClick() {
+  queueMicrotask(() => {
+    if (!claimed) selected.value = null
+    claimed = false
+  })
+}
+
+/**
+ * Where the control bar sits inside the chart's box, in pixels, or `null` for "never moved" — the
+ * top centre, which is CSS's to place. See `ChartToolbar`.
+ *
+ * On the page rather than in the bar because it must outlive one selection: a reader who moved the
+ * bar out of the way moved it out of the way, and having it spring back to the middle of the chart
+ * on the next click would undo that on every line they look at.
+ */
+const toolbarX = ref<number | null>(null)
+const toolbarY = ref<number | null>(null)
+
+/**
+ * The `Trash`, and the `✕` in `Selecionadas`: take one line off the chart.
+ *
+ * The two doors, and which one a line leaves by is not a choice — a hand-placed line answers to a
+ * `moveKey` and a line the engine proposed answers to a pin, and there is no Point behind the first
+ * for a pin to name. Written once here so the bar and the list cannot drift into disagreeing about
+ * it, which they would: the list has held this logic inline since before there was a bar.
+ *
+ * Everything that is not `trend-lines` — a leg extreme, a wick level — is a plain pin.
+ */
+function removeSelection(producer: string, segment: string) {
+  const overlay = overlays.value.find(item => item.producer === producer)
+
+  const drawn = overlay?.name === 'trend-lines'
+    ? pinnedTrends(overlay).find(item => item.id === segment)
+    : undefined
+
+  const move = drawn ? moveOf(drawn) : null
+  if (move !== null) removeMove(producer, move)
+  else unpin(producer, segment)
+
+  if (selected.value === pinKey(producer, segment)) selected.value = null
+}
+
+/** The same thing, aimed at whatever is selected — which is all the control bar knows. */
+function removeSelected() {
+  const key = selected.value
+  if (key === null) return
+
+  const cut = key.indexOf('|')
+  if (cut === -1) return
+
+  removeSelection(key.slice(0, cut), key.slice(cut + 1))
 }
 
 /**
@@ -1525,7 +1680,6 @@ function extraProps(overlay: { producer: string, name: string }) {
           moves: movesFor(overlay.producer),
           bars: barsByTime.value,
           onMove: (key: string) => applyMove(overlay.producer, key),
-          onUnmove: (key: string) => removeMove(overlay.producer, key),
           ...focusMode.value.has(overlay.producer)
             ? { onBar: (time: number | null) => setFocusBar(overlay.producer, time) }
             : {},
@@ -1546,7 +1700,21 @@ function extraProps(overlay: { producer: string, name: string }) {
           // The timer no longer decides whether the Series draws, only how much of it: a Series
           // whose countdown has fired keeps whatever was pinned. See `isVisible`.
           onlyPinned: autoHide.value.has(overlay.producer) && hideTimer.hidden.value,
-          onPin: (segment: string) => togglePin(overlay.producer, segment),
+          // `pin` from an overlay means *add*, never toggle — see `pin`. `bar-gap` is the exception
+          // and keeps the old toggle: it is a filled band, not a line, and it is not selectable.
+          onPin: (segment: string) =>
+            overlay.name === 'bar-gap'
+              ? togglePin(overlay.producer, segment)
+              : addPin(overlay.producer, segment),
+        }
+      : {},
+    // The selection, on the three Series that draw *lines*. A band has no anchor to put a dot on
+    // and nothing a control bar would say about it that the sidebar does not, so a click on a
+    // pinned gap still means what it always meant.
+    ...SELECTABLE.has(overlay.name)
+      ? {
+          selected: selectedIn(overlay.producer),
+          onSelect: (segment: string | null) => onSelect(overlay.producer, segment),
         }
       : {},
   }
@@ -1713,7 +1881,10 @@ function isVisible(overlay: { producer: string }) {
                 <!-- `CandleChart` has no height of its own — the box is the caller's to state, and
                      the box is now this panel, at whatever the drag has left it. The library
                      resizes itself from there: it runs with `autoSize`. -->
-                <CandleChart v-else class="h-full" :candles="candles" :live-bars="live.bars.value">
+                <!-- `relative`: the control bar is positioned inside this box, and the default
+                     slot below — where the overlays sit — is a sibling of the library's own
+                     container rather than a child of it. See `ChartToolbar`. -->
+                <CandleChart v-else class="relative h-full" :candles="candles" :live-bars="live.bars.value">
                   <component
                     :is="overlay.component"
                     v-for="overlay in overlays"
@@ -1732,7 +1903,22 @@ function isVisible(overlay: { producer: string }) {
                     :sides="wickSides()"
                     :pinned="pinsFor(WICK_KEY)"
                     :tracking="!wickPaused"
-                    @pin="(id: string) => togglePin(WICK_KEY, id)"
+                    :selected="selectedIn(WICK_KEY)"
+                    @pin="(id: string) => addPin(WICK_KEY, id)"
+                    @select="(id: string | null) => onSelect(WICK_KEY, id)"
+                  />
+                  <!-- Draws nothing and listens for one thing: the click that lands on no line, and
+                       so ends the selection. It cannot be any of the overlays' business — each of
+                       them only ever knows the click was not *its* — so it is the page's. -->
+                  <PaneClicks @click="onPaneClick" />
+                  <!-- The actions for whatever is selected. Inside the chart's box, and therefore
+                       inside the slot, because it is positioned against that box. -->
+                  <ChartToolbar
+                    v-if="selected"
+                    :x="toolbarX"
+                    :y="toolbarY"
+                    @move="(x: number, y: number) => { toolbarX = x; toolbarY = y }"
+                    @remove="removeSelected"
                   />
                 </CandleChart>
               </ResizablePanel>
@@ -2317,7 +2503,7 @@ function isVisible(overlay: { producer: string }) {
                       <button
                         class="ml-auto text-gray-400 hover:text-gray-600"
                         :aria-label="`desselecionar ${TREND_LABELS[segment.side]}`"
-                        @click="moveOf(segment) ? removeMove(overlay.producer, moveOf(segment)!) : togglePin(overlay.producer, segment.id)"
+                        @click="removeSelection(overlay.producer, segment.id)"
                       >
                         ✕
                       </button>

@@ -37,19 +37,33 @@ const props = withDefaults(
      * a click still takes it off — see `onClick`.
      */
     tracking?: boolean
+    /**
+     * The one level that is selected right now, or `null` — a dot on its anchor, and the control
+     * bar over the chart is about it.
+     *
+     * One id rather than a set: the page keeps a single selection across every overlay, because
+     * two selected things would make the bar's `Trash` mean two things.
+     */
+    selected?: string | null
   }>(),
   {
     sides: () => ['high', 'low'],
     pinned: () => [],
     tracking: true,
+    selected: null,
   },
 )
 
 /**
  * A level was clicked. The id is `wickLevelId`'s, and what to do about it — pin, unpin — is the
- * page's business: this component has no memory of its own and is redrawn from `pinned`.
+ * page's business: this component has no memory of its own and is redrawn from `pinned` and
+ * `selected`.
+ *
+ * `pin` means *add*, not toggle — a level leaves the list through the control bar's `Trash` now,
+ * never through a click on the chart. `select` carries the level a click landed on, or `null` when
+ * the page is being told the selection it holds no longer resolves to anything drawn.
  */
-const emit = defineEmits<{ pin: [id: string] }>()
+const emit = defineEmits<{ pin: [id: string], select: [id: string | null] }>()
 
 const candleSeries = inject(CANDLE_SERIES, shallowRef(null))
 const chart = inject(CHART, shallowRef(null))
@@ -111,7 +125,12 @@ function onClick(param: MouseEventParams<Time>) {
   const id = param.hoveredInfo?.objectId
   if (typeof id !== 'string') return
   if (!drawnIds.has(id)) return
-  emit('pin', id)
+
+  // A first click does both: the level is pinned — which is what keeps it once the cursor moves on
+  // — *and* becomes the selected one, so its actions are one click away. A click on a level already
+  // pinned only selects, where it used to unpin.
+  if (!props.pinned.includes(id)) emit('pin', id)
+  emit('select', id)
 }
 
 /**
@@ -156,6 +175,7 @@ watch(
     () => props.sides,
     () => props.pinned,
     () => props.tracking,
+    () => props.selected,
     hovered,
   ],
   ([bars, api]) => {
@@ -184,6 +204,13 @@ watch(
       : []
     drawnIds = new Set(levels.map(level => level.id))
     primitive.setSegments(levels)
+
+    // A selection that no longer resolves — the tool switched off, the pin removed, the bar gone
+    // from the window — is handed back rather than left to rot: the page would otherwise float a
+    // control bar over a level nobody can see.
+    if (props.selected !== null && !drawnIds.has(props.selected)) emit('select', null)
+
+    primitive.setAnchor(props.selected)
   },
   { immediate: true },
 )

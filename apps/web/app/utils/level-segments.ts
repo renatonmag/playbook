@@ -79,6 +79,12 @@ export interface LevelSegmentsOptions {
 /** How far from a segment's line a cursor still counts as being on it, in CSS pixels. */
 const HIT_TOLERANCE = 4
 
+/** The selected level's dot, in CSS pixels. `trend-segments.ts`' `HANDLE_RADIUS`, and its reason. */
+const ANCHOR_RADIUS = 4
+
+/** What that dot is ringed in, so it reads as sitting on the line rather than thickening it. */
+const ANCHOR_RING = '#ffffff'
+
 /** Where a segment lies in media (CSS) space: the same numbers the renderer strokes, unscaled. */
 interface SegmentBounds {
   left: number
@@ -172,10 +178,11 @@ class LevelSegmentsRenderer implements IPrimitivePaneRenderer {
     private readonly options: LevelSegmentsOptions,
     private readonly chart: IChartApi | null,
     private readonly series: ISeriesApi<SeriesType, Time> | null,
+    private readonly anchor: string | null,
   ) {}
 
   draw(target: RenderTarget): void {
-    const { chart, series, segments, options } = this
+    const { chart, series, segments, options, anchor } = this
     if (!chart || !series || segments.length === 0) return
 
     const timeScale = chart.timeScale()
@@ -189,6 +196,10 @@ class LevelSegmentsRenderer implements IPrimitivePaneRenderer {
     // 2px line placed on CSS coordinates lands between device pixels on a HiDPI screen and comes
     // out as a soft grey smear instead of a line.
     target.useBitmapCoordinateSpace(({ context, horizontalPixelRatio, verticalPixelRatio }) => {
+      // The selected segment, picked up on the way past rather than looked up again afterwards:
+      // the loop already visits every one of them, and only the drawn ones can be selected.
+      let held: LevelSegment | null = null
+
       for (const segment of segments) {
         const box = boundsOf(segment, timeScale, series, spacing, options.bars, edge)
         if (box === null) continue
@@ -201,7 +212,40 @@ class LevelSegmentsRenderer implements IPrimitivePaneRenderer {
 
         context.fillStyle = segment.color
         context.fillRect(Math.round(left), top, Math.round(right) - Math.round(left), width)
+
+        if (segment.id === anchor) held = segment
       }
+
+      // Last, so it sits on top of every level it crosses — a dot hidden under a neighbouring line
+      // is a dot that says nothing.
+      if (held === null) return
+
+      // The anchor *bar*, not the left edge of the box: `boundsOf` starts the stroke half a bar
+      // early so the span covers whole candles, and a dot there would sit between two of them. One
+      // dot, not the pair a trend line gets: a level has one end it is anchored by, and the run to
+      // the live edge is a projection with nothing to mark.
+      const x = timeScale.timeToCoordinate(held.time)
+      if (x === null) return
+
+      const y = series.priceToCoordinate(held.price)
+      if (y === null) return
+
+      // The level's own colour, ringed in the pane's background: `trend-segments.ts`' handles, so
+      // that a selected level and a selected line say they are selected in the same way.
+      context.fillStyle = held.color
+      context.strokeStyle = ANCHOR_RING
+      context.lineWidth = Math.max(1, Math.round(verticalPixelRatio))
+
+      context.beginPath()
+      context.arc(
+        x * horizontalPixelRatio,
+        y * verticalPixelRatio,
+        ANCHOR_RADIUS * verticalPixelRatio,
+        0,
+        Math.PI * 2,
+      )
+      context.fill()
+      context.stroke()
     })
   }
 }
@@ -221,6 +265,7 @@ class LevelSegmentsPaneView implements IPrimitivePaneView {
 
 export class LevelSegments implements ISeriesPrimitive<Time> {
   private segments: readonly LevelSegment[] = []
+  private anchor: string | null = null
   private chart: IChartApi | null = null
   private series: ISeriesApi<SeriesType, Time> | null = null
   private requestUpdate: (() => void) | null = null
@@ -237,6 +282,25 @@ export class LevelSegments implements ISeriesPrimitive<Time> {
 
   setSegments(segments: readonly LevelSegment[]): void {
     this.segments = segments
+    this.views = [new LevelSegmentsPaneView(this)]
+    this.requestUpdate?.()
+  }
+
+  /**
+   * Mark one segment as the selected one — a dot on its anchor — or `null` for none.
+   *
+   * Its own method rather than a second field on a `LevelSegment`, `TrendSegments.setHandle`'s
+   * reasoning: which level is selected changes on a click, while the levels themselves change when
+   * the Pattern, the filters or the pins do, and reshaping the whole set to grow one dot is work a
+   * click should not cost.
+   *
+   * An unchanged id is dropped on the floor, and that is not an optimisation either — see
+   * `setHandle` for the repaint loop it is what avoids.
+   */
+  setAnchor(anchor: string | null): void {
+    if (this.anchor === anchor) return
+
+    this.anchor = anchor
     this.views = [new LevelSegmentsPaneView(this)]
     this.requestUpdate?.()
   }
@@ -258,7 +322,7 @@ export class LevelSegments implements ISeriesPrimitive<Time> {
   }
 
   renderer(): IPrimitivePaneRenderer {
-    return new LevelSegmentsRenderer(this.segments, this.options, this.chart, this.series)
+    return new LevelSegmentsRenderer(this.segments, this.options, this.chart, this.series, this.anchor)
   }
 
   /**
