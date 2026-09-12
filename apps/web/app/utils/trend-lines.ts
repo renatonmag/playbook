@@ -69,8 +69,13 @@ export interface DrawnTrend extends TrendSegment {
    * move per origin. See `movedSegments`.
    */
   origin?: string
-  /** Which of the far bar's four prices the moved end sits on. Absent for the same reason. */
+  /**
+   * Which of each bar's four prices that end sits on, for a line somebody moved by hand. Absent on
+   * an end that was not moved — `field` on a line whose far end is still the engine's, `fromField`
+   * on one whose near end is still the Point's own pivot. Both absent on every line in the fan.
+   */
   field?: PriceField
+  fromField?: PriceField
 }
 
 /**
@@ -170,11 +175,11 @@ export function trendSegments(
 }
 
 /**
- * Which of a Candle's four prices a moved line's far end sits on.
+ * Which of a Candle's four prices a moved line's end sits on. Either end — both are dragged.
  *
  * The magnetism is the point: a trend line is a claim about where price turned, and a line ending
- * halfway up a wick is a claim about nothing. So the second point is not a free price — it is one
- * of the four readings the bar under the cursor actually took.
+ * halfway up a wick is a claim about nothing. So neither end is a free price — each is one of the
+ * four readings the bar under the cursor actually took.
  *
  * All four rather than the two the line's own side would suggest, because a ceiling drawn along
  * closes is a different and equally common reading of the same tops: which anchor a line runs
@@ -202,35 +207,82 @@ export const PRICE_FIELDS: PriceField[] = ['open', 'high', 'low', 'close']
  * every part of the app that names one — the pin, the hit test, the sidebar row. A moved line is a
  * different claim from the one the engine proposed even when it lands in the same place, and its
  * name has to say so.
+ *
+ * A second suffix when the *near* end was placed by hand too, for that same reason one end further
+ * along: two lines between the same pair of bars, one hinged on the bar's high and one on its close,
+ * are two different claims. Omitted when the near end is still the Point's own extreme, so a line
+ * whose far end alone was moved keeps the id it has always had.
  */
-export function movedTrendId(from: number, to: number, side: TrendSide, field: PriceField): string {
-  return `${trendSegmentId(from, to, side)}@${field}`
+export function movedTrendId(
+  from: number,
+  to: number,
+  side: TrendSide,
+  field: PriceField,
+  fromField: PriceField | null = null,
+): string {
+  const id = `${trendSegmentId(from, to, side)}@${field}`
+  return fromField ? `${id}@${fromField}` : id
 }
 
 /**
- * A move, as the page stores it: the line it was made from, and where its far end went.
+ * Where one end of a moved line was put: a real bar, and which of the four prices it took there.
  *
- * Nothing else. The fixed near end, the side and the price are all resolved from the current
- * Points and the current bars — which is what makes a move survive a pipeline re-run for the same
- * reason a pin does, and what makes a move whose origin line or whose bar has left the window
- * simply not resolve rather than resolve to something stale.
+ * Not a price. The magnetism is the whole point — see `PriceField` — and a stored price would also
+ * be a claim frozen against a pipeline run, while a bar and an anchor re-resolve against whatever
+ * the window currently holds.
+ */
+export interface TrendAnchor {
+  time: number
+  field: PriceField
+}
+
+/**
+ * A move, as the page stores it: the line it was made from, and where its ends went.
+ *
+ * Nothing else. The side and the prices are resolved from the current Points and the current bars —
+ * which is what makes a move survive a pipeline re-run for the same reason a pin does, and what
+ * makes a move whose origin line or whose bar has left the window simply not resolve rather than
+ * resolve to something stale.
+ *
+ * `from` is `null` when the near end is still the Point's own extreme, which is the common case and
+ * was for a long time the only one. Absence rather than a copy of the Point's own bar, because the
+ * two mean different things: a near end nobody touched follows its leg wherever a re-run puts it,
+ * and one somebody placed stays on the bar they placed it on.
  */
 export interface TrendMove {
   /** `trendSegmentId`'s id for the line the engine proposed. */
   origin: string
-  /** The bar the far end was dropped on. */
-  toTime: number
-  field: PriceField
+  /** The bar the far end was dropped on, and its anchor there. */
+  to: TrendAnchor
+  /** The same for the near end, when it was moved at all. */
+  from: TrendAnchor | null
 }
 
 /**
  * A move as one string, so `useStoredOverlays` can keep it in a `Set` beside the pins.
  *
  * The separators cannot collide with the id's own: `trendSegmentId` joins with `:` and mints only
- * digits and the two side words, so `>` and `@` appear nowhere inside an origin.
+ * digits and the two side words, so `>`, `@` and `<` appear nowhere inside an origin. `<` is the
+ * near end's, and it is written last so that a key for a line whose far end alone was moved is
+ * byte-for-byte the key this function has always minted — the ones already in `localStorage`
+ * included.
  */
-export function moveKey(origin: string, toTime: number, field: PriceField): string {
-  return `${origin}>${toTime}@${field}`
+export function moveKey(origin: string, to: TrendAnchor, from: TrendAnchor | null = null): string {
+  const key = `${origin}>${to.time}@${to.field}`
+  return from ? `${key}<${from.time}@${from.field}` : key
+}
+
+/** One `time@field` half of a key, or `null`. Both ends are written the same way. */
+function parseAnchor(text: string | undefined): TrendAnchor | null {
+  if (!text) return null
+
+  const [time, field] = text.split('@')
+  const at = Number(time)
+  if (!Number.isFinite(at)) return null
+
+  if (!PRICE_FIELDS.includes(field as PriceField)) return null
+
+  return { time: at, field: field as PriceField }
 }
 
 /**
@@ -239,18 +291,27 @@ export function moveKey(origin: string, toTime: number, field: PriceField): stri
  * Total, in `parseRule`'s style, and for the same reason: these come back out of `localStorage`,
  * which is hand-editable and outlives every version of this file. A key this function cannot read
  * is a line that is simply not moved, which is a correct chart.
+ *
+ * A key with no `<` is a move of the far end alone, which is what every key written before the near
+ * end could be dragged looks like. Read as such rather than rejected: that is the same line, still
+ * hinged where the engine hinged it.
  */
 export function parseMove(key: string): TrendMove | null {
-  const [origin, rest] = key.split('>')
+  const [ahead, behind] = key.split('<')
+  if (ahead === undefined) return null
+
+  const [origin, rest] = ahead.split('>')
   if (!origin || !rest) return null
 
-  const [time, field] = rest.split('@')
-  const toTime = Number(time)
-  if (!Number.isFinite(toTime)) return null
+  const to = parseAnchor(rest)
+  if (to === null) return null
 
-  if (!PRICE_FIELDS.includes(field as PriceField)) return null
+  // An unreadable near half is not a line hinged on the Point — it is a key this function cannot
+  // read, and the whole key goes.
+  const from = behind === undefined ? null : parseAnchor(behind)
+  if (behind !== undefined && from === null) return null
 
-  return { origin, toTime, field: field as PriceField }
+  return { origin, to, from }
 }
 
 /**
@@ -274,9 +335,15 @@ export function parseMove(key: string): TrendMove | null {
  * `hovered`: that argument previews the projection a pin would give a line, and this line already
  * has it.
  *
- * Four ways a move does not resolve, all of them silent and all of them the honest reading: the
- * origin line is no longer among the Points; its side is filtered off; the bar it was dropped on
- * has left the window; or that bar is not after the fixed end, which is not a trend line at all.
+ * **Either end may have been placed by hand.** A near end nobody moved is read off the origin
+ * Point, exactly as it always was; one that was moved is read off its bar like the far end, and the
+ * line is no longer hinged on the engine's pivot at all. That is the point of allowing it: the
+ * engine's leg extreme is a proposal, and a fan whose hinge the eye disagrees with was until now
+ * uncorrectable.
+ *
+ * Five ways a move does not resolve, all of them silent and all of them the honest reading: the
+ * origin line is no longer among the Points; its side is filtered off; either bar it was dropped on
+ * has left the window; or the two ends are not in order, which is not a trend line at all.
  */
 export function movedSegments(
   points: TrendLine[],
@@ -305,31 +372,42 @@ export function movedSegments(
     if (!point) continue
     if (!sides.includes(point.direction)) continue
 
-    const bar = bars.get(move.toTime)
-    if (!bar) continue
+    const far = bars.get(move.to.time)
+    if (!far) continue
+
+    // The near end is the Point's own extreme until somebody drags it, and a bar of its own after
+    // that. Both halves are read the same way from here down.
+    const near = move.from ? bars.get(move.from.time) : null
+    if (move.from && !near) continue
+
+    const fromTime = move.from ? move.from.time : point.time
+    const fromPrice = move.from && near ? near[move.from.field] : point.price
 
     // A trend line runs from an earlier extreme to a later one. A far end dropped at or before the
     // near one is not a shorter line, it is not a line — and `boundsOf` would be dividing by zero.
-    if (move.toTime <= point.time) continue
+    // Read off the two ends as they now stand, since either of them may be the one that moved.
+    if (move.to.time <= fromTime) continue
 
-    const price = bar[move.field]
-    const id = movedTrendId(point.time, move.toTime, point.direction, move.field)
-    const lit = focus === null || move.toTime === focus
+    const toPrice = far[move.to.field]
+    const id = movedTrendId(fromTime, move.to.time, point.direction, move.to.field, move.from?.field ?? null)
+    const lit = focus === null || move.to.time === focus
 
     segments.push({
       id,
       side: point.direction,
-      // The half of the line that never moves: the Point's own near extreme.
-      from: { time: point.time as UTCTimestamp, price: point.price },
-      // And the half that did: a real bar, at one of the four prices it actually took.
-      to: { time: move.toTime as UTCTimestamp, price },
-      fromPrice: point.price,
-      toPrice: price,
-      // The origin's reading of it. The near end still measures the same leg, so a line moved off a
-      // running leg is still moving with every candle.
+      // Each end a real bar, at one of the four prices it actually took — or, for a near end nobody
+      // has touched, the leg extreme the engine drew the line from.
+      from: { time: fromTime as UTCTimestamp, price: fromPrice },
+      to: { time: move.to.time as UTCTimestamp, price: toPrice },
+      fromPrice,
+      toPrice,
+      // The origin's reading of it. A line whose near end still measures the running leg is still
+      // moving with every candle; one hinged by hand no longer is, but it was still made from a
+      // Point that says so, and the sidebar's warning is about that Point.
       provisional: point.provisional,
       origin: move.origin,
-      field: move.field,
+      field: move.to.field,
+      fromField: move.from?.field,
       color: lit ? color : color + DIM_ALPHA,
       hittable: lit,
       // Always, unlike a fan line: the move is the pin, and a line you adjusted by hand is one you

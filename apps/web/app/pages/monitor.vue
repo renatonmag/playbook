@@ -930,7 +930,7 @@ function movesFor(producer: string): string[] {
 }
 
 /**
- * A line's far end was dropped on a candle: keep the move, and let go of what it replaces.
+ * One of a line's two ends was dropped on a candle: keep the move, and let go of what it replaces.
  *
  * Two things go, and both are the request as stated. The line's earlier move, if it had one — a
  * line is moved *from* somewhere, not to several places at once, so a second drag adjusts the same
@@ -956,7 +956,14 @@ function applyMove(producer: string, key: string) {
  */
 function moveOf(segment: DrawnTrend): string | null {
   if (segment.origin === undefined || segment.field === undefined) return null
-  return moveKey(segment.origin, segment.to.time, segment.field)
+
+  // Both ends, because both are in the stored key and the `✕` has to name it exactly. A near end
+  // nobody dragged has no anchor, which is how the key says it is still the Point's own.
+  return moveKey(
+    segment.origin,
+    { time: segment.to.time, field: segment.field },
+    segment.fromField ? { time: segment.from.time, field: segment.fromField } : null,
+  )
 }
 
 /**
@@ -2053,7 +2060,7 @@ function isVisible(overlay: { producer: string }) {
                   </div>
                   <p v-else class="text-gray-400">
                     Clique numa linha do gráfico para estendê-la até o candle atual. Depois arraste
-                    a ponta dela para movê-la até outro candle.
+                    qualquer uma das duas pontas dela para movê-la até outro candle.
                   </p>
 
                   <ul class="mt-1 space-y-0.5">
@@ -2071,11 +2078,13 @@ function isVisible(overlay: { producer: string }) {
                       <span class="text-gray-400">
                         {{ barLabel(segment.from.time) }}–{{ barLabel(segment.to.time) }}
                       </span>
-                      <!-- A line whose far end you placed yourself, and the anchor you placed it
+                      <!-- A line whose ends you placed yourself, and the anchors you placed them
                            on. The chart cannot say the second half: every line ends on a price, and
-                           only this list can say *which* of the candle's four it is. -->
+                           only this list can say *which* of the candle's four it is. Two anchors
+                           when both ends were dragged, near first, in the order the line runs. -->
                       <span v-if="segment.field" class="text-gray-400">
-                        movida · {{ FIELD_LABELS[segment.field] }}
+                        movida ·
+                        <template v-if="segment.fromField">{{ FIELD_LABELS[segment.fromField] }}→</template>{{ FIELD_LABELS[segment.field] }}
                       </span>
                       <!-- The one thing the drawing cannot say: this line ends on the leg still
                            running, so it moves with every candle and may not be there tomorrow. -->

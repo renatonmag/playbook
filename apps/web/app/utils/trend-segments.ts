@@ -86,24 +86,27 @@ const HIT_TOLERANCE = 4
 /** The grab handle's radius in CSS pixels — big enough to aim at, small enough not to hide the bar. */
 const HANDLE_RADIUS = 4
 
+/** The end the cursor is on, or carrying, drawn bigger: which dot a press would take hold of. */
+const HANDLE_ACTIVE_RADIUS = 6
+
 /** What the handle is ringed in: the chart's own background, so the dot reads as sitting on top. */
 const HANDLE_RING = '#ffffff'
 
 /**
- * The dot drawn on one segment: what a caller offers when a line's far end can be taken hold of.
+ * The dots drawn on one segment: what a caller offers when a line's ends can be taken hold of.
  *
- * `pointer` is the cursor in media coordinates, and the dot rides the line at the point nearest it
- * — the affordance, sliding along the line under the mouse. `null` puts the dot on the segment's
- * far end instead, which is what a caller passes while that end is being *placed*: during a drag
- * the dot is no longer following the cursor along a fixed line, it **is** the end the cursor is
- * carrying, and the line is redrawn to it on every frame.
+ * **Both** ends get one, parked on the bars they are anchored to. They do not slide along the line
+ * under the cursor — a handle that moves when the thing it grabs does not is a handle that lies
+ * about what a press will do, and it also left the near end looking like no part of the drawing you
+ * could touch. `active` is the end within reach of the cursor, drawn larger, or the end a drag is
+ * carrying; `null` means the line is hovered but neither end is close enough to grab.
  *
  * Its own field rather than a fifth thing a `TrendSegment` can be, because it is not a property of
  * a line: it is a property of the cursor, and it changes on mouse moves that reshape nothing.
  */
 export interface TrendHandle {
   id: string
-  pointer: { x: number, y: number } | null
+  active: 'from' | 'to' | null
 }
 
 /** Where a line lies in media (CSS) space: the same numbers the renderer strokes, unscaled. */
@@ -162,9 +165,9 @@ function boundsOf(
  * The point of the segment nearest `(x, y)`, in CSS pixels — clamped to the segment, so it is a
  * point of the line that is actually drawn and not of the infinite line through it.
  *
- * Two callers, which is why it is its own function: the hit test measures its distance, and the
- * handle is drawn *at* it. A second copy of this arithmetic would put the dot somewhere the cursor
- * cannot grab, which is the failure `boundsOf` is written against one level up.
+ * Its own function because the hit test wants the point and `distanceTo` wants the distance to it,
+ * and because it is the clamping that makes a near miss past a line's end still count as a hit on
+ * the line — which is what lets a cursor a few pixels beyond an endpoint reach that endpoint's dot.
  */
 function projectOnto(bounds: SegmentBounds, x: number, y: number): { x: number, y: number } {
   const dx = bounds.x2 - bounds.x1
@@ -213,19 +216,15 @@ class TrendSegmentsRenderer implements IPrimitivePaneRenderer {
     target.useBitmapCoordinateSpace(({ context, horizontalPixelRatio, verticalPixelRatio }) => {
       context.lineWidth = Math.max(1, Math.round(options.lineWidth * verticalPixelRatio))
 
-      // The handle's own bounds, kept from the pass over the lines rather than recomputed: the dot
-      // has to sit on the stroke that was actually drawn, at whatever length `extend` gave it.
-      let held: SegmentBounds | null = null
-      let heldColor = ''
+      // The handle's own line, kept from the pass over the lines rather than looked up again: one
+      // search of the fan, and the dots are guaranteed to belong to a line that was actually drawn.
+      let held: TrendSegment | null = null
 
       for (const segment of segments) {
         const bounds = boundsOf(segment, timeScale, series, edge)
         if (bounds === null) continue
 
-        if (handle && segment.id === handle.id) {
-          held = bounds
-          heldColor = segment.color
-        }
+        if (handle && segment.id === handle.id) held = segment
 
         context.beginPath()
         context.strokeStyle = segment.color
@@ -234,27 +233,36 @@ class TrendSegmentsRenderer implements IPrimitivePaneRenderer {
         context.stroke()
       }
 
-      // Last, so it sits on top of every line it crosses — a handle hidden under the fan is a
+      // Last, so they sit on top of every line they cross — a handle hidden under the fan is a
       // handle nobody would think to grab.
       if (!handle || held === null) return
 
-      // Following the cursor along the line, or *being* the end the cursor is placing. See
-      // `TrendHandle`.
-      const at = handle.pointer
-        ? projectOnto(held, handle.pointer.x, handle.pointer.y)
-        : { x: held.x2, y: held.y2 }
-
-      const radius = HANDLE_RADIUS * verticalPixelRatio
+      // The *anchors*, not the stroke's ends. A moved line is always extended, so `held.x2` is the
+      // projection's tip against the right-hand edge rather than the candle the end is attached to
+      // — a dot there would be a dot on no bar at all, nowhere near where a press has to land.
+      // `edge: null` is how `boundsOf` says "draw this one unextended".
+      const anchors = boundsOf(held, timeScale, series, null)
+      if (anchors === null) return
 
       // The line's own colour, ringed in the pane's background: a bare dot in the fan's hue reads
       // as a thickening of the stroke, and the ring is what makes it a thing to take hold of.
-      context.beginPath()
-      context.fillStyle = heldColor
+      context.fillStyle = held.color
       context.strokeStyle = HANDLE_RING
       context.lineWidth = Math.max(1, Math.round(verticalPixelRatio))
-      context.arc(at.x * horizontalPixelRatio, at.y * verticalPixelRatio, radius, 0, Math.PI * 2)
-      context.fill()
-      context.stroke()
+
+      const dots: [end: 'from' | 'to', x: number, y: number][] = [
+        ['from', anchors.x1, anchors.y1],
+        ['to', anchors.x2, anchors.y2],
+      ]
+
+      for (const [end, x, y] of dots) {
+        const radius = (end === handle.active ? HANDLE_ACTIVE_RADIUS : HANDLE_RADIUS) * verticalPixelRatio
+
+        context.beginPath()
+        context.arc(x * horizontalPixelRatio, y * verticalPixelRatio, radius, 0, Math.PI * 2)
+        context.fill()
+        context.stroke()
+      }
     })
   }
 }
@@ -303,11 +311,21 @@ export class TrendSegments implements ISeriesPrimitive<Time> {
    * Offer — or withdraw — the grab handle on one line.
    *
    * Its own method rather than an argument to `setSegments`, and this is the reason it is worth
-   * one: the handle changes on every mouse move along a line, while the lines themselves change
-   * only when the Pattern, the filters or the pins do. Reshaping the whole fan to move a dot four
-   * pixels is work the cursor should not cost.
+   * one: which line is hovered and which of its ends is in reach change on every mouse move, while
+   * the lines themselves change only when the Pattern, the filters or the pins do. Reshaping the
+   * whole fan to grow a dot by two pixels is work the cursor should not cost.
+   *
+   * An unchanged handle is dropped on the floor, and that is not an optimisation — it is what keeps
+   * the pane from repainting forever. The library re-fires `crosshairMoved` after every repaint, so
+   * a caller that answers each of those by setting the handle it already holds would ask for
+   * another repaint, which fires another crosshair, and the fan is redrawn for as long as the
+   * cursor rests anywhere on the pane.
    */
   setHandle(handle: TrendHandle | null): void {
+    const held = this.handle
+    if (held === handle) return
+    if (held && handle && held.id === handle.id && held.active === handle.active) return
+
     this.handle = handle
     this.views = [new TrendSegmentsPaneView(this)]
     this.requestUpdate?.()

@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import type { IChartApi, ISeriesApi, MouseEventParams, SeriesType, Time } from 'lightweight-charts'
+import type {
+  IChartApi,
+  ISeriesApi,
+  MouseEventParams,
+  SeriesType,
+  Time,
+  UTCTimestamp,
+} from 'lightweight-charts'
 import type { Candle } from '~/types/candle'
 import type { TrendLine } from '~/types/pattern'
 
@@ -35,8 +42,8 @@ import type { TrendLine } from '~/types/pattern'
  * no condition of its own about the focus — a line you cannot hit is a line you cannot hover, so
  * once a bar is chosen only the lit lines preview.
  *
- * `moves` and `bars` are the hand-adjusted lines and the candles they are anchored to. A selected
- * line's far end can be dragged onto any bar's `open`, `high`, `low` or `close`; the result is a
+ * `moves` and `bars` are the hand-adjusted lines and the candles they are anchored to. Either end
+ * of a selected line can be dragged onto any bar's `open`, `high`, `low` or `close`; the result is a
  * different line from the one the engine proposed and is named as one — see `movedSegments`, which
  * decides what a move *is*, and `onPointerDown` below, which is the gesture. This component holds
  * only the drag in progress: what survives the release is the page's, like every pin.
@@ -59,9 +66,9 @@ const props = withDefaults(
     /** The hand-adjusted lines, as `moveKey` strings. Each one is its own pin — see `movedSegments`. */
     moves?: string[]
     /**
-     * The candle history by `time`, which is what makes the drag magnetic: a far end is dropped on
-     * one of the four prices a bar actually took, never between them. The same map the wick tool
-     * takes, and for the same reason — the lookups are by name, one bar at a time, on mouse moves.
+     * The candle history by `time`, which is what makes the drag magnetic: an end is dropped on one
+     * of the four prices a bar actually took, never between them. The same map the wick tool takes,
+     * and for the same reason — the lookups are by name, one bar at a time, on mouse moves.
      */
     bars?: ReadonlyMap<number, Candle>
   }>(),
@@ -91,9 +98,10 @@ const emit = defineEmits<{
   pin: [id: string]
   bar: [time: number | null]
   /**
-   * A selected line's far end was dragged onto a candle and released. The payload is `moveKey`'s
-   * string, which names the line it was made from as well as where it landed — everything the page
-   * has to store, and nothing it has to interpret.
+   * One of a selected line's two ends was dragged onto a candle and released. The payload is
+   * `moveKey`'s string, which names the line it was made from as well as where *both* its ends now
+   * sit — everything the page has to store, and nothing it has to interpret. A drag of one end
+   * therefore carries the other end's earlier move with it rather than discarding it.
    *
    * What that does to the old line, to its pin and to any earlier move of it is the page's, for the
    * reason `pin` is: this component is redrawn from `moves` and remembers nothing.
@@ -138,7 +146,7 @@ function segmentsToDraw(): DrawnTrend[] {
   // The drag *is* a move, uncommitted: one shaping function draws it, so what you are placing and
   // what you get cannot come out looking like two different lines.
   const moves = drag
-    ? [...props.moves.filter(key => parseMove(key)?.origin !== drag.origin), dragKey(drag)]
+    ? [...props.moves.filter(key => parseMove(key)?.origin !== drag.origin), moveKeyOf(drag)]
     : props.moves
 
   const segments = [
@@ -162,13 +170,17 @@ function segmentsToDraw(): DrawnTrend[] {
 const hovered = shallowRef<string | null>(null)
 
 /**
- * A line whose far end can be taken hold of: what to grab, and what the grab would be a move *of*.
+ * A line whose ends can be taken hold of: where they currently are, and what a drag of one would be
+ * a move *of*.
  *
- * Only selected lines get one. The fan runs to some hundreds of strokes and a click in it is
+ * Only selected lines get handles. The fan runs to some hundreds of strokes and a click in it is
  * already a near thing; making every one of them draggable would turn the gesture that reads the
  * chart into the gesture that edits it. Selecting a line is the deliberate act that says this is
  * the line you are working on, and it is the same act on a line you have already moved — a move is
  * its own pin.
+ *
+ * Both ends are here because a drag of one has to carry the other: a near end placed by hand is not
+ * re-derived from the Point on the next drag of the far end, it is kept.
  */
 interface Grabbable {
   /** The drawn segment's id, which is what the hit test hands back. */
@@ -177,27 +189,56 @@ interface Grabbable {
   origin: string
   /** Which side it runs along, so the drag can name the line it is making. */
   side: TrendSide
-  /** The end that does not move. A far end dropped at or before it is not a line — see `snapTo`. */
+  /** Where each end currently sits, so a drag that never finds a bar changes nothing. */
   fromTime: number
-  /** Where its far end currently sits, so a drag that never finds a bar changes nothing. */
   toTime: number
+  /** And at what price, which is what puts the two dots on the pane. See `nearestEnd`. */
+  fromPrice: number
+  toPrice: number
+  /** The far end's anchor on its bar. */
   field: PriceField
+  /**
+   * The near end's, or `null` while it is still the Point's own extreme. The asymmetry is
+   * `TrendMove`'s and means the same thing: a near end nobody has moved follows its leg.
+   */
+  fromField: PriceField | null
 }
 
 /**
- * A drag in progress: the grabbed line, with its far end wherever the cursor has put it.
+ * One of those, with the end the cursor is on. Decided at hover and carried through the press, so
+ * the dot that grew under the cursor is the end that moves — the press itself re-deciding would let
+ * a pixel of travel between hover and click swap which end you thought you had hold of.
+ */
+interface Grabbed extends Grabbable {
+  end: 'from' | 'to'
+}
+
+/**
+ * A drag in progress: the grabbed line, with the end being carried wherever the cursor has put it.
  *
- * `changed` is whether the cursor ever reached a bar other than the one the line already ended on.
+ * `changed` is whether the cursor ever reached a bar other than the one that end already sat on.
  * A drag that never did is not a move — it is a slip of the hand on the way to a click, and
  * committing it would mark a line as adjusted without adjusting it.
  */
-interface Drag extends Grabbable {
+interface Drag extends Grabbed {
   changed: boolean
 }
 
-/** The uncommitted move, as `movedSegments` and `emit('move')` both want it. */
-function dragKey(drag: Drag): string {
-  return moveKey(drag.origin, drag.toTime, drag.field)
+/**
+ * What a line's current ends are called as a move — **both** of them, however few this particular
+ * drag touched. That is what merges a near-end drag into an existing far-end move rather than
+ * throwing it away: the drag started from the drawn segment, which already carries whatever the
+ * last move put on it.
+ *
+ * Takes a `Grabbable` rather than a `Drag` because the click handler wants it too: un-moving a line
+ * has to name the key that was stored, and a stored key is the same two ends this mints.
+ */
+function moveKeyOf(grab: Grabbable): string {
+  return moveKey(
+    grab.origin,
+    { time: grab.toTime, field: grab.field },
+    grab.fromField ? { time: grab.fromTime, field: grab.fromField } : null,
+  )
 }
 
 /**
@@ -210,14 +251,28 @@ function dragKey(drag: Drag): string {
 const GRAB_THRESHOLD = 3
 
 /**
- * The line under the cursor that could be grabbed, kept out of the reactive graph on purpose: it
- * changes on every mouse move, and nothing about the drawing depends on it — the dot is pushed
- * straight at the primitive. Only `pointerdown` reads it.
+ * How near an endpoint the cursor must be for that end to be the one a press takes hold of, in CSS
+ * pixels — a little wider than the dot is, so the aim is the dot rather than its exact centre.
+ *
+ * Wider than `HIT_TOLERANCE` too, deliberately: the line has to be hovered at all for either dot to
+ * be drawn, so this is only ever measured along a line the cursor is already within four pixels of.
  */
-let grabbable: Grabbable | null = null
+const GRAB_RADIUS = 9
 
-/** The button is down on a grabbable line, but it has not moved far enough to be a drag yet. */
-let pressed: { grab: Grabbable, x: number, y: number } | null = null
+/**
+ * The end under the cursor, if the cursor is on one, kept out of the reactive graph on purpose: it
+ * changes on every mouse move, and nothing about the drawing depends on it — the dots are pushed
+ * straight at the primitive. Only `pointerdown` reads it.
+ *
+ * `null` while the cursor is on a movable line but on neither of its ends. That is the whole of
+ * what parking the dots cost: a press in the middle of a line no longer starts a drag, because
+ * there is nothing drawn there to have grabbed. It goes back to being a click, which is what a
+ * press more than a few pixels from the old sliding dot already was.
+ */
+let grabbable: Grabbed | null = null
+
+/** The button is down on an end, but it has not moved far enough to be a drag yet. */
+let pressed: { grab: Grabbed, x: number, y: number } | null = null
 
 /**
  * The drag in progress, or `null`. A `ref`, unlike the two above: this one reshapes the Series on
@@ -261,13 +316,55 @@ function snapTo(bar: Candle, y: number): PriceField | null {
 }
 
 /**
- * The cursor moved while a line's far end is being carried: put that end on the nearest anchor of
- * the bar underneath.
+ * Which of a line's two ends the cursor is close enough to take hold of, or `null` for neither.
+ *
+ * In pixels, through the same two scales `snapTo` and the primitive both convert with — the ends
+ * are dots on a pane, and the distance to a dot is a distance on screen. The nearer end wins, which
+ * matters only on a line so short that both dots are in reach at once; there the one being aimed at
+ * is the one the cursor is nearer.
+ *
+ * Note that this reads the *anchors*, never the projection a selected line carries to the live
+ * edge. That tip is a drawing, not an end, and nothing about it can be dragged.
+ */
+function nearestEnd(grab: Grabbable, point: { x: number, y: number }): 'from' | 'to' | null {
+  const series = candleSeries.value
+  const timeScale = chart.value?.timeScale()
+  if (!series || !timeScale) return null
+
+  let best: 'from' | 'to' | null = null
+  let nearest = GRAB_RADIUS
+
+  const ends = [
+    { end: 'from' as const, time: grab.fromTime, price: grab.fromPrice },
+    { end: 'to' as const, time: grab.toTime, price: grab.toPrice },
+  ]
+
+  for (const { end, time, price } of ends) {
+    const x = timeScale.timeToCoordinate(time as UTCTimestamp)
+    if (x === null) continue
+
+    const y = series.priceToCoordinate(price)
+    if (y === null) continue
+
+    const gap = Math.hypot(x - point.x, y - point.y)
+    if (gap > nearest) continue
+
+    best = end
+    nearest = gap
+  }
+
+  return best
+}
+
+/**
+ * The cursor moved while one of a line's ends is being carried: put that end on the nearest anchor
+ * of the bar underneath.
  *
  * Nothing happens when there is no bar under the cursor — past the last candle, or off the pane —
  * and the end stays where it last landed rather than snapping back or following the mouse into
- * open space. A far end at or before the fixed one is refused for `movedSegments`' reason: that is
- * not a shorter line, it is not a line.
+ * open space. An end dropped on the wrong side of the one that is standing still is refused for
+ * `movedSegments`' reason: that is not a shorter line, it is not a line. Which side is wrong
+ * depends on which end is being carried, and that is the only thing the two directions differ in.
  */
 function dragTo(param: MouseEventParams<Time>) {
   const drag = dragging.value
@@ -279,16 +376,22 @@ function dragTo(param: MouseEventParams<Time>) {
 
   const bar = props.bars.get(param.time)
   if (!bar) return
-  if (param.time <= drag.fromTime) return
+
+  const carrying = drag.end === 'to'
+  if (carrying ? param.time <= drag.fromTime : param.time >= drag.toTime) return
 
   const field = snapTo(bar, y)
   if (field === null) return
 
   // Every mouse move inside one candle reports the same anchor; only a change is worth reshaping
   // the Series and repainting for.
-  if (param.time === drag.toTime && field === drag.field) return
+  const at = carrying ? drag.toTime : drag.fromTime
+  const on = carrying ? drag.field : drag.fromField
+  if (param.time === at && field === on) return
 
-  dragging.value = { ...drag, toTime: param.time, field, changed: true }
+  dragging.value = carrying
+    ? { ...drag, toTime: param.time, field, changed: true }
+    : { ...drag, fromTime: param.time, fromField: field, changed: true }
 }
 
 /**
@@ -301,6 +404,14 @@ function dragTo(param: MouseEventParams<Time>) {
  * previews nothing. It loses nothing either: tapping still selects.
  */
 function onCrosshairMove(param: MouseEventParams<Time>) {
+  // Only what the pointer actually did. The library re-fires this after every repaint — including
+  // the repaint `setHandle` itself asks for — and those echoes carry the *last* point with no
+  // `hoveredInfo` at all, which reads here as "the cursor is on nothing". Acting on one throws away
+  // what the real mouse move a frame earlier established: the handle goes out and, worse, so does
+  // `grabbable`, so the press that follows a perfectly good hover starts no drag. The cursor is the
+  // only thing this handler is about, and the cursor moves in real events.
+  if (!param.sourceEvent) return
+
   // A drag owns the cursor: what is under it is a bar to drop an end on, not a line to hover. The
   // handle is set by the redraw watcher for the duration, since the line it belongs to is being
   // rebuilt on every frame.
@@ -311,12 +422,14 @@ function onCrosshairMove(param: MouseEventParams<Time>) {
 
   const id = param.hoveredInfo?.objectId
 
-  // The grab affordance: a dot riding along the selected line under the cursor, at the point of it
-  // nearest the pointer. Pushed straight at the primitive rather than through the watcher, because
-  // a dot moving four pixels is not a reason to reshape a fan of several hundred lines.
+  // The grab affordance: both of the hovered line's ends, each parked on its own bar, with the one
+  // in reach of the cursor drawn larger. Pushed straight at the primitive rather than through the
+  // watcher, because a dot growing by two pixels is not a reason to reshape a fan of several
+  // hundred lines.
   const grab = typeof id === 'string' ? movable.get(id) ?? null : null
-  grabbable = grab
-  primitive?.setHandle(grab && param.point ? { id: grab.id, pointer: param.point } : null)
+  const end = grab && param.point ? nearestEnd(grab, param.point) : null
+  grabbable = grab && end ? { ...grab, end } : null
+  primitive?.setHandle(grab ? { id: grab.id, active: end } : null)
 
   const next = props.previewOnHover && typeof id === 'string' && drawnIds.has(id) ? id : null
 
@@ -356,8 +469,8 @@ function onPointerMove(event: PointerEvent) {
 }
 
 /**
- * The release: what was being carried becomes a move, and the page decides what that costs the line
- * it was made from.
+ * The release: what was being carried becomes a move of the whole line — see `moveKeyOf` — and the
+ * page decides what that costs the line it was made from.
  *
  * On `window` rather than on the pane, so a release outside the chart still ends the drag. The end
  * stays wherever the last bar under the cursor put it, which is the honest reading of letting go
@@ -390,7 +503,7 @@ function onPointerUp() {
   // exactly as it was — including, if it was one, still pinned.
   if (!changed) return
 
-  emit('move', dragKey(drag))
+  emit('move', moveKeyOf(drag))
 }
 
 /** Give the chart its own drag back, and stop carrying anything. */
@@ -447,7 +560,7 @@ function onClick(param: MouseEventParams<Time>) {
     // A line you placed by hand and a line the engine proposed are deselected by the same click,
     // and they are deselected out of two different places. See `unmove`.
     const grab = movable.get(id)
-    if (grab && grab.origin !== grab.id) emit('unmove', moveKey(grab.origin, grab.toTime, grab.field))
+    if (grab && grab.origin !== grab.id) emit('unmove', moveKeyOf(grab))
     else emit('pin', id)
     return
   }
@@ -466,8 +579,8 @@ function onClick(param: MouseEventParams<Time>) {
 let drawnIds = new Set<string>()
 
 /**
- * The subset of those whose far end can be carried, by id — the selected lines and the moved ones.
- * Rebuilt beside `drawnIds`, so what the cursor offers a handle on is exactly what is on screen.
+ * The subset of those whose ends can be carried, by id — the selected lines and the moved ones.
+ * Rebuilt beside `drawnIds`, so what the cursor offers handles on is exactly what is on screen.
  */
 let movable = new Map<string, Grabbable>()
 
@@ -553,24 +666,29 @@ watch(
             side: segment.side,
             fromTime: segment.from.time,
             toTime: segment.to.time,
-            // An engine line has no anchor of its own: it was drawn through a leg's extreme, which
-            // is that bar's high or its low depending on which side the line runs along. Only a
-            // starting value — the first bar the cursor reaches replaces it.
+            fromPrice: segment.fromPrice,
+            toPrice: segment.toPrice,
+            // An engine line's far end has no anchor of its own: it was drawn through a leg's
+            // extreme, which is that bar's high or its low depending on which side the line runs
+            // along. Only a starting value — the first bar the cursor reaches replaces it.
             field: segment.field ?? segment.side,
+            // The near end's stays absent until somebody drags it, which is what says the line is
+            // still hinged on the Point rather than on a bar. See `TrendMove`.
+            fromField: segment.fromField ?? null,
           },
         ]),
     )
 
     primitive.setSegments(segments)
 
-    // While a line is being carried the dot is the end itself, not a point along the line — and it
-    // is set here rather than at the cursor because the segment it belongs to is minted on every
-    // frame of the drag. See `TrendHandle`.
+    // While a line is being carried the handle follows it: set here rather than at the cursor
+    // because the segment it belongs to is minted afresh on every frame of the drag, under a new id
+    // each time an end reaches another bar. `active` is the end in hand. See `TrendHandle`.
     const drag = dragging.value
     if (drag) {
       primitive.setHandle({
-        id: movedTrendId(drag.fromTime, drag.toTime, drag.side, drag.field),
-        pointer: null,
+        id: movedTrendId(drag.fromTime, drag.toTime, drag.side, drag.field, drag.fromField),
+        active: drag.end,
       })
     }
   },
