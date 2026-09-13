@@ -90,9 +90,12 @@ onMounted(() => {
       // to land somewhere before this ships to users.
       attributionLogo: false,
     },
+    // Switched off, not styled: the pane carries the overlays' own bands and lines, and a ruling
+    // in the same near-white range competes with them while saying nothing the two axes do not.
+    // The block has to stay — the library rules the pane in its own grey when told nothing.
     grid: {
-      vertLines: { color: '#f1f5f9' },
-      horzLines: { color: '#f1f5f9' },
+      vertLines: { visible: false },
+      horzLines: { visible: false },
     },
     // The library snaps the crosshair to the nearest bar's price by default. Free movement is
     // what lets a level be read off anywhere in the pane — between two bars, or above the wick —
