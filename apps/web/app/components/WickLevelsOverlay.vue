@@ -3,8 +3,11 @@ import type { IChartApi, ISeriesApi, MouseEventParams, SeriesType, Time } from '
 import type { Candle } from '~/types/candle'
 
 /**
- * Draws the wick levels of whichever bar the cursor is on: a line where each wick leaves the body
- * and another where it stopped, both running from that bar to the current candle.
+ * Draws the wick levels of the candle the cursor is on: a line where each wick leaves the body and
+ * another where it stopped, both running from that bar to the current candle.
+ *
+ * *On* the candle, not merely in its column — the cursor has to be within the bar's own low-to-high
+ * span to draw it. See `barUnder`.
  *
  * Renders no markup. It reaches the chart through `inject` and draws through the chart API — the
  * same shape as the seven Pattern overlays.
@@ -78,7 +81,56 @@ const chart = inject(CHART, shallowRef(null))
 const hovered = shallowRef<number | null>(null)
 
 /**
- * The cursor moved: draw the bar it is on.
+ * How far outside a bar's own range still counts as pointing at it, in pixels.
+ *
+ * `HIT_TOLERANCE`'s number and `HIT_TOLERANCE`'s reason: a bar whose whole low-to-high span is two
+ * pixels tall is otherwise a target nobody can hit, and the cursor would have to be placed rather
+ * than pointed. Small enough that two adjacent bars never both answer — they are side by side, not
+ * stacked, and the column has already picked one.
+ */
+const REACH = 4
+
+/**
+ * The bar the cursor is pointing at, or `null`.
+ *
+ * The column is half the answer: `param.time` names the bar whose strip of the pane the cursor is
+ * over, and that strip is the full height of the chart. So the price is asked too, and the lines
+ * belong to the candle rather than to everything above and below it.
+ *
+ * The span is the whole candle, low to high, not the body. The wick *is* what this tool is about —
+ * where a price was rejected — and a cursor on the wick that is being asked about is the clearest
+ * case there is of pointing at the bar.
+ *
+ * Reading `point.y` as a price position is only sound because the crosshair is `Normal` rather than
+ * magnet: see `CandleChart`. A magnet crosshair would snap the cursor to a bar's nearest price and
+ * every column would answer yes.
+ */
+function barUnder(param: MouseEventParams<Time>): number | null {
+  // A bar time is a number on this chart's scale; off the pane, or past the last bar, there is no
+  // bar to draw and the lines go with it.
+  if (typeof param.time !== 'number') return null
+
+  const y = param.point?.y
+  if (y === undefined) return null
+
+  const series = candleSeries.value
+  if (!series) return null
+
+  const bar = props.bars.get(param.time)
+  if (!bar) return null
+
+  // Prices to pixels rather than the cursor to a price: `priceToCoordinate` is the direction the
+  // rest of this app converts in, and a span compared in pixels is the span `REACH` widens.
+  const top = series.priceToCoordinate(bar.high)
+  const bottom = series.priceToCoordinate(bar.low)
+  if (top === null || bottom === null) return null
+
+  if (y < top - REACH || y > bottom + REACH) return null
+  return bar.time
+}
+
+/**
+ * The cursor moved: draw the bar it is pointing at.
  *
  * **Except while it is on one of these lines.** A level runs from its bar to the live edge, so
  * reaching one means moving away from the bar that produced it — and tracking the cursor across
@@ -90,18 +142,26 @@ const hovered = shallowRef<number | null>(null)
  * primitives' hit tests last returned, and `drawnIds` is what keeps another primitive's drawing from
  * freezing this one — every primitive on the chart reports into that one field. Moving off the line
  * resumes tracking on the next event, which is the same frame's worth of latency the freeze took.
+ *
+ * That freeze carries the whole feature now that `barUnder` asks about the price as well: a cursor
+ * out along a level is at the height of one of its bar's wick prices, which is almost never inside
+ * the *current* column's candle. Without the hold, following a line would put the lines out.
  */
 function onCrosshairMove(param: MouseEventParams<Time>) {
   // The switch, and the first thing asked: with it off there is no hovered bar to hold and none to
   // take up, so the freeze below never comes into it.
   if (!props.tracking) return
 
+  // Only what the pointer actually did, for `TrendLinesOverlay`'s reason: the library re-fires this
+  // after every repaint, and those echoes carry the *last* point with no `hoveredInfo`. Harmless
+  // while this handler read nothing but `param.time`; now an echo would skip the freeze below,
+  // measure a stale cursor against a bar it is not on, and take the lines off a beat before a click.
+  if (!param.sourceEvent) return
+
   const id = param.hoveredInfo?.objectId
   if (typeof id === 'string' && drawnIds.has(id)) return
 
-  // A bar time is a number on this chart's scale; off the pane, or past the last bar, there is no
-  // bar to draw and the lines go with it.
-  const next = typeof param.time === 'number' ? param.time : null
+  const next = barUnder(param)
 
   // This fires on every mouse move across the pane. Only a change is worth reshaping and repainting.
   if (next === hovered.value) return

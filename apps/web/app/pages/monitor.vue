@@ -2839,7 +2839,7 @@ function isVisible(overlay: { producer: string }) {
                 Só os pavios fixados. Ative para seguir o cursor de novo.
               </template>
               <template v-else>
-                Passe o cursor por um candle para ver onde seus pavios começam e terminam.
+                Passe o cursor sobre um candle para ver onde seus pavios começam e terminam.
               </template>
             </p>
 
