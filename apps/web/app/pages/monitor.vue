@@ -13,12 +13,13 @@ import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
 import PatternLog from '~/components/PatternLog.vue'
+import { Button } from '~/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '~/components/ui/dropdown-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/components/ui/resizable'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/components/ui/command'
 import { useElementSize } from '@vueuse/core'
-import { ChevronRight, Ellipsis, Link2, Link2Off } from '@lucide/vue'
+import { ChevronRight, Ellipsis, Link2, Link2Off, Play } from '@lucide/vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -197,6 +198,61 @@ const { data: candles, pending, error, refresh } = useCandles(symbol, timeframe,
 const live = useLiveCandles(symbol, timeframe)
 
 /**
+ * The candle history this page reasons about: the loaded window with every bar the feed has opened
+ * since, in time order.
+ *
+ * Extracted from `nextBarByTime`, which was the only thing that needed it and is no longer: the
+ * wick tool reads the same bars, and a second splice would be a second chance to disagree about the
+ * seam.
+ *
+ * Merged over `live.history` and not over `live.bars`, which is the correction: a frame carries only
+ * what changed, so a bar that opened after this page loaded and has since closed is in no frame at
+ * all. The chart went on drawing it — `update()` accumulates in the series — while this list had
+ * dropped it, and every question asked of a bar by name went unanswered for it.
+ *
+ * A map rather than a splice, which is also why there is no seam case left: the boundary bar is one
+ * key, written twice. The live read wins, being the fresher reading of the same bar.
+ */
+const mergedBars = computed(() => {
+  const merged = new Map<number, Candle>()
+  for (const bar of candles.value ?? []) merged.set(bar.time, bar)
+  for (const [time, bar] of live.history.value) merged.set(time, bar)
+  return [...merged.values()].sort((a, b) => a.time - b.time)
+})
+
+/**
+ * The replay: an older bar the whole view is held at, and the two arrows that walk it.
+ *
+ * Up here, hundreds of lines before the transport that drives it, because the pipeline's window
+ * below reads `replay.at` — a replay is a `to` like a pinned window is, and the fetch that uses it
+ * is evaluated during setup. It reads `mergedBars` rather than `candles` on purpose: the bars the
+ * socket has opened this session are as replayable as the ones the window loaded with, and the
+ * chart has been drawing both.
+ */
+const replay = useReplay(mergedBars)
+
+/**
+ * Whether the feed was running when the replay started, so ending one can put it back.
+ *
+ * A replay and a live feed contradict each other the way a pinned window and one do — see the
+ * watcher on `at` below — but this contradiction is temporary, and dropping someone's feed for the
+ * length of a replay and then leaving it off would be the page quietly changing a setting.
+ */
+const wasLive = ref(false)
+
+function startReplay() {
+  wasLive.value = live.connected.value
+  live.disconnect()
+  replay.start()
+}
+
+function stopReplay() {
+  replay.stop()
+  if (wasLive.value) live.connect()
+  wasLive.value = false
+}
+
+/**
  * How many bars the feed has opened since the page loaded, seeded from the loaded window's last
  * bar so the socket's first frame is a baseline rather than news.
  */
@@ -207,7 +263,12 @@ const bar = useBarClock(live.bars, () => candles.value?.at(-1)?.time ?? null)
  * high-water mark set by the old feed, and `5m` bars arriving under an `1h` mark would each read
  * as old news — the pipeline would quietly stop re-running. The seed moves with the refetch.
  */
-watch([symbol, timeframe], () => bar.reset())
+watch([symbol, timeframe], () => {
+  bar.reset()
+  // A bar time is only comparable within one Instrument and Timeframe for the replay too: the cut
+  // would name a bar in the new series that nobody chose, or no bar at all.
+  stopReplay()
+})
 
 /**
  * A pinned window and a live feed contradict each other — one says "these bars, frozen", the
@@ -215,10 +276,21 @@ watch([symbol, timeframe], () => bar.reset())
  */
 watch(at, (value) => {
   if (value) live.disconnect()
+
+  // Whichever way the window moved, the bars behind it are about to be refetched and the cut names
+  // one of the old ones. Not `stopReplay`: the feed is this watcher's own business two lines up,
+  // and putting back the one a replay borrowed would undo the disconnect it just made.
+  replay.stop()
 })
 
 /** "Agora" does both jobs: back to the live window, and on/off for the feed. */
 function goLive() {
+  // A replay holds the view on an old bar and this press asks for the live edge — opposite
+  // requests, and the explicit one wins. The feed this press leaves behind is the one it decides,
+  // not the one the replay borrowed, so the memory of that goes with it.
+  replay.stop()
+  wasLive.value = false
+
   // Unpinning first, so the refetch and the socket agree about which bars are on screen.
   if (at.value) select({ to: undefined })
   live.toggle()
@@ -231,7 +303,20 @@ function goLive() {
  * the server and the client (see `usePatterns`), and what re-runs the fetch is the changed query,
  * not a changed key. A bump landing mid-run is handled by `useFetch`'s default `dedupe: 'cancel'`.
  */
-const runWindow = useWindow(timeframe, at, bar.epoch)
+const liveWindow = useWindow(timeframe, at, bar.epoch)
+
+/** The window the pipeline actually runs over: the replay's while one is on, the live one's else. */
+const runWindow = computed(() => replay.runWindow.value ?? liveWindow.value)
+
+/**
+ * What names the pipeline's response in Nuxt's cache.
+ *
+ * The chart's `windowKey` while nothing is replaying, and the cut when something is. `usePatterns`
+ * caches on this name and `/patterns` answers under the same producer keys whatever window ran, so
+ * a replay keyed by the URL alone would step forward and be handed the previous bar's marks — the
+ * same trap the rule is in that key for.
+ */
+const patternsKey = computed(() => (replay.cut.value === null ? windowKey.value : `replay:${replay.cut.value}`))
 
 const {
   data: patterns,
@@ -239,7 +324,7 @@ const {
   // Named, unlike on `/candles`, because a rule edit now starts a pipeline run: without this the
   // sidebar shows the previous rule's counts with nothing saying they are about to change.
   pending: patternsPending,
-} = usePatterns(runWindow, windowKey, rule)
+} = usePatterns(runWindow, patternsKey, rule)
 
 /**
  * What the last `Calcular` answered, and what it is doing.
@@ -752,10 +837,14 @@ function toggleConfirmedOnly(producer: string) {
  * A missing key means the bar is the newest one on screen, and the filter keeps such marks — see
  * `confirmed` in `utils/bars`. `mergedBars` puts the live bars in time order after the loaded
  * window, so the seam between the two links across like any other pair.
+ *
+ * Read through the replay, so a bar the cut has hidden is not the witness for the one before it:
+ * during a replay the last bar on screen is the newest bar there is, and its mark stays unjudged
+ * exactly as the live edge's does.
  */
 const nextBarByTime = computed(() => {
   const map = new Map<number, { high: number, low: number }>()
-  const all = mergedBars.value
+  const all = replay.shown.value
   for (let i = 0; i < all.length - 1; i++) {
     const bar = all[i]!
     const next = all[i + 1]!
@@ -765,37 +854,17 @@ const nextBarByTime = computed(() => {
 })
 
 /**
- * The candle history this page reasons about: the loaded window with every bar the feed has opened
- * since, in time order.
- *
- * Extracted from `nextBarByTime`, which was the only thing that needed it and is no longer: the
- * wick tool reads the same bars, and a second splice would be a second chance to disagree about the
- * seam.
- *
- * Merged over `live.history` and not over `live.bars`, which is the correction: a frame carries only
- * what changed, so a bar that opened after this page loaded and has since closed is in no frame at
- * all. The chart went on drawing it — `update()` accumulates in the series — while this list had
- * dropped it, and every question asked of a bar by name went unanswered for it.
- *
- * A map rather than a splice, which is also why there is no seam case left: the boundary bar is one
- * key, written twice. The live read wins, being the fresher reading of the same bar.
- */
-const mergedBars = computed(() => {
-  const merged = new Map<number, Candle>()
-  for (const bar of candles.value ?? []) merged.set(bar.time, bar)
-  for (const [time, bar] of live.history.value) merged.set(time, bar)
-  return [...merged.values()].sort((a, b) => a.time - b.time)
-})
-
-/**
  * The same bars by `time` — what the wick tool looks a bar up in.
  *
  * A map for the reason `nextBarByTime` is one: the lookups are by name, one bar at a time, and they
  * happen on hover. Computed, so it is rebuilt when the feed moves and never while the mouse does.
+ *
+ * Through the replay as well, so the wick tool and the trend lines' drag-snapping cannot reach a
+ * bar the cut has taken off the chart.
  */
 const barsByTime = computed(() => {
   const map = new Map<number, Candle>()
-  for (const bar of mergedBars.value) map.set(bar.time, bar)
+  for (const bar of replay.shown.value) map.set(bar.time, bar)
   return map
 })
 
@@ -1250,9 +1319,16 @@ function onSelect(producer: string, segment: string | null) {
  * and without any of them needing to know the others exist. A click on the control bar itself never
  * reaches here at all: the bar is a DOM node above the canvas. See `PaneClicks`.
  */
-function onPaneClick() {
+function onPaneClick(time: number | null) {
   queueMicrotask(() => {
-    if (!claimed) selected.value = null
+    // The click that lands on nothing is also the click that chooses the bar to replay from. Both
+    // readings hang off `claimed` rather than off a mode: a click that hit a line is that line's,
+    // and letting it cut the chart as well would make every line on the pane a second replay
+    // control. `null` is a click past the last bar, which names no bar to stand on.
+    if (!claimed) {
+      selected.value = null
+      if (time !== null) replay.pick(time)
+    }
     claimed = false
   })
 }
@@ -1267,6 +1343,26 @@ function onPaneClick() {
  */
 const toolbarX = ref<number | null>(null)
 const toolbarY = ref<number | null>(null)
+
+/**
+ * The same two numbers for the replay's transport, which rests at the bottom centre instead.
+ *
+ * Its own pair and not the ones above: the two bars can be on screen together — a line stays
+ * selectable while a replay runs — and sharing a position would stack them.
+ */
+const replayX = ref<number | null>(null)
+const replayY = ref<number | null>(null)
+
+/**
+ * What the chart draws: the fetched window as it came, or the replay's truncation of the history.
+ *
+ * Not `mergedBars` in both cases, and that is the whole of why this is a computed rather than one
+ * expression in the template. `candles` is the array `useFetch` owns, unchanged for the life of a
+ * window, and `CandleChart` redraws on its identity — handing over `mergedBars` would `setData` the
+ * entire series on every tick the socket delivers, when the point of `liveBars` is that a tick is
+ * one `update()`.
+ */
+const chartCandles = computed(() => (replay.cut.value === null ? candles.value ?? [] : replay.shown.value))
 
 /**
  * The `Trash`, and the `✕` in `Selecionadas`: take one line off the chart.
@@ -1764,6 +1860,28 @@ function isVisible(overlay: { producer: string }) {
       </div>
 
       <div class="flex items-center gap-3">
+        <!-- Left of the instrument rather than beside `Agora`, which is the other switch here: the
+             two are opposites — one holds the view on an old bar, the other runs it to the live
+             edge — and a pair of contradicting switches side by side reads as a pair of modes. -->
+        <!-- `outline` and not the hand-rolled border this used to carry: the switch colours are
+             the only thing about it this page gets to decide, and they go through `cn` after the
+             variant so the green wins over `bg-background` and over `hover:bg-accent` — without
+             that second one a button that is on turns grey under the cursor. The icon is left
+             unsized, because `buttonVariants` sizes an unclassed one. -->
+        <Button
+          variant="outline"
+          size="icon-sm"
+          :class="replay.on.value
+            ? 'border-green-600 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-700'
+            : 'text-gray-500'"
+          :aria-pressed="replay.on.value"
+          aria-label="replay"
+          title="Replay"
+          @click="replay.on.value ? stopReplay() : startReplay()"
+        >
+          <Play />
+        </Button>
+
         <label class="text-sm">
           <span class="mr-2 text-gray-500">Ativo</span>
           <select
@@ -1884,7 +2002,13 @@ function isVisible(overlay: { producer: string }) {
                 <!-- `relative`: the control bar is positioned inside this box, and the default
                      slot below — where the overlays sit — is a sibling of the library's own
                      container rather than a child of it. See `ChartToolbar`. -->
-                <CandleChart v-else class="relative h-full" :candles="candles" :live-bars="live.bars.value">
+                <CandleChart
+                  v-else
+                  class="relative h-full"
+                  :candles="chartCandles"
+                  :live-bars="live.bars.value"
+                  :steady="replay.steady.value"
+                >
                   <component
                     :is="overlay.component"
                     v-for="overlay in overlays"
@@ -1919,6 +2043,19 @@ function isVisible(overlay: { producer: string }) {
                     :y="toolbarY"
                     @move="(x: number, y: number) => { toolbarX = x; toolbarY = y }"
                     @remove="removeSelected"
+                  />
+                  <!-- The replay's transport, up from the moment it is armed and before any bar has
+                       been picked — that empty state is where the instruction to click one lives. -->
+                  <ReplayToolbar
+                    v-if="replay.on.value"
+                    :x="replayX"
+                    :y="replayY"
+                    :can-back="replay.canBack.value"
+                    :can-forward="replay.canForward.value"
+                    @move="(x: number, y: number) => { replayX = x; replayY = y }"
+                    @back="replay.step(-1)"
+                    @stop="stopReplay()"
+                    @forward="replay.step(1)"
                   />
                 </CandleChart>
               </ResizablePanel>

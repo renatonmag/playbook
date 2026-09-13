@@ -30,6 +30,18 @@ const props = defineProps<{
    * render — exactly when the first bar would arrive.
    */
   liveBars?: Candle[]
+  /**
+   * Hold the viewport across a redraw instead of re-framing the whole series.
+   *
+   * For a caller that changes `candles` at the right-hand end and nothing else — a replay stepping
+   * a bar at a time. `fitContent()` on every step would re-frame the chart on each press, so the
+   * bars under the cursor would crawl and the zoom would drift; here the visible range is shifted
+   * by however many bars were added or removed instead, which holds every bar already on screen at
+   * the same pixel and walks the newest one along the right edge.
+   *
+   * Off by default, because a new window genuinely is a new picture and framing it is right.
+   */
+  steady?: boolean
 }>()
 
 const container = ref<HTMLDivElement | null>(null)
@@ -69,10 +81,26 @@ function asBars(candles: Candle[]): CandlestickData<UTCTimestamp>[] {
  */
 const lastTime = ref<number | null>(null)
 
+/** How many bars the series holds, which is what a `steady` redraw measures its shift against. */
+const drawn = ref(0)
+
 function draw(candles: Candle[]) {
   if (!series.value || !chart.value) return
+
+  const scale = chart.value.timeScale()
+  // Read before `setData`, which is what invalidates it: a logical range is positions in the
+  // series, and the series is about to be a different length.
+  const range = props.steady ? scale.getVisibleLogicalRange() : null
+  const shift = candles.length - drawn.value
+
   series.value.setData(asBars(candles))
-  chart.value.timeScale().fitContent()
+
+  // A first `steady` draw has no range to shift — the series was empty and the library has not
+  // placed a viewport yet — so it falls back to framing, same as any other new picture.
+  if (range) scale.setVisibleLogicalRange({ from: range.from + shift, to: range.to + shift })
+  else scale.fitContent()
+
+  drawn.value = candles.length
   lastTime.value = candles.at(-1)?.time ?? null
 }
 
@@ -144,6 +172,9 @@ watch(
     for (const bar of bars) {
       if (lastTime.value !== null && bar.time < lastTime.value) continue
       series.value.update(asBars([bar])[0]!)
+      // A bar past the end is one more in the series; one landing on it is the same bar rewritten.
+      // Counted here so a later `steady` redraw measures its shift against what is really drawn.
+      if (lastTime.value === null || bar.time > lastTime.value) drawn.value += 1
       lastTime.value = bar.time
     }
   },

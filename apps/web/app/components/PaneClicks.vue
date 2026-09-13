@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { IChartApi } from 'lightweight-charts'
+import type { IChartApi, MouseEventParams, Time } from 'lightweight-charts'
 
 /**
  * Reports every click on the chart's pane, and nothing else.
@@ -15,17 +15,22 @@ import type { IChartApi } from 'lightweight-charts'
  * `pages/monitor.vue`. Nothing about which line was hit reaches here: that is the overlays' half,
  * and duplicating it would be a second hit test to keep in step with theirs.
  *
+ * The bar the click landed on does travel, and that is not a crack in the paragraph above: a
+ * time is where on the axis the pointer was, which the library answers from the event itself.
+ * It is not a hit test, and no primitive had to be asked. `null` is a click past the last bar,
+ * where the axis has no answer.
+ *
  * Renders no markup, like the overlays it sits beside, and for the same reason.
  */
 const chart = inject(CHART, shallowRef<IChartApi | null>(null))
 
 const emit = defineEmits<{
-  /** A click landed on the pane. Whether it meant anything is the page's to work out. */
-  click: []
+  /** A click landed on the pane, on that bar. Whether it meant anything is the page's to work out. */
+  click: [time: number | null]
 }>()
 
-function onClick() {
-  emit('click')
+function onClick(param: MouseEventParams<Time>) {
+  emit('click', typeof param.time === 'number' ? param.time : null)
 }
 
 /**
