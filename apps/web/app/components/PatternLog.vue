@@ -280,7 +280,7 @@ function pick(value: unknown) {
   </div>
 
   <p v-else-if="!entries.length" class="p-6 text-center text-sm text-gray-500">
-    Nenhum cálculo ainda — marque linhas no gráfico e use <span class="font-medium">Calcular</span>.
+    Nenhum cálculo ainda — fixe uma linha no gráfico.
   </p>
 
   <div v-else>

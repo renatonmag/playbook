@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
+import { useDebounceFn } from '@vueuse/core'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
 import { producerName, type BarGap, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
@@ -1486,13 +1487,19 @@ function restoreLayout() {
  * a level, and `line-relations` reads one price per line. A sloped line is a real question and a
  * different Pattern, not a wider parameter on this one.
  *
+ * `autoOverlays` and not `overlays`, which is load-bearing now rather than a shade of meaning. The
+ * wide list ends in `manualOverlays`, which is derived from `relations` — so reading it here would
+ * put this computed downstream of the very run it now starts, and `calculateKey` below would fire
+ * on its own answer forever. Nothing is lost by narrowing: `leg-extremes` is not in `MANUAL`, so it
+ * only ever arrives on the automatic response and the filter never matched a manual Series.
+ *
  * `ExtremeSegment` and `WickLevel` both extend `LevelSegment`, which is already `{ id, time,
  * price }` — so this is a narrowing, not a mapping, and there is no second definition of what a
  * pinned line is.
  */
 const pinnedLines = computed(() =>
   [
-    ...overlays.value
+    ...autoOverlays.value
       .filter(overlay => overlay.name === 'leg-extremes')
       .flatMap(overlay => pinnedSegments(overlay)),
     ...pinnedWicks(),
@@ -1500,14 +1507,77 @@ const pinnedLines = computed(() =>
 )
 
 /**
- * `Calcular`'s click: the pipeline again, this time told about the lines on the screen.
+ * What makes the manual run a different question from the last one it answered.
+ *
+ * A string rather than the lines themselves, because `pinnedLines` builds a fresh array on every
+ * read and a watcher over it would fire on identity alone, several times a bar.
+ *
+ * **The ids and not `pinned`.** A `trend-lines` or `bar-gap` pin never reaches the body, so it is
+ * not a new question and must not spend a request; a level hidden by a direction filter *is* one,
+ * and drops out of `pinnedLines` and out of here with it. The key tracks what would travel, which
+ * is the only thing the server would notice.
+ *
+ * **The window, because the answer is about bars.** `runWindow.to` moves once per bar the socket
+ * opens — see `useBarClock` — and again whenever the Timeframe or the timepicker's `at` does. A
+ * `line-respect` answer left standing across those would be drawn over a span it was never computed
+ * from. The replay cut needs no term of its own: it already moves `runWindow`.
+ *
+ * **The rule is deliberately absent.** It is a parameter of a run, not a reason to start one: a
+ * threshold is edited a digit at a time, and re-asking between keystrokes would send a body per
+ * digit. `calculate` reads `rule` when it runs, so the next pin or the next bar carries the new
+ * numbers, and `Calcular` is the way to have them at once.
+ */
+const calculateKey = computed(() => [
+  pinnedLines.value.map(line => line.id).join(','),
+  runWindow.value.from,
+  runWindow.value.to,
+].join('|'))
+
+/**
+ * Pinning *is* the question, so pinning is what asks it.
+ *
+ * Watched rather than folded into `addPin` and `unpin`, the same trade `useStoredOverlays` and
+ * `useSelectionHistory` already make over this state: a dozen call sites mutate `pinned`, between
+ * the overlay wiring, the list buttons, `applyMove`, `clearPins`, the undo stack and a restore, and
+ * a watcher sees every one of them without any of them knowing this run exists.
+ *
+ * Debounced on top of that, which the other two do not need. They write `localStorage` and push a
+ * snapshot; this sends a body over the wire, and the key moves in bursts — three levels picked off
+ * the chart in a second, a `limpar` emptying a Series, a bar closing while a hand is mid-selection.
+ * A quarter second is below noticing and well above the gap between two clicks.
+ */
+const runCalculate = useDebounceFn(calculate, 250)
+
+watch(calculateKey, () => { runCalculate() })
+
+/**
+ * Which run's answer is allowed to land.
+ *
+ * Bumped by every call, captured by each, and compared on the way back: a run that is no longer the
+ * newest writes nothing. Needed because `calculate` is no longer one click at a time — a pin landing
+ * mid-flight starts a second run about a wider selection, and without this the two would race with
+ * the network deciding which selection the chart ends up describing.
+ */
+let calculateRun = 0
+
+/**
+ * The pipeline again, this time told about the lines on the screen.
  *
  * This is the one run the automatic ones cannot be. `usePatterns` re-fetches on every closed bar
  * and on every rule edit, but it asks a `GET` and a `GET` carries no lines — the pinned set is a
  * `Set<string>` in this page and nowhere else, so the server has no way to know a level exists
- * until somebody hands it over. Hence a menu item rather than a watcher: the run is a question a
- * person asks about lines they just placed, and re-asking it on every bar would send a body the
- * size of the selection at a cadence nobody chose.
+ * until somebody hands it over.
+ *
+ * It used to be a menu item *only*, on the argument that the run is a question a person asks about
+ * lines they just placed. The question turned out to be asked by the placing: a pinned line whose
+ * relations appear one menu click later reads as though the click were the Pattern. So the run now
+ * follows `calculateKey` — see the watcher there for what is in that key and what is pointedly not.
+ * `Calcular` survives as the way to re-ask: a retry after a failure, a rule edit wanted now rather
+ * than at the next bar, and a body changed by something the key does not watch.
+ *
+ * Two things make it safe to call over and over. The debounce, which is at the watcher because a
+ * click is not a burst and should not wait. And `calculateRun`, because the debounce only spaces
+ * requests out — it does not order the answers.
  *
  * `$fetch` and not `useFetch`, deliberately. This is an imperative action with no key: the
  * response is not state Nuxt should cache, hydrate, or dedupe against the `GET` that shares its
@@ -1518,30 +1588,49 @@ const pinnedLines = computed(() =>
  * it would make the next automatic re-run silently drop the answer.
  *
  * The same window and the same rule the automatic run uses, so the two answers are about one
- * pipeline over one span of bars. See the module docstring on `/patterns` for why the rule and
- * the lines are the only two things this page may hand the server.
+ * pipeline over one span of bars. The rule is *read* here and does not appear in `calculateKey`,
+ * which is a decision rather than an oversight — it is recorded there. See the module docstring on
+ * `/patterns` for why the rule and the lines are the only two things this page may hand the server.
  */
 async function calculate() {
-  if (calculating.value || pinnedLines.value.length === 0) return
+  const lines = pinnedLines.value
 
+  // Cleared rather than returned early, which is the whole difference a watcher makes. As a menu
+  // item this branch was "nothing to ask, so nothing happens"; now it is reached by taking the last
+  // line off the list, and leaving the previous answer up would draw `line-respect` over a
+  // selection that no longer exists.
+  if (lines.length === 0) {
+    calculateRun++
+    relations.value = null
+    calculateError.value = null
+    calculating.value = false
+    return
+  }
+
+  const run = ++calculateRun
   calculating.value = true
   calculateError.value = null
 
   try {
-    relations.value = await $fetch<PatternResponse>('/patterns', {
+    const response = await $fetch<PatternResponse>('/patterns', {
       baseURL: apiBase,
       method: 'POST',
       query: { ...runWindow.value, ...(rule.value ? toPatternQuery(rule.value) : {}) },
-      body: { lines: pinnedLines.value },
+      body: { lines },
     })
+    if (run !== calculateRun) return
+    relations.value = response
   }
   catch (error) {
+    if (run !== calculateRun) return
     // Kept rather than thrown: a failed manual run must not take the chart down with it.
     relations.value = null
     calculateError.value = error instanceof Error ? error.message : String(error)
   }
   finally {
-    calculating.value = false
+    // Only the newest run may say the page is idle; an overtaken one finishing later would clear a
+    // spinner that belongs to the request still in flight.
+    if (run === calculateRun) calculating.value = false
   }
 }
 
@@ -2154,10 +2243,12 @@ function isVisible(overlay: { producer: string }) {
                     Restaurar
                   </DropdownMenuItem>
                   <!-- Dim with nothing pinned: this run exists to ask about lines, and with none
-                       it would send an empty body for an answer nobody could read. -->
+                       it would send an empty body for an answer nobody could read. Pinning runs it
+                       by itself now, so what is left here is asking the same question again — after
+                       a failure, or with a rule edit the watcher deliberately does not react to. -->
                   <DropdownMenuItem
                     :disabled="calculating || !pinnedLines.length"
-                    title="rodar o pipeline sobre as linhas fixadas"
+                    title="rodar de novo sobre as linhas fixadas"
                     @select="calculate()"
                   >
                     Calcular
