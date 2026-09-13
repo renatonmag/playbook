@@ -44,7 +44,7 @@ export interface PriceBox {
   /** The upper edge. Nothing checks that it is above `bottom`; the caller orders the pair. */
   top: number
   bottom: number
-  /** One plain colour. The fill is this at `options.fillOpacity`, the border is this at full. */
+  /** One plain colour, painted at `options.fillOpacity`. The box is a fill and nothing else. */
   color: string
   /**
    * Runs to the right-hand end of the data instead of stopping after `options.bars`.
@@ -59,9 +59,7 @@ export interface PriceBox {
 export interface LevelBoxesOptions {
   /** How many candles a box covers, counting the one it starts on. */
   bars: number
-  /** Border stroke width in CSS pixels; scaled to the device's bitmap at draw time. */
-  borderWidth: number
-  /** Alpha the interior is painted at, `0`–`1`. The border is always opaque. */
+  /** Alpha the interior is painted at, `0`–`1`. */
   fillOpacity: number
 }
 
@@ -134,8 +132,9 @@ class LevelBoxesRenderer implements IPrimitivePaneRenderer {
 
     const edge = lastBarEdge(timeScale, series, spacing)
 
-    // Bitmap space for the same reason `LevelSegments` uses it: a 1px border placed on CSS
-    // coordinates lands between device pixels on a HiDPI screen and comes out as a grey smear.
+    // Bitmap space for a weaker version of `LevelSegments`' reason: with no border to smear, it
+    // is the fill's own edges that would land between device pixels on a HiDPI screen and come
+    // out soft, so the band would read as ending a shade before or after the price it measures.
     target.useBitmapCoordinateSpace(({ context, horizontalPixelRatio, verticalPixelRatio }) => {
       for (const box of boxes) {
         const rect = boundsOf(box, timeScale, series, spacing, options.bars, edge)
@@ -148,25 +147,13 @@ class LevelBoxesRenderer implements IPrimitivePaneRenderer {
 
         // The interior is the same colour at a low alpha rather than a second, pre-blended hue:
         // the candles show through it, and a hue picked to look right over white would be wrong
-        // over a candle body. `save`/`restore` because `globalAlpha` is canvas-wide state and the
-        // border on the next line — and every later primitive — must not inherit it.
+        // over a candle body. `save`/`restore` because `globalAlpha` is canvas-wide state: every
+        // later box, and every later primitive, must not inherit it.
         context.save()
         context.globalAlpha = options.fillOpacity
         context.fillStyle = box.color
         context.fillRect(left, top, right - left, bottom - top)
         context.restore()
-
-        const width = Math.max(1, Math.round(options.borderWidth * verticalPixelRatio))
-        context.lineWidth = width
-        context.strokeStyle = box.color
-        // Half a stroke inset, so the border lies *inside* the band it draws. Without it a 1px
-        // line straddles the edge and the box reads as half a pixel taller than the gap is.
-        context.strokeRect(
-          left + width / 2,
-          top + width / 2,
-          Math.max(0, right - left - width),
-          Math.max(0, bottom - top - width),
-        )
       }
     })
   }

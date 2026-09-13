@@ -128,7 +128,11 @@ watch(
     if (!bars) return
 
     if (!primitive) {
-      primitive = new LevelBoxes({ bars: SPAN, borderWidth: 1, fillOpacity: 0.15 })
+      // The band is the whole drawing — there is no border any more — so the alpha is the only
+      // thing saying how present a gap is. Capped by the box's place *under* the candles rather
+      // than by taste: past about a quarter it starts washing out the very bars the band is
+      // measured from, which is what `LevelBoxesPaneView`'s 'bottom' exists to protect.
+      primitive = new LevelBoxes({ bars: SPAN, fillOpacity: 0.25 })
       // The cast is the same one the other overlays make: the candlestick series is declared on
       // the chart's generic horizontal scale, and a primitive is typed on `Time`.
       ;(bars as ISeriesApi<SeriesType, Time>).attachPrimitive(primitive)
