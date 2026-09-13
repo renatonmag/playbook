@@ -145,7 +145,7 @@ onBeforeUnmount(onPointerUp)
 <template>
   <div
     ref="root"
-    class="absolute z-10 flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-md"
+    class="absolute z-10 flex items-center gap-0.5 rounded-lg border border-gray-50 bg-white p-1 shadow-md"
     :class="props.x === null || props.y === null ? 'left-1/2 top-3 -translate-x-1/2' : ''"
     :style="props.x === null || props.y === null ? undefined : { left: `${props.x}px`, top: `${props.y}px` }"
   >
