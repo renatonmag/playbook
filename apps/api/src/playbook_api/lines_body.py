@@ -20,12 +20,20 @@ Two refusals, in the spirit of `rule_query`'s: too many lines, and two lines wea
 Neither is a hypothetical. A `POST` body has no length the router would otherwise notice, and the
 ids are the caller's own strings — the engine hands them straight back, so a duplicate would come
 back as one line's answers reported twice under a name that cannot tell them apart.
+
+**Two lists, not one.** A level is one price at one bar and a trend line is two prices at two, and
+they run through different Patterns to different `ctx` keys — so folding them into one list with a
+discriminator would be a shape this file invents and both ends then have to undo. The two refusals
+are applied to each separately, and their ids are not compared across: they name lines in different
+Series, and a `trend-lines` pin and a wick level are free to collide in a namespace neither shares.
+Both default to empty, so "only levels" and "only trend lines" are equally sayable and an older
+caller sending just `lines` is still saying something valid.
 """
 
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from pattern_engine.patterns import Line, PinnedLines
+from pattern_engine.patterns import Line, PinnedLines, PinnedTrend, PinnedTrends
 from pydantic import BaseModel, Field
 
 #: How many lines one run may be asked about. A ceiling on the request, not a page size: a person
@@ -49,10 +57,29 @@ class LineIn(BaseModel):
     price: float
 
 
-class LinesIn(BaseModel):
-    """A run's lines. A model rather than a bare list, so the body has room to grow a sibling."""
+class TrendIn(BaseModel):
+    """One sloped line as the browser names it: its own segment id, and its two ends.
 
-    lines: list[LineIn]
+    `id` is opaque here as `LineIn.id` is — `trendSegmentId`'s `from:to:side`, or the key of a line
+    somebody dragged an end of. Nothing on this side parses it.
+
+    `from` and `to` in the caller's own order, which is the browser's drawing order and not
+    necessarily the clock's. Sorting them is `trend_relations`' business and is done once, there.
+    """
+
+    id: str = Field(min_length=1)
+    #: Unix seconds, both of them — see the module docstring.
+    from_time: int
+    from_price: float
+    to_time: int
+    to_price: float
+
+
+class LinesIn(BaseModel):
+    """A run's lines: the levels, and the sloped ones. See the module docstring on why two lists."""
+
+    lines: list[LineIn] = []
+    trends: list[TrendIn] = []
 
 
 def to_lines(body: LinesIn) -> PinnedLines:
@@ -76,5 +103,36 @@ def to_lines(body: LinesIn) -> PinnedLines:
         tuple(
             Line(id=line.id, time=datetime.fromtimestamp(line.time, UTC), price=line.price)
             for line in body.lines
+        )
+    )
+
+
+def to_trends(body: LinesIn) -> PinnedTrends:
+    """The body's sloped lines as the engine's own type, or a 400 saying which rule it broke.
+
+    `to_lines`' twin, refusal for refusal and for the same reasons — the same ceiling, counted over
+    this list alone, and the same duplicate-id check over these ids alone.
+    """
+    if len(body.trends) > MAX_LINES:
+        raise HTTPException(
+            400, f"at most {MAX_LINES} trend lines per run — {len(body.trends)} were sent"
+        )
+
+    seen: set[str] = set()
+    for trend in body.trends:
+        if trend.id in seen:
+            raise HTTPException(400, f"two trend lines share the id `{trend.id}`")
+        seen.add(trend.id)
+
+    return PinnedTrends(
+        tuple(
+            PinnedTrend(
+                id=trend.id,
+                from_time=datetime.fromtimestamp(trend.from_time, UTC),
+                from_price=trend.from_price,
+                to_time=datetime.fromtimestamp(trend.to_time, UTC),
+                to_price=trend.to_price,
+            )
+            for trend in body.trends
         )
     )

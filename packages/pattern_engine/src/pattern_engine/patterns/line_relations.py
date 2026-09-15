@@ -98,7 +98,7 @@ What it costs, stated rather than hidden:
   pinned set is a handful of lines by hand, so the product is nothing.
 """
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -127,6 +127,11 @@ Side = Literal["above", "below"]
 #: The side opposite the one given. Two readings need it: a bar that opened exactly on the line
 #: came from the side it did not close on, and a `seam` respected the side it closed back onto.
 OPPOSITE: dict[Side, Side] = {"above": "below", "below": "above"}
+
+#: What one line is worth on one bar, by the bar's index. A level answers the same number whatever
+#: it is asked; a sloped line interpolates. `None` means this line has nothing to say about that bar
+#: — see `relations_of`, which is the only place it is read.
+PriceAt = Callable[[int], float | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,32 +266,30 @@ def breaks_out(bar: Candle, price: float) -> Side | None:
     return closed if side_of(bar, price) != closed else None
 
 
-def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelation]:
-    """Every touch, breakout and seam in `bars`, for every line, in bar order.
+def relations_of(
+    bars: Sequence[Candle],
+    anchored: Sequence[tuple[str, int, PriceAt]],
+) -> list[LineRelation]:
+    """Every touch, breakout and seam in `bars`, for lines already resolved against this window.
+
+    The driver behind `line_relations` and `trend_relations` — the rules of the module docstring,
+    written once. What the two callers differ in is *what a line is worth on a bar*, and that is the
+    whole of what `anchored` carries: an id, the last bar to stay silent about, and a function from
+    a bar's index to the line's price there. A level answers a constant; a sloped line interpolates.
+
+    `at` is an index rather than a Candle because a sloped line is read off bar *positions* — see
+    `trend_relations.price_at`. A resolver answering `None` means this line has nothing to say about
+    this bar, which is how a caller skips a bar in the middle of a line's run without this driver
+    learning what such a bar is.
 
     Bars outer and lines inner, which is not a preference: `BaseSeries` refuses Points whose
     anchors decrease, and this loop order makes them non-decreasing without a sort. The same
     arrangement `BarsPattern.run` uses, and for the same reason.
 
-    A line is skipped entirely when the window holds no bar at its `time` — there is no anchor to
-    start after, and starting at the window's edge instead would silently answer about a different
-    line than the one asked about.
-
     Takes a plain sequence rather than a Series, for the reason `bar_gaps` gives: what a relation
     is depends on the bar and the line and nothing else, and asking for the global history would
     advertise a dependency that does not exist.
     """
-    if not lines or not bars:
-        return []
-
-    at_time = {bar.time: at for at, bar in enumerate(bars)}
-
-    # Only the lines this window can answer about, resolved once. The index is the *anchor*; the
-    # questions start one bar later.
-    anchored = [(line, at_time[line.time]) for line in lines if line.time in at_time]
-    if not anchored:
-        return []
-
     #: The last crossing per line, under either name: which bar, and which side it closed on. One
     #: entry, not a list — a seam only ever looks at the most recent one, since anything older is
     #: out of `SEAM_SPAN`.
@@ -295,18 +298,21 @@ def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelat
     found: list[LineRelation] = []
 
     for at, bar in enumerate(bars):
-        for line, anchor in anchored:
-            if at <= anchor:
+        for line, quiet, price_at in anchored:
+            if at <= quiet:
                 continue
 
-            price = line.price
+            price = price_at(at)
+            if price is None:
+                continue
+
             side = side_of(bar, price)
 
             wick = touches(bar, price)
             if wick is not None:
                 found.append(
                     LineRelation.anchored(
-                        bar, line=line.id, price=price, kind="touch",
+                        bar, line=line, price=price, kind="touch",
                         wick=wick, side=side, since=None,
                     )
                 )
@@ -318,7 +324,7 @@ def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelat
             # Which of the two names this crossing gets, decided before anything is emitted: a
             # crossing that undoes a recent one *is* the seam, and no breakout is emitted beside it.
             undone: Candle | None = None
-            previous = last.get(line.id)
+            previous = last.get(line)
             if previous is not None:
                 before, was = previous
                 if was != closed and at - before <= SEAM_SPAN:
@@ -326,7 +332,7 @@ def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelat
 
             found.append(
                 LineRelation.anchored(
-                    bar, line=line.id, price=price,
+                    bar, line=line, price=price,
                     kind="breakout" if undone is None else "seam",
                     wick=None,
                     # A bar that opened on the line still came from somewhere, and a crossing says
@@ -339,9 +345,43 @@ def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelat
 
             # After the seam test and unconditionally: this crossing is the one the next bar
             # measures itself against, whether it was named a breakout or a seam.
-            last[line.id] = (at, closed)
+            last[line] = (at, closed)
 
     return found
+
+
+def line_relations(bars: Sequence[Candle], lines: PinnedLines) -> list[LineRelation]:
+    """Every touch, breakout and seam in `bars`, for every level, in bar order.
+
+    The levels resolved against this window, then handed to `relations_of`, which is where the rules
+    are. A level's price does not depend on the bar, so its resolver ignores the index it is given —
+    the one line of this function that a sloped line does differently.
+
+    A line is skipped entirely when the window holds no bar at its `time` — there is no anchor to
+    start after, and starting at the window's edge instead would silently answer about a different
+    line than the one asked about.
+    """
+    if not lines or not bars:
+        return []
+
+    at_time = {bar.time: at for at, bar in enumerate(bars)}
+
+    # Only the lines this window can answer about, resolved once. The index is the *anchor*; the
+    # questions start one bar later.
+    anchored = [
+        (line.id, at_time[line.time], constantly(line.price))
+        for line in lines
+        if line.time in at_time
+    ]
+    if not anchored:
+        return []
+
+    return relations_of(bars, anchored)
+
+
+def constantly(price: float) -> PriceAt:
+    """A level's resolver: the same price on every bar, whichever one is asked about."""
+    return lambda _: price
 
 
 class LineRelationsPattern(Pattern):

@@ -42,14 +42,21 @@ level is a `Set<string>` in the browser and nowhere else: it is not a quantity t
 compute better or worse, it is a quantity this server does not have. Where the rule's case had to
 argue that the client *could* evaluate it and shouldn't, this one has no such argument to lose.
 
+`trend-relations` is the same exception and not a widening of it. A sloped line is a second kind of
+line, not a second kind of parameter: it travels in the same body, through the same two refusals,
+into a Pattern that is in the tuple whether or not anybody sent one. That this server *does* draw
+trend lines of its own, in `trend-lines`, is the one thing that could make it look like a widening,
+and it is the opposite — the fan is hundreds of lines and what arrives here is the two somebody
+kept, or dragged an end of, which is precisely the fact no Series holds.
+
 What keeps it contained is the same pair:
 
 - **No line changes the shape of the pipeline.** The Pattern is in the tuple on every run, lines
   or not; with none it emits an empty Series. A caller adds data to a question, never a Pattern.
-- **The producer key does not move.** `PinnedLines.__str__` answers a constant, exactly as
-  `FormaRule.__str__` does, so the key is identical whether or not lines were sent — and the same
-  cost follows, in the same words: the response does not say which lines ran, and a client that
-  caches has to fold them into its own key.
+- **The producer key does not move.** `PinnedLines.__str__` answers a constant, and so does
+  `PinnedTrends.__str__`, exactly as `FormaRule.__str__` does — so the keys are identical whether
+  or not lines were sent, and the same cost follows, in the same words: the response does not say
+  which lines ran, and a client that caches has to fold them into its own key.
 
 The lines travel in a **body**, so they arrive on a `POST` beside the `GET` rather than on it. A
 list has no bounded length and a URL does, and a body on a `GET` is not something clients, proxies
@@ -90,7 +97,7 @@ from pattern_engine import FormaRule, Pattern, PatternEngine
 from sqlmodel import Session
 
 from ..db import get_session
-from ..lines_body import LinesIn, to_lines
+from ..lines_body import LinesIn, to_lines, to_trends
 from ..pipeline import PIPELINE, SYMBOL, build_pipeline, timeframes
 from ..rule_query import rule_override
 from ..schemas.pattern import PatternsOut, SeriesOut
@@ -209,15 +216,20 @@ def run_patterns(
     """The same run, for a caller holding lines the server has no way to know about.
 
     Every query parameter of the `GET` means the same thing here, `rule_override` included, so a
-    caller does not choose between sending a rule and sending lines. The body is the only
-    addition, and `line-relations` is the only Series it can change.
+    caller does not choose between sending a rule and sending lines. The body is the only addition,
+    and the four Series it can change — `line-relations` and `trend-relations`, and the
+    `line-respect` reading each of them — are the four that are empty without it.
 
     `PIPELINE` is deliberately *not* reused when a rule is absent, as the `GET` reuses it: a
     pipeline carrying lines is by definition not the declared one, and pretending otherwise would
     make "the same object" stop meaning what the `GET` uses it to mean. The absent rule is left to
     `build_pipeline`'s own default rather than named again here, so `RULE_K` stays written once.
     """
-    lines = to_lines(body)
-    pipeline = build_pipeline(lines=lines) if rule is None else build_pipeline(rule, lines)
+    lines, trends = to_lines(body), to_trends(body)
+    pipeline = (
+        build_pipeline(lines=lines, trends=trends)
+        if rule is None
+        else build_pipeline(rule, lines, trends)
+    )
 
     return _run(session, pipeline, start, end, limit)

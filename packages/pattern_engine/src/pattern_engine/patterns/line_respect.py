@@ -275,9 +275,17 @@ class LineRespectPattern(Pattern):
 
     **One source, no dials.** `source` is an **instance** rather than a producer key, for the
     reason `LegExtremesPattern` gives: the key is derived from the constructor call, so naming the
-    Pattern is the only way to name its key without writing the key out. It must be a
-    `LineRelationsPattern` — nothing checks it, and nothing here parses what it produced beyond the
-    fields `LineRelation` declares.
+    Pattern is the only way to name its key without writing the key out.
+
+    **Either relations Pattern will do, and nothing checks which.** `LineRelationsPattern` answers
+    about levels and `TrendRelationsPattern` about sloped lines, and this module cannot tell them
+    apart because there is nothing here to tell apart: a respect group is a run of events with no
+    definitive breakout in it, and that reads `kind`, `side` and `since` off a `LineRelation`
+    without ever asking what drew the line. A pipeline declares one instance per source, and they
+    are distinct in `ctx` because `producer` renders the source into the key.
+
+    Which leaves the label, and that is why `name` is set per instance here rather than being a
+    class attribute — the trade `LegPattern` already makes, for the same collision.
 
     The lines never reach this Pattern. They are `source`'s parameter, and a group names its line
     by the id the events carried, so a pipeline built without a browser produces an empty source
@@ -290,13 +298,12 @@ class LineRespectPattern(Pattern):
     emits nothing.
     """
 
-    name = "Line respect"
-
     def __init__(
         self, *, source: Pattern, reads: tuple[Timeframe, ...], emits: Timeframe
     ) -> None:
         super().__init__(reads=reads, emits=emits)
         self.source = source
+        self.name = f"Respect · {source.name}"
 
     def run(self, ctx: Ctx) -> BaseSeries[LineRespect]:
         relations: BaseSeries[LineRelation] = ctx[self.source.producer]

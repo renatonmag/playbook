@@ -33,6 +33,11 @@ from pattern_engine.patterns.line_respect import (
     respected_side,
     undone_breakouts,
 )
+from pattern_engine.patterns.trend_relations import (
+    PinnedTrend,
+    PinnedTrends,
+    TrendRelationsPattern,
+)
 from pattern_engine.series import CANDLES
 
 OPEN = datetime(2026, 8, 12, 13, 0, tzinfo=UTC)
@@ -316,6 +321,57 @@ def test_a_source_with_no_lines_produces_an_empty_series() -> None:
     engine = PatternEngine({"5m": series(*HELD)}, (source, pattern))
 
     assert not engine.run()[pattern.producer]
+
+
+def test_a_sloped_source_is_read_on_exactly_the_same_terms() -> None:
+    """Nothing here knows which kind of line drew its events, and this is that stated as a test.
+
+    The line is pinned flat at the price the level fixtures use, with its two ends on bars 0 and 1.
+    So it is the same line `lines(("a", 0))` is, and the only difference is which bars drew it —
+    a trend line skips both of its ends, so the touch on bar 1 is not asked about and the run it
+    would have opened is not there. Everything after bar 1 has to come back identical.
+    """
+    flat = PinnedTrends(
+        (
+            PinnedTrend(
+                id="a", from_time=at(0), from_price=LINE, to_time=at(1), to_price=LINE
+            ),
+        )
+    )
+
+    source = TrendRelationsPattern(trends=flat, reads=("5m",), emits="5m")
+    pattern = LineRespectPattern(source=source, reads=("5m",), emits="5m")
+    ctx = PatternEngine({"5m": series(*BROKEN)}, (source, pattern)).run()
+
+    over_level = line_respects(
+        line_relations(series(*BROKEN).points, lines(("a", 0))), series(*BROKEN).points
+    )
+    groups = list(ctx[pattern.producer].points)
+
+    assert [(point.line, point.side, index(point.time)) for point in groups] == [("a", "above", 3)]
+    assert groups == [group for group in over_level if index(group.time) == 3]
+
+
+def test_the_two_sources_are_two_series_with_two_names() -> None:
+    """One class instantiated twice, so the key has to separate them and the label has to as well.
+
+    `LegPattern`'s trade, made here for `LegPattern`'s reason: the key is total and derived, the
+    name is written for a person, and a class attribute could only say one of the two things.
+    """
+    level = LineRelationsPattern(lines=lines(("a", 0)), reads=("5m",), emits="5m")
+    sloped = TrendRelationsPattern(trends=PinnedTrends(()), reads=("5m",), emits="5m")
+
+    over_level = LineRespectPattern(source=level, reads=("5m",), emits="5m")
+    over_sloped = LineRespectPattern(source=sloped, reads=("5m",), emits="5m")
+
+    assert over_level.producer != over_sloped.producer
+    assert over_sloped.producer == (
+        "line-respect(source=<trend-relations(trends=pinned,reads=5m,emits=5m)>,reads=5m,emits=5m)"
+    )
+    assert (over_level.name, over_sloped.name) == (
+        "Respect · Line relations",
+        "Respect · Trend relations",
+    )
 
 
 def test_declared_before_its_source_it_writes_nothing() -> None:

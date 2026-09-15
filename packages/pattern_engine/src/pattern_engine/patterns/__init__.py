@@ -21,11 +21,14 @@ from .line_relations import (
     LineRelation,
     LineRelationsPattern,
     PinnedLines,
+    PriceAt,
     RelationKind,
     Side,
     Wick,
     breaks_out,
+    constantly,
     line_relations,
+    relations_of,
     side_of,
     touches,
 )
@@ -55,6 +58,15 @@ from .reversal_filters import (
 )
 from .simple_leg import LegMark, PbMark, SimpleLegPattern
 from .trend_lines import LineEnd, TrendLine, TrendLinesPattern, clear, leg_ends, trend_lines
+from .trend_relations import (
+    NO_TRENDS,
+    PinnedTrend,
+    PinnedTrends,
+    TrendRelationsPattern,
+    price_at,
+    resolver,
+    trend_relations,
+)
 from .zigzag import ZigZagIndidicator, ZigZagPattern, ZigZagPivot
 
 __all__ = [
@@ -90,16 +102,21 @@ __all__ = [
     "LineRespectPattern",
     "MarkType",
     "NO_LINES",
+    "NO_TRENDS",
     "NestedLegs",
     "NestedLegsPattern",
     "OPPOSITE",
     "PbMark",
     "PinnedLines",
+    "PinnedTrend",
+    "PinnedTrends",
+    "PriceAt",
     "RelationKind",
     "Side",
     "SimpleLegPattern",
     "TrendLine",
     "TrendLinesPattern",
+    "TrendRelationsPattern",
     "Wick",
     "ZigZagIndidicator",
     "ZigZagPattern",
@@ -111,6 +128,7 @@ __all__ = [
     "bar_positions",
     "breaks_out",
     "clear",
+    "constantly",
     "dominates",
     "expands",
     "extreme_points",
@@ -123,6 +141,9 @@ __all__ = [
     "nested_legs",
     "nests",
     "position_of",
+    "price_at",
+    "relations_of",
+    "resolver",
     "respected_side",
     "reverses",
     "side_of",
@@ -130,6 +151,7 @@ __all__ = [
     "split_legs",
     "touches",
     "trend_lines",
+    "trend_relations",
     "trim_tail",
     "undone_breakouts",
 ]

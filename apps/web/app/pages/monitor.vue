@@ -104,8 +104,15 @@ const OVERLAYS: Record<string, Component> = {
  *
  * `line-relations` is in the set although it has no entry in `OVERLAYS`: it is read in the Log, and
  * what this set decides is *which response a Series comes from*, not whether it is drawn.
+ * `trend-relations` is there on both counts — it is the sloped twin, and it is read the same way.
+ *
+ * `line-respect` covers **two** Series, because the pipeline declares that Pattern twice: once over
+ * the levels and once over the sloped lines. One name, one `OVERLAYS` entry, two rows in the
+ * sidebar — which is right rather than merely convenient, since a respect group is the same thing
+ * whichever kind of line it was held against, and `LineRespectOverlay` draws its pills in pixels
+ * beside the run rather than at the line's price.
  */
-const MANUAL = new Set(['line-relations', 'line-respect'])
+const MANUAL = new Set(['line-relations', 'line-respect', 'trend-relations'])
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
 const COLORS = ['#2563eb', '#c026d3', '#ea580c', '#0d9488']
@@ -1485,9 +1492,12 @@ function restoreLayout() {
  * the server about a line nobody can see would put an answer in the response with nothing to
  * attach it to.
  *
- * Only the two the question is about. `bar-gap` is a band and `trend-lines` is sloped; neither is
- * a level, and `line-relations` reads one price per line. A sloped line is a real question and a
- * different Pattern, not a wider parameter on this one.
+ * Only the two the question is about. `bar-gap` is a band, and a band is not a level — a caller
+ * would have to say which of its two edges it meant, which is a question this list has no room for.
+ * `trend-lines` is not here either, and that is no longer because a sloped line has nowhere to go:
+ * it has `pinnedTrendLines` below, and `trend-relations` at the other end of it. One price per line
+ * and two prices at two bars are different shapes on the wire and different Patterns behind it, so
+ * they are two lists rather than one with a discriminator — see `playbook_api.lines_body`.
  *
  * `autoOverlays` and not `overlays`, which is load-bearing now rather than a shade of meaning. The
  * wide list ends in `manualOverlays`, which is derived from `relations` — so reading it here would
@@ -1509,15 +1519,55 @@ const pinnedLines = computed(() =>
 )
 
 /**
+ * The pinned trend lines as the pipeline wants them: an id, and the two bars they run between.
+ *
+ * `pinnedLines`' sibling, and everything argued there applies here unchanged — read back through
+ * the same `pinnedTrends` the sidebar lists and the chart draws, so the lines that travel are
+ * exactly the ones on the screen, and `autoOverlays` rather than `overlays` so this computed does
+ * not end up downstream of the run it starts.
+ *
+ * **The moved lines travel too**, which `pinnedTrends` already folds in. A line somebody dragged
+ * the end of is the one they most want answered — it is the reading they corrected the engine to
+ * get — and its ends are real bars at real prices like any other's. A move is its own pin there,
+ * so nothing extra is said here about which of the two a row is.
+ *
+ * `DrawnTrend` extends `TrendSegment`, which is already `{ id, from: { time, price }, to: { time,
+ * price } }`, so this is a narrowing plus a rename onto the wire's own spelling. The ends go over
+ * in the caller's order, not the clock's: which is earlier is `trend_relations`' business and is
+ * decided there once.
+ */
+const pinnedTrendLines = computed(() =>
+  autoOverlays.value
+    .filter(overlay => overlay.name === 'trend-lines')
+    .flatMap(overlay => pinnedTrends(overlay))
+    .map(({ id, from, to }) => ({
+      id,
+      from_time: from.time,
+      from_price: from.price,
+      to_time: to.time,
+      to_price: to.price,
+    })),
+)
+
+/**
  * What makes the manual run a different question from the last one it answered.
  *
  * A string rather than the lines themselves, because `pinnedLines` builds a fresh array on every
  * read and a watcher over it would fire on identity alone, several times a bar.
  *
- * **The ids and not `pinned`.** A `trend-lines` or `bar-gap` pin never reaches the body, so it is
- * not a new question and must not spend a request; a level hidden by a direction filter *is* one,
- * and drops out of `pinnedLines` and out of here with it. The key tracks what would travel, which
- * is the only thing the server would notice.
+ * **The ids and not `pinned`.** A `bar-gap` pin never reaches the body, so it is not a new question
+ * and must not spend a request; a line hidden by a filter *is* one, and drops out of the two
+ * computeds above and out of here with them. The key tracks what would travel, which is the only
+ * thing the server would notice.
+ *
+ * **An id is enough for a sloped line too**, which is worth saying because it is less obvious than
+ * for a level. `trendSegmentId` is the line's two bar times and its side, and a move's key is both
+ * bars plus which of each one's four prices the end was dropped on — so dragging an end mints a
+ * different key and this fires. What an id does *not* pin down is the near end of a line whose
+ * hinge nobody moved: that price is the engine's own leg extreme and re-resolves on every pipeline
+ * run. Which is exactly the looseness a pinned level already has through `extremeSegmentId`, and
+ * it is bounded the same way — `runWindow` is in this key, and a re-run that moves an extreme has
+ * moved the window that found it.
  *
  * **The window, because the answer is about bars.** `runWindow.to` moves once per bar the socket
  * opens — see `useBarClock` — and again whenever the Timeframe or the timepicker's `at` does. A
@@ -1531,6 +1581,7 @@ const pinnedLines = computed(() =>
  */
 const calculateKey = computed(() => [
   pinnedLines.value.map(line => line.id).join(','),
+  pinnedTrendLines.value.map(line => line.id).join(','),
   runWindow.value.from,
   runWindow.value.to,
 ].join('|'))
@@ -1567,8 +1618,8 @@ let calculateRun = 0
  *
  * This is the one run the automatic ones cannot be. `usePatterns` re-fetches on every closed bar
  * and on every rule edit, but it asks a `GET` and a `GET` carries no lines — the pinned set is a
- * `Set<string>` in this page and nowhere else, so the server has no way to know a level exists
- * until somebody hands it over.
+ * `Set<string>` in this page and nowhere else, so the server has no way to know a level, or a line
+ * somebody dragged an end of, exists until somebody hands it over.
  *
  * It used to be a menu item *only*, on the argument that the run is a question a person asks about
  * lines they just placed. The question turned out to be asked by the placing: a pinned line whose
@@ -1596,12 +1647,13 @@ let calculateRun = 0
  */
 async function calculate() {
   const lines = pinnedLines.value
+  const trends = pinnedTrendLines.value
 
   // Cleared rather than returned early, which is the whole difference a watcher makes. As a menu
   // item this branch was "nothing to ask, so nothing happens"; now it is reached by taking the last
   // line off the list, and leaving the previous answer up would draw `line-respect` over a
-  // selection that no longer exists.
-  if (lines.length === 0) {
+  // selection that no longer exists. Both lists, because either one alone is still a question.
+  if (lines.length === 0 && trends.length === 0) {
     calculateRun++
     relations.value = null
     calculateError.value = null
@@ -1618,7 +1670,7 @@ async function calculate() {
       baseURL: apiBase,
       method: 'POST',
       query: { ...runWindow.value, ...(rule.value ? toPatternQuery(rule.value) : {}) },
-      body: { lines },
+      body: { lines, trends },
     })
     if (run !== calculateRun) return
     relations.value = response
@@ -1877,10 +1929,16 @@ function extraProps(overlay: { producer: string, name: string }) {
             : {},
         }
       : {},
-    // The same axis on the eighth overlay, and nothing else it needs: a pill has no direction, no
-    // state and nothing to pin. See `RESPECT_SIDES` for why the two lists are not one.
+    // The same axis on the eighth overlay, and still nothing it can be pinned or pointed at by: a
+    // mark has no direction, no state and no handle. See `RESPECT_SIDES` for why the two lists are
+    // not one. `mark` is the second prop and the only one that is not a filter — a pill for the
+    // runs that held a level, a sawtooth for the ones that held a slope, read off the producer
+    // because that is where the source Pattern is written down. See `respectMark`.
     ...overlay.name === 'line-respect'
-      ? { sides: sidesFor(overlay.producer, RESPECT_SIDE_VALUES) }
+      ? {
+          sides: sidesFor(overlay.producer, RESPECT_SIDE_VALUES),
+          mark: respectMark(overlay.producer),
+        }
       : {},
     // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
     // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and

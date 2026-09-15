@@ -55,8 +55,13 @@ const props = defineProps<{
  * Which producers this panel shows, keyed by the class part of the key — `line-relations`, without
  * its parameters — exactly as `OVERLAYS` is keyed, so a Pattern is named the same way on both
  * sides. Being in both is allowed and would mean a Series you can look at and read.
+ *
+ * A name can stand for more than one Series, and `line-respect` now does: the pipeline declares it
+ * over the levels and again over the sloped lines. Both reach the picker, for the reason both are
+ * drawn — they are the same rows about different lines. The filter is on the name and the entries
+ * are on the key, so admitting one admits both and they stay two things to pick between.
  */
-const LOGGED = new Set(['line-relations', 'line-respect'])
+const LOGGED = new Set(['line-relations', 'line-respect', 'trend-relations'])
 
 /** Pulled to the front, so a row says which bar it is before it says anything else. */
 const BASE_COLUMNS = ['time']

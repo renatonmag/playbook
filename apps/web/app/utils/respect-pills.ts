@@ -14,7 +14,19 @@ import type {
 import { barSpacing, type RenderTarget } from './level-segments'
 
 /**
- * A rounded bar spanning a run of candles, held a fixed distance clear of a price.
+ * A mark spanning a run of candles, held a fixed distance clear of a price.
+ *
+ * Two marks, which is one more than this file was born with: a filled rounded **pill**, and a
+ * **sawtooth** stroke drawn inside exactly the box the pill would have occupied. Everything that
+ * decides *where* the mark goes — the span, the side, the gap, the lane — is shared, and only the
+ * shape drawn in that box differs. That is the whole design: the caller runs this primitive twice
+ * over two Series that answer the same question about two different kinds of line, and the texture
+ * is the channel left over once position and colour are spoken for. See `respectMark` for who picks
+ * which, and `PLACEMENT` in `line-respect.ts` for why neither mark follows the line it reports.
+ *
+ * The filename and the class keep the pill's name. It is still the fourth series primitive in this
+ * app and still the only one placed in pixels, and renaming it for a second shape would put the
+ * count of shapes into a name that is about the drawing's role.
  *
  * The fourth series primitive in this app, and the first whose *vertical* placement is not a
  * price. `LevelSegments` sits at one, `LevelBoxes` between two, `TrendSegments` runs from one to
@@ -34,6 +46,14 @@ import { barSpacing, type RenderTarget } from './level-segments'
 
 /** Which way from `price` a pill is placed. Named for the screen, not for a market direction. */
 export type PillSide = 'above' | 'below'
+
+/**
+ * Which mark to draw in the box.
+ *
+ * A property of the whole Series and not of one run — every group a Series reports was held against
+ * the same kind of line — so it rides in the options rather than on `RespectPill`.
+ */
+export type PillShape = 'pill' | 'sawtooth'
 
 export interface RespectPill {
   /**
@@ -63,14 +83,26 @@ export interface RespectPill {
 }
 
 export interface RespectPillsOptions {
-  /** How tall a pill is, in CSS pixels. */
+  /** How tall a pill is, in CSS pixels. The sawtooth's peak-to-peak swing is the same number. */
   height: number
   /** How far clear of `price` lane `0` sits, in CSS pixels. */
   gap: number
   /** How much further out each additional lane sits, in CSS pixels. */
   pitch: number
-  /** Corner radius, in CSS pixels. */
+  /** Corner radius, in CSS pixels. Read by the pill alone. */
   radius: number
+  /**
+   * Which of the two marks this instance draws.
+   *
+   * Fixed at construction, which is safe rather than lucky: the page renders one overlay component
+   * per producer (`:key="overlay.producer"`), a producer names its source Pattern, and a primitive
+   * therefore never outlives the answer to this question.
+   */
+  shape: PillShape
+  /** One full tooth, in CSS pixels. Read by the sawtooth alone. */
+  period: number
+  /** Stroke width, in CSS pixels. Read by the sawtooth alone. */
+  width: number
 }
 
 /** Where a pill lies in media (CSS) space: the same numbers the renderer fills, unscaled. */
@@ -123,6 +155,64 @@ function boundsOf(
   }
 }
 
+/**
+ * The sawtooth, stroked inside the box `boundsOf` worked out — in bitmap coordinates, so every
+ * length here has already been scaled.
+ *
+ * Three things are decided here and nowhere else:
+ *
+ * **The phase is anchored at the span's left edge**, not at the canvas origin. The span moves with
+ * the candles it covers, so the teeth ride the bars; phased off the canvas they would crawl through
+ * the mark on every pan, which is the one animation a static verdict must not have.
+ *
+ * **It is inset by half the stroke.** The box is the pill's box, and a stroke centred on its edges
+ * would spill a pixel past the lane it was given — enough for two adjacent lanes to touch. Where
+ * the box is thinner than the stroke itself the two rails collapse onto its midline: a flat line
+ * rather than a shape drawn outside its allowance.
+ *
+ * **The last tooth is cut, not dropped.** The final vertex is interpolated onto `right`, so the
+ * mark ends exactly where the run does. A span narrower than one tooth is then a single rising
+ * stroke — the same instinct as the pill's radius clamp, which would rather come out a lozenge
+ * than come out as nothing.
+ */
+function strokeSawtooth(
+  context: CanvasRenderingContext2D,
+  rect: { left: number, right: number, top: number, bottom: number },
+  color: string,
+  options: RespectPillsOptions,
+  horizontalPixelRatio: number,
+  verticalPixelRatio: number,
+): void {
+  const stroke = Math.max(1, Math.round(options.width * verticalPixelRatio))
+  const step = Math.max(1, (options.period / 2) * horizontalPixelRatio)
+
+  let high = rect.top + stroke / 2
+  let low = rect.bottom - stroke / 2
+  if (low < high) high = low = (rect.top + rect.bottom) / 2
+
+  context.beginPath()
+  context.moveTo(rect.left, low)
+
+  const teeth = Math.max(1, Math.ceil((rect.right - rect.left) / step))
+  for (let i = 1; i <= teeth; i++) {
+    const x = rect.left + i * step
+    const y = i % 2 === 0 ? low : high
+    if (x >= rect.right) {
+      const previous = i % 2 === 0 ? high : low
+      const along = (rect.right - (x - step)) / step
+      context.lineTo(rect.right, previous + (y - previous) * along)
+      break
+    }
+    context.lineTo(x, y)
+  }
+
+  context.strokeStyle = color
+  context.lineWidth = stroke
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.stroke()
+}
+
 class RespectPillsRenderer implements IPrimitivePaneRenderer {
   constructor(
     private readonly pills: readonly RespectPill[],
@@ -156,6 +246,18 @@ class RespectPillsRenderer implements IPrimitivePaneRenderer {
         const width = right - left
         const height = bottom - top
         if (width <= 0 || height <= 0) continue
+
+        if (options.shape === 'sawtooth') {
+          strokeSawtooth(
+            context,
+            { left, right, top, bottom },
+            pill.color,
+            options,
+            horizontalPixelRatio,
+            verticalPixelRatio,
+          )
+          continue
+        }
 
         // The first use of `roundRect` in this app — the three primitives before it draw squares,
         // straight lines and circles. Scaled like every other CSS-pixel dimension, and clamped to

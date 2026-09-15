@@ -20,9 +20,12 @@ what the browser cannot evaluate for itself and what is not detector tuning. `de
 `k`, `similarity` and `expansion` fail it and stay written below, because they are what someone
 tuning the *detector* comes looking for. Two things pass. The **Forma rule**, which the screen
 can edit but only the engine can apply — see the module docstring on `routers/patterns.py`. And
-the **lines somebody drew**, which are the stronger case of the two: a pinned level exists
-nowhere but in the browser holding it, so no argument about where it is better computed arises.
-Neither changes the shape of the pipeline, and that is the line being held.
+the **lines somebody drew** — the levels and the sloped ones alike — which are the stronger
+case of the two: a pinned line exists nowhere but in the browser holding it, so no argument about
+where it is better computed arises. A pinned trend line is not the weaker version of that argument
+it might look like. The fan this Pattern's cousin draws is hundreds of lines wide, and which two or
+three of them somebody kept, and where they dragged an end to, is exactly the thing no Series can
+say. Neither changes the shape of the pipeline, and that is the line being held.
 """
 
 from pattern_engine import FormaRule, Pattern, Timeframe
@@ -31,6 +34,7 @@ from pattern_engine.patterns import (
     DEFAULT_K,
     DEFAULT_SIMILARITY,
     NO_LINES,
+    NO_TRENDS,
     AdvancingLegsPattern,
     BarGapPattern,
     BarsPattern,
@@ -42,8 +46,10 @@ from pattern_engine.patterns import (
     LineRespectPattern,
     NestedLegsPattern,
     PinnedLines,
+    PinnedTrends,
     SimpleLegPattern,
     TrendLinesPattern,
+    TrendRelationsPattern,
     ZigZagPattern,
 )
 
@@ -77,9 +83,11 @@ RULE_K = FormaRule(
 
 
 def build_pipeline(
-    rule: FormaRule = RULE_K, lines: PinnedLines = NO_LINES
+    rule: FormaRule = RULE_K,
+    lines: PinnedLines = NO_LINES,
+    trends: PinnedTrends = NO_TRENDS,
 ) -> tuple[Pattern, ...]:
-    """The Patterns this installation runs, in run order, reading `rule` and `lines` where asked.
+    """The Patterns this installation runs, in run order, reading `rule` and the lines where asked.
 
     One Pattern reads it today — `bars` — and the argument is still one rule for the pipeline
     rather than one per Pattern. That is deliberate and outlives the current list: the reversal
@@ -113,6 +121,10 @@ def build_pipeline(
     # And once more, for the one Pattern here that is told its geometry: the grouper at the very
     # bottom reads this Series' events, and takes this instance rather than its key.
     relations = LineRelationsPattern(lines=lines, reads=("5m",), emits="5m")
+    # Its sloped twin, bound for the same reason: the second `line-respect` at the very bottom reads
+    # this Series' events and takes this instance. Beside `relations` rather than near
+    # `trend-lines`, because it is not downstream of the fan — see `TrendRelationsPattern`.
+    trend_relations = TrendRelationsPattern(trends=trends, reads=("5m",), emits="5m")
 
     return (
         zigzag,
@@ -224,6 +236,16 @@ def build_pipeline(
         # Immediately after its source, and this one *is* an ordering constraint: it reads a
         # producer key rather than `ctx["bars"]`, so declared before `relations` it would raise.
         LineRespectPattern(source=relations, reads=("5m",), emits="5m"),
+        # The same pair again for the lines that slope. A pinned trend line asks what a pinned level
+        # asks — is price still respecting this? — and gets the same three answers under the same
+        # three names, because they are the same rules read off a price that moves with the bar.
+        #
+        # Two instances of `LineRespectPattern` and not a second class: it reads `LineRelation`
+        # fields and never the lines, so it cannot tell the two sources apart and has no reason to.
+        # They are distinct in `ctx` because `producer` renders the source into the key, and
+        # distinct on the screen because `name` is derived from the source's.
+        trend_relations,
+        LineRespectPattern(source=trend_relations, reads=("5m",), emits="5m"),
     )
 
 

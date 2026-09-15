@@ -1,6 +1,6 @@
 import type { UTCTimestamp } from 'lightweight-charts'
 import type { LineRespect } from '~/types/pattern'
-import type { PillSide, RespectPill } from '~/utils/respect-pills'
+import type { PillShape, PillSide, RespectPill } from '~/utils/respect-pills'
 
 /**
  * Turning `line-respect` Points into the pills the chart draws.
@@ -36,6 +36,26 @@ import type { PillSide, RespectPill } from '~/utils/respect-pills'
 export const RESPECT_HUES: Record<LineRespect['side'], string> = {
   above: '#4ade8099',
   below: '#f8717199',
+}
+
+/**
+ * The same two hues at full strength, for the sawtooth.
+ *
+ * Both halves of the transparency argument above are about a *fill*: ten pixels of solid colour
+ * reading as a second object in the picture, and a wick needing to stay legible through it. A 2px
+ * stroke has neither problem — it covers almost nothing and hides nothing — and at 60% it would
+ * read as a faded pill rather than as a different mark, which is the one thing this shape exists
+ * to be.
+ */
+export const RESPECT_STROKE_HUES: Record<LineRespect['side'], string> = {
+  above: '#4ade80',
+  below: '#f87171',
+}
+
+/** The hue table each mark draws in. */
+const HUES: Record<PillShape, Record<LineRespect['side'], string>> = {
+  pill: RESPECT_HUES,
+  sawtooth: RESPECT_STROKE_HUES,
 }
 
 /**
@@ -82,6 +102,44 @@ export const PILL_HEIGHT = 7
 export const PILL_RADIUS = 3
 
 /**
+ * The sawtooth's three numbers, in CSS pixels.
+ *
+ * The swing is **shorter than the pill's box**, deliberately, which is the one place the two marks
+ * stop sharing a number. A pill is a solid block and reads as one object at any height; a 2px
+ * stroke swinging the same 7px reads as a fence — tall enough that the eye takes the peaks for
+ * separate strokes instead of one line going up and down. Five is where it settles back into being
+ * a texture. It shortens only the far edge of the box: `boundsOf` measures `gap` from the near one,
+ * so the mark sits exactly as clear of the run's extreme as the pill does, and `PILL_PITCH` is
+ * still the pitch for both, so the two Series share one lane grid.
+ *
+ * `6` for a full tooth: a run of two bars is then a whole tooth rather than half of one, and at
+ * three pixels per half-step the round caps still leave daylight at the peaks instead of filling
+ * the swing in — which would be the pill again, drawn worse.
+ *
+ * `2` is the thinnest stroke that survives the round to device pixels on a 1× screen while still
+ * reading as a line rather than as a hairline.
+ */
+export const SAWTOOTH_HEIGHT = 5
+export const SAWTOOTH_PERIOD = 6
+export const SAWTOOTH_WIDTH = 2
+
+/**
+ * Which mark a respect Series is drawn with, read off its producer key.
+ *
+ * The pipeline runs `LineRespectPattern` twice — over the pinned levels and over the pinned sloped
+ * lines — and `Pattern.producer` renders the source Pattern into the key, so the key is the only
+ * thing on the wire that actually *says* which kind of line a group was held against. The Series'
+ * `name` would answer too, but that is a label written for a person to read, and hanging a drawing
+ * off it would make rewording it a rendering change.
+ *
+ * Anything else, including a `line-respect` Series from a source this app has not met, gets the
+ * pill: the mark this overlay has always drawn is the one to fall back to.
+ */
+export function respectMark(producer: string): PillShape {
+  return producer.includes('source=<trend-relations(') ? 'sawtooth' : 'pill'
+}
+
+/**
  * What a drawn group is called.
  *
  * The producer, the line and the anchor. Unlike `gapBoxId` this needs all three: several lines
@@ -121,6 +179,9 @@ export function pillExtreme(point: LineRespect): number {
  * above the candles and one drawn below them can never collide however their spans overlap, and
  * counting them together would push one of them out for no reason.
  *
+ * `shape` is here only to pick the hue table — the span, the lane and the extreme are the same
+ * questions for both marks, and the primitive is what knows the difference between them.
+ *
  * Sorted by span before the sweep — first bar, then line id — so the lane a group lands in depends
  * on the groups and not on the order the response happened to list them in. Within one side a group
  * takes the lowest lane whose last occupant ended before it starts; the lane is therefore a
@@ -130,6 +191,7 @@ export function respectPills(
   namespace: string,
   points: LineRespect[],
   sides: LineRespect['side'][],
+  shape: PillShape = 'pill',
 ): RespectPill[] {
   const kept = points
     .filter(point => point.bars.length > 0 && sides.includes(point.side))
@@ -156,7 +218,7 @@ export function respectPills(
       price: pillExtreme(point),
       side: placement,
       lane,
-      color: RESPECT_HUES[point.side],
+      color: HUES[shape][point.side],
     }
   })
 }

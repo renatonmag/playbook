@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { ISeriesApi, SeriesType, Time } from 'lightweight-charts'
 import type { LineRespect } from '~/types/pattern'
+import type { PillShape } from '~/utils/respect-pills'
 
 /**
- * Draws one line-respect Series: a rounded 10px pill over every run of bars that held a pinned
- * line — green below the run when it held the line from above, light red above the run when it held
+ * Draws one line-respect Series: a mark over every run of bars that held a pinned line — green below the run when it held the line from above, light red above the run when it held
  * it from below. The pill goes on the far side from the line, which is the only empty air a run
  * has; `PLACEMENT` in `line-respect.ts` is that decision and its reasoning.
  *
@@ -17,6 +17,12 @@ import type { LineRespect } from '~/types/pattern'
  *
  * `sides` is the sidebar's filter, the shape `directions` and `states` take on the other overlays.
  * Absent means both, so a caller that knows nothing about respect gets the whole Series.
+ *
+ * **Two Series, two marks.** The pipeline declares this Pattern twice, once over the pinned levels
+ * and once over the pinned sloped lines, and one instance of this component draws each. They share
+ * everything about *where* a mark goes and differ only in the shape drawn there — a pill for the
+ * levels, a sawtooth for the slopes — so that a chart carrying both can be read without consulting
+ * the sidebar. `mark` is that choice and `respectMark` makes it; the reasoning is in both.
  *
  * No `pinned` and no `onlyPinned`. A pill is a label with nothing behind it: there is no second
  * reading to unfold, nothing to drag, and so nothing a click on one could do. That is also why
@@ -37,10 +43,17 @@ const props = withDefaults(
     color?: string
     /** Which sides to draw. Both absent means both drawn. */
     sides?: LineRespect['side'][]
+    /**
+     * Which mark to draw. Defaults to the pill for the reason `sides` defaults to both: a caller
+     * that knows nothing about where these Points came from gets what this overlay has always
+     * drawn.
+     */
+    mark?: PillShape
   }>(),
   {
     color: undefined,
     sides: () => ['above', 'below'],
+    mark: 'pill',
   },
 )
 
@@ -67,11 +80,17 @@ watch(
     if (!bars) return
 
     if (!primitive) {
+      // `mark` is read once, here, and never again: a producer names its source, this component is
+      // keyed on the producer, so the shape cannot change under an instance.
       primitive = new RespectPills({
-        height: PILL_HEIGHT,
+        // The one dimension the two marks do not share — see `SAWTOOTH_HEIGHT`.
+        height: props.mark === 'sawtooth' ? SAWTOOTH_HEIGHT : PILL_HEIGHT,
         gap: PILL_GAP,
         pitch: PILL_PITCH,
         radius: PILL_RADIUS,
+        shape: props.mark,
+        period: SAWTOOTH_PERIOD,
+        width: SAWTOOTH_WIDTH,
       })
       // The cast is the same one the other overlays make: the candlestick series is declared on
       // the chart's generic horizontal scale, and a primitive is typed on `Time`.
@@ -80,7 +99,7 @@ watch(
 
     // Hidden by holding no pills rather than by detaching — the `setBoxes([])` precedent.
     primitive.setPills(
-      props.visible ? respectPills(NAMESPACE, props.points, props.sides) : [],
+      props.visible ? respectPills(NAMESPACE, props.points, props.sides, props.mark) : [],
     )
   },
   { immediate: true },
