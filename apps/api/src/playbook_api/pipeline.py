@@ -127,8 +127,8 @@ def build_pipeline(
         # as the Series — a collision is a fact about the candles, not about the pivots — so it
         # sits here, after its source and among the Patterns that still look at raw price.
         #
-        # No dials. What counts as a collision (a wick past the line) and which side a pivot is
-        # are both settled in the module, and how many lines to keep is not a decision a detector
+        # No dials. What counts as a collision (a *body* past the line — a wick through it is not
+        # one) and which side a pivot is are both settled in the module, and how many lines to keep is not a decision a detector
         # gets to make. Expect this to be by far the heaviest Series the pipeline emits: every
         # pivot fans out to every later one it can see, which is the point and is stated in full
         # in the module docstring.

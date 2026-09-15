@@ -10,15 +10,20 @@ Four rules carry the whole thing:
 - **Same side only.** A `LegMark` is a top (`direction == "high"`) or a bottom (`"low"`), and a
   line joins two marks of one side. Tops to tops is a ceiling, bottoms to bottoms a floor; a line
   from a top to a bottom is a leg, which `simple-leg` already draws.
-- **A candle in the way kills the line, except the two beside its ends.** Between the two
-  endpoints the line sits at an interpolated price on each bar. A bottom line dies the moment some
-  intervening candle's `low` is strictly *below* it, a top line the moment some `high` is strictly
+- **A candle in the way kills the line, and two things are not in the way.** Between the two
+  endpoints the line sits at an interpolated price on each bar, and a bottom line dies the moment
+  some intervening candle reaches strictly *below* it, a top line the moment one reaches strictly
   *above* it — that is what "in the way" means for a line meant to sit under, or over, the price
   action. Strictly: a candle resting exactly on the line is a candle the line touched, which is
-  the whole point of a line. Wicks, not bodies — a low is where price actually went. The one bar
-  inward from each endpoint is exempt along with the endpoint itself: it is still inside the turn
-  that made that pivot, price is still at the extreme's own level there, and so it grazes every
-  line drawn through the pivot at any slope. Testing it rejected lines a reader draws by eye.
+  the whole point of a line. Two exemptions narrow it, and both come from the same observation —
+  the lines that died were lines a reader keeps drawing:
+  - **The one bar inward from each endpoint**, exempt along with the endpoint itself: it is still
+    inside the turn that made that pivot, price is still at the extreme's own level there, and so
+    it grazes every line drawn through the pivot at any slope.
+  - **Every bar's wick.** What reaches through is read on the body — `min(open, close)` under a
+    floor, `max(open, close)` over a ceiling — so a candle that spiked past the line and closed
+    back inside it is not in the way. A wick is where price went and did not stay; the line is a
+    level that held, and a level that held is a statement about where candles *settled*.
 - **Every reachable pivot, not the next one.** Each mark is joined to *every* later same-side mark
   it can see, not merely to the first. A line that skips three pivots is the long trend the eye is
   looking for, and it is exactly the one a chain of nearest-neighbour links would never draw.
@@ -65,6 +70,11 @@ What it costs, stated rather than hidden:
   such a pair connects unconditionally — which is true and useless. The exemption above widens the
   same hole: three bars apart, both bars in between are the ones beside the ends, and there is
   again nothing a candle could block. Only pairs with a bar no exemption covers are emitted.
+- **A line can run visibly through a spike.** The wick exemption is a real loss of information,
+  not a rounding of one: a candle whose low pierced a floor by a hundred ticks and closed above it
+  leaves the floor standing, and on the screen the line crosses the wick. What the Series claims is
+  therefore "no body reached through", and a reader who wants wick breaks has the same bars this
+  read and can ask them.
 - **Nothing says a line is still unbroken.** It is clear between its endpoints, and says nothing
   at all about the bars after the second one. A line extended past its far pivot is a drawing
   decision, and it is the screen's — see `TrendLinesOverlay`.
@@ -114,6 +124,15 @@ def clear(
     the deaths were spurious. The cost is stated rather than hidden: an obstruction sitting exactly
     one bar in from an end is now invisible, so what this returns is "clear from `start + 2` to
     `end - 2`", and a caller wanting more has to look itself.
+
+    Nor is any bar's wick. The bars that are read are read on the body, so a candle that spiked
+    through the line and closed back on the right side of it is not an obstruction. Same reasoning
+    once more: the deaths were spurious, because a reader looking at that candle still draws the
+    line. And the asymmetry it leaves is deliberate rather than an oversight — the *endpoints* are
+    wick extremes, since `leg_ends` takes them from `extreme_points`, which reads highs and lows.
+    A line is drawn through wicks and blocked only by bodies. A floor is pinned to the furthest
+    price a leg reached and then asked to survive where price *stayed*, which is the two questions
+    a reader actually asks of it, and neither one answered on the other's terms.
     """
     span = end - start
     slope = (to_price - from_price) / span
@@ -122,9 +141,9 @@ def clear(
         line = integer(from_price + slope * offset)
         bar = bars[start + offset]
         if side == "low":
-            if integer(bar.low) < line:
+            if integer(min(bar.open, bar.close)) < line:
                 return False
-        elif integer(bar.high) > line:
+        elif integer(max(bar.open, bar.close)) > line:
             return False
 
     return True
