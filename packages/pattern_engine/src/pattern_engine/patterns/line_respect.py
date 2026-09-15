@@ -24,12 +24,21 @@ The rules, and what each one deliberately does not say:
   it into the run it opened would claim the new side started with a bar that opened on the old one.
   It is the separator, and separators are not members.
 
-- **The side is the first event's, and every later one agrees.** `side` on a `LineRelation` is
-  where the bar *opened*; what a group needs is where price *sat*, and the two coincide on every
-  kind but one. A `touch` and an undone `breakout` both opened on the side they held; a `seam`
-  opened on the broken side and closed back, so its respected side is the opposite. Read off the
-  first event because the rest cannot disagree — price does not change sides without a definitive
-  breakout, and a definitive breakout would have ended the run.
+- **The side is the last event that could say.** `side` on a `LineRelation` is where the bar
+  *opened*; what a group needs is where price *sat*, and the two coincide on every kind but one. A
+  `touch` and an undone `breakout` both opened on the side they held; a `seam` opened on the broken
+  side and closed back, so its respected side is the opposite.
+
+  Read off the last event because the events of one run *can* disagree, which is the thing a run of
+  seams does. Price changes sides on every crossing, and a crossing that a later one takes back is
+  never a definitive breakout, so it never ends the run: break up, seam back down, seam back up is
+  one group whose bars respected `below`, `below`, then `above`. The last reading is the one that
+  is still true at the anchor, which is where a reader is standing.
+
+  What that costs is worth saying plainly: one side names a stretch that may have had two, so a
+  whipsawed run is labelled for the side it *finished* on and not for the side it spent most of
+  itself on. The bars are all carried, so a reader who wants the whole story reads them; what this
+  field answers is "which side is the line being held from now".
 
   This is one meaning of `side` across one Series, the same discipline `line_relations` keeps, and
   it is why this is a second Pattern rather than a fourth `kind` there: that field means "where the
@@ -201,9 +210,9 @@ def line_respects(
         undone = undone_breakouts(events)
 
         # The open run, as the three things emitting it needs: where its events fell, the side it
-        # holds, and the price of the line they held. `side` is taken off the first event that could
-        # say rather than off the first event outright, so one that opened exactly on the line does
-        # not decide the group merely by being at the front of it. All three are cleared together —
+        # holds, and the price of the line they held. `side` trails the last event that could say
+        # rather than the last event outright, so one that opened exactly on the line does not blank
+        # a reading already taken merely by being the most recent. All three are cleared together —
         # see `_closed`.
         run: list[int] = []
         side: Side | None = None
@@ -218,9 +227,9 @@ def line_respects(
                 # The bar that broke out may already be in the run, put there by its own touch — a
                 # bar opening exactly on the line does both. It is the separator, and separators
                 # are not members, so it comes back out before the group is made. What it leaves
-                # behind is `side`, which that touch may have been the first event able to say;
-                # taking that back too would be a group with no side at all rather than a group
-                # named by a bar just outside it.
+                # behind is `side`, and that is right rather than merely convenient: the touch of a
+                # bar that went on to break opened on the side the run was holding, so it says the
+                # same thing the run's own last event says.
                 if run and run[-1] == at:
                     run.pop()
 
@@ -243,8 +252,9 @@ def line_respects(
 
             run.append(at)
             price = event.price
-            if side is None:
-                side = respected_side(event)
+            respected = respected_side(event)
+            if respected is not None:
+                side = respected
 
         # The run still open at the window's edge, emitted on the same terms as one a breakout
         # ended. See the module docstring on why it carries no mark saying so.

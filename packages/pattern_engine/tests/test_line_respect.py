@@ -119,8 +119,9 @@ ADJACENT = (
 )
 
 #: An anchor, a break up, a break back down inside the span, then a break up again. Three
-#: crossings, two seams, and no breakout that stands — one group over all three bars, held from
-#: below, since that is where the first of them opened.
+#: crossings, two seams, and no breakout that stands — one group over all three bars. The only
+#: fixture whose events disagree about the side: the first two respected `below` and the last
+#: closed back above, so the group is held from *above*, which is where the run finished.
 WHIPPED = (
     (80.0, 85.0, 79.0, 84.0),
     (90.0, 115.0, 89.0, 110.0),
@@ -223,7 +224,18 @@ def test_a_definitive_breakout_closes_a_group_and_joins_none(specs: tuple) -> No
 @pytest.mark.parametrize("specs", [WHIPPED, flipped(WHIPPED)])
 def test_the_breakout_a_seam_undid_is_inside_the_group(specs: tuple) -> None:
     """All three crossings are one run: the first is undone, and the other two are the seams."""
-    assert runs(specs, ("a", 0)) == [("a", "below" if specs == WHIPPED else "above", 1, 3)]
+    assert runs(specs, ("a", 0)) == [("a", "above" if specs == WHIPPED else "below", 1, 3)]
+
+
+def test_the_side_is_the_last_event_and_not_the_first_when_they_disagree() -> None:
+    """A run of seams crosses the line without ever ending, so its events *do* disagree — and the
+    group is named for the crossing that stands, not for the one that opened the stretch."""
+    bars = series(*WHIPPED).points
+    events = line_relations(bars, lines(("a", 0)))
+
+    assert respected_side(events[0]) == "below"
+    assert respected_side(events[-1]) == "above"
+    assert [point.side for point in line_respects(events, bars)] == ["above"]
 
 
 def test_a_breakout_that_also_touched_still_joins_no_group() -> None:
@@ -232,14 +244,16 @@ def test_a_breakout_that_also_touched_still_joins_no_group() -> None:
     assert runs(STEPPED_OFF, ("a", 0)) == [("a", "below", 1, 1)]
 
 
-def test_the_side_is_the_first_event_that_could_say() -> None:
-    """A bar that opened exactly on the line decides nothing; the next one in the run does."""
+def test_the_side_is_the_last_event_that_could_say() -> None:
+    """A bar that opened exactly on the line decides nothing, whether it comes first or last; the
+    last event in the run that *can* say is the one that names the group."""
     on_the_line = (
         (80.0, 85.0, 79.0, 84.0),
         (100.0, 105.0, 95.0, 100.0),
         (90.0, 105.0, 89.0, 95.0),
+        (100.0, 105.0, 95.0, 100.0),
     )
-    assert runs(on_the_line, ("a", 0)) == [("a", "below", 1, 2)]
+    assert runs(on_the_line, ("a", 0)) == [("a", "below", 1, 3)]
 
 
 def test_a_run_that_never_says_which_side_is_dropped() -> None:
