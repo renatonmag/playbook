@@ -31,16 +31,23 @@ import type { TrendLine } from '~/types/pattern'
  * the current candle. That second half is what `extend` has meant since `LevelSegments`; only the
  * geometry is new.
  *
- * `focus` is the other half of the sidebar's `Destacar por ponto` switch: a bar, whose arriving
- * lines keep the Series' colour while the rest of the fan fades. See `trendSegments`, which decides
- * what that means. A dimmed line is still *drawn* — the highlight is emphasis, not a filter — but it
- * is no longer a target: the fan is dense enough that a faded line lies across a lit one every few
- * pixels, so a backdrop that still took clicks would hand back the wrong line most of the time.
+ * `focus` is the other half of the sidebar's `Destacar por ponto` switch: a bar, and once one is
+ * chosen the only lines left on the chart are the ones arriving there — plus whatever you pinned or
+ * moved, which a focus never takes away. See `trendSegments`, which decides what that means and why
+ * the rest is removed rather than faded.
  *
- * `previewOnHover` is that switch again, at the cursor: the line under it is drawn as though it were
- * selected, so a line's projection can be read without committing to a pin and undoing it. It needs
- * no condition of its own about the focus — a line you cannot hit is a line you cannot hover, so
- * once a bar is chosen only the lit lines preview.
+ * `focusOnHover` is that same highlight, put on the cursor: sweep along the candles and the fan culls
+ * to each bar it reaches and comes back whole between them, which is the chart read bar by bar
+ * rather than a click spent per guess. It is the *second* choice — `props.focus` wins whenever the
+ * page holds one — and that order is the whole arrangement: hover asks, and the click that fixes a
+ * bar is what stops the drawing following the cursor, so the lines arriving there can be travelled
+ * to and clicked. Which is `onClick`'s own argument about why a click on a line must not also name
+ * a bar, one gesture earlier.
+ *
+ * `previewOnHover` is that switch a third time, at the same cursor but about a line rather than a
+ * bar: the line under it is drawn as though it were selected, so a line's projection can be read
+ * without committing to a pin and undoing it. It needs no condition of its own about the focus — a
+ * line that is not drawn is a line you cannot hover, so only what survived the highlight previews.
  *
  * `moves` and `bars` are the hand-adjusted lines and the candles they are anchored to. Either end
  * of a selected line can be dragged onto any bar's `open`, `high`, `low` or `close`; the result is a
@@ -59,8 +66,10 @@ const props = withDefaults(
     pinned?: string[]
     /** The Series' hide timer has fired: only the selected lines are still worth the space. */
     onlyPinned?: boolean
-    /** The bar whose arriving lines stay lit. `null` means nothing is being asked about. */
+    /** The bar whose arriving lines are the only fan left. `null` means nothing is being asked about. */
     focus?: number | null
+    /** Let the bar under the cursor stand in for `focus` while the page holds none. Its switch decides. */
+    focusOnHover?: boolean
     /** Draw the line under the cursor as though it were selected. The page's switch decides. */
     previewOnHover?: boolean
     /** The hand-adjusted lines, as `moveKey` strings. Each one is its own pin — see `movedSegments`. */
@@ -86,6 +95,7 @@ const props = withDefaults(
     pinned: () => [],
     onlyPinned: false,
     focus: null,
+    focusOnHover: false,
     previewOnHover: false,
     moves: () => [],
     bars: () => new Map(),
@@ -100,9 +110,10 @@ const props = withDefaults(
  * `pin` means *add*, not toggle. A line no longer leaves the list through a click on the chart —
  * that click selects it now — and leaves it through the control bar's `Trash` instead.
  *
- * `bar` is the same arrangement for the highlight: the bar a click landed on, `null` when it landed
- * past the data. Whether that sets a focus or means nothing at all is the page's to decide, which is
- * why the page only listens while its switch is on.
+ * `bar` is the same arrangement for the highlight: the bar a click landed on, or `null` for a bar
+ * the fan does not reach — which is the highlight being *cleared*, not a bar being named. A click
+ * past the data emits nothing at all; see `onClick`. Whether any of it means anything is the page's
+ * to decide, which is why the page only listens while its switch is on.
  *
  * The two are exclusive — a click reports one thing or the other, never both. See `onClick`.
  */
@@ -164,9 +175,13 @@ function segmentsToDraw(): DrawnTrend[] {
     ? [...props.moves.filter(key => parseMove(key)?.origin !== drag.origin), moveKeyOf(drag)]
     : props.moves
 
+  // The bar the fan is culled to: the one the page fixed, and failing that the one under the
+  // cursor. `??` and not `||`, so a fixed bar is honoured even at time zero.
+  const focus = props.focus ?? hoveredBar.value
+
   const segments = [
-    ...trendSegments(props.points, props.sides, props.color, pinned, props.focus, hovered.value),
-    ...movedSegments(props.points, props.sides, props.color, moves, props.bars, props.focus),
+    ...trendSegments(props.points, props.sides, props.color, pinned, focus, hovered.value),
+    ...movedSegments(props.points, props.sides, props.color, moves, props.bars),
   ]
 
   // Still the real pins, not the hover: the timer keeps what you decided to keep, and the cursor
@@ -183,6 +198,15 @@ function segmentsToDraw(): DrawnTrend[] {
  * the whole feature is that moving the mouse redraws.
  */
 const hovered = shallowRef<string | null>(null)
+
+/**
+ * The bar under the cursor, when it is one the fan reaches and the page holds no focus of its own.
+ *
+ * Held here rather than pushed at the page, unlike the click's bar: a preview is not a decision.
+ * Nothing about it is stored, nothing survives the cursor leaving, and the sidebar's `· hh:mm` goes
+ * on naming the bar somebody actually fixed — which is also what keeps the two legible side by side.
+ */
+const hoveredBar = shallowRef<number | null>(null)
 
 /**
  * A line whose ends can be taken hold of: where they currently are, and what a drag of one would be
@@ -421,13 +445,18 @@ function dragTo(param: MouseEventParams<Time>) {
 }
 
 /**
- * The cursor moved: note which of this Series' lines it is on, so the drawing can try that one on.
+ * The cursor moved: note which of this Series' lines it is on, and which bar it is over, so the
+ * drawing can try both on.
  *
  * The first `subscribeCrosshairMove` in the app, and the click subscription could not stand in for
  * a plain reason: the point is to answer *before* the click. What it reads is the same
  * `hoveredInfo.objectId` the click reads, so it carries `onClick`'s two caveats with it — every
  * primitive reports into that one field, hence the `drawnIds` check, and a touch that never hovers
- * previews nothing. It loses nothing either: tapping still selects.
+ * previews nothing. It loses nothing either: tapping still selects, and tapping a bar still fixes it.
+ *
+ * Two answers out of one move, and they are independent: `hovered` is a line trying on a pin, and
+ * `hoveredBar` is the whole fan trying on a highlight. A cursor over a candle usually sets the
+ * second and not the first.
  */
 function onCrosshairMove(param: MouseEventParams<Time>) {
   // Only what the pointer actually did. The library re-fires this after every repaint — including
@@ -442,6 +471,10 @@ function onCrosshairMove(param: MouseEventParams<Time>) {
   // handle is set by the redraw watcher for the duration, since the line it belongs to is being
   // rebuilt on every frame.
   if (dragging.value) {
+    // And a drag owns the highlight with it. A fan reshaping under the end you are placing is the
+    // one thing worse than no preview at all — the line you are dragging would leave the chart the
+    // moment the cursor crossed a pivot.
+    hoveredBar.value = null
     dragTo(param)
     return
   }
@@ -462,12 +495,39 @@ function onCrosshairMove(param: MouseEventParams<Time>) {
   grabbable = grab && end ? { ...grab, end } : null
   if (grab) primitive?.setHandle({ id: grab.id, active: end })
 
+  // The same question the click asks of a bar, asked a gesture earlier and answered the same way,
+  // so hover and click cannot come to disagree about which bars are worth anything. A press already
+  // resting on a handle counts as a drag about to happen and previews nothing.
+  const bar = props.focusOnHover && !pressed && typeof param.time === 'number'
+    && linesArriveAt(props.points, props.sides, param.time)
+    ? param.time
+    : null
+
   const next = props.previewOnHover && typeof id === 'string' && drawnIds.has(id) ? id : null
 
   // This fires on every mouse move across the pane. Only a change is worth reshaping the Series
-  // and repainting for.
-  if (next === hovered.value) return
+  // and repainting for — either half of it.
+  if (next === hovered.value && bar === hoveredBar.value) return
   hovered.value = next
+  hoveredBar.value = bar
+}
+
+/**
+ * The cursor left the pane: nothing is hovered any more, neither the line nor the bar.
+ *
+ * A DOM event because the library has none to offer — its crosshair subscription goes quiet on the
+ * way out rather than reporting the exit, and what it does fire afterwards are the repaint echoes
+ * `onCrosshairMove` deliberately ignores. Without this the fan stayed culled to whichever bar the
+ * mouse happened to cross last on its way to the sidebar, which reads as a bar somebody fixed and
+ * is a highlight nobody asked for.
+ *
+ * Not during a drag: the pointer is allowed to leave the pane with a line's end still on it, and
+ * the drag ends on the release, not on the border.
+ */
+function onPointerLeave() {
+  if (dragging.value) return
+  hovered.value = null
+  hoveredBar.value = null
 }
 
 /**
@@ -575,12 +635,22 @@ function onKeyDown(event: KeyboardEvent) {
  * Exclusive, and the line wins. Selecting a line is what you do *with* a highlighted pivot — you
  * take one of the lines arriving there, then another — and those clicks land wherever the line
  * happens to be, which is almost never over the focused bar. Letting them also name a bar moved the
- * highlight off the pivot on the first pin and dimmed every line you were about to click next, so
- * the feature ended after one selection.
+ * highlight off the pivot on the first pin and took every line you were about to click next off the
+ * chart, so the feature ended after one selection.
  *
- * Once a focus is set only the lit lines are hit-testable, so the click that reaches this branch is
- * a click on a line that answers the question being asked. Everything else — the dimmed backdrop,
- * the candles, empty pane — asks a new question, and names a bar.
+ * Once a focus is set the only lines on the chart are the ones that answer it and the ones you
+ * kept, so a click that reaches this branch is a click on one of those. Everything else — the
+ * candles, and the pane the rest of the fan used to fill — is about a bar.
+ *
+ * And about a bar in one of two ways, because most bars are not worth highlighting. A bar the fan
+ * reaches asks a new question. A bar it does not reach is not a question at all — highlighting it
+ * would leave the chart empty — so it ends the one on screen and gives the fan back. That is the
+ * cheap way out of a highlight, and the switch is the deliberate one.
+ *
+ * What a click *is*, now that the cursor already highlights what it passes over: not the choosing of
+ * a bar but the keeping of one. The hover has shown you the answer by the time you press, and the
+ * press is what stops the drawing following the cursor — see `focusOnHover` — so that the lines
+ * arriving there hold still long enough to be travelled to and clicked.
  *
  * `hoveredInfo.objectId` is whatever the primitives' hit tests last returned for the cursor, so
  * this is a mouse affordance: a touch that never hovers leaves it unset and nothing is selected.
@@ -592,7 +662,7 @@ function onKeyDown(event: KeyboardEvent) {
  * While the hide timer is hiding there is no bar half to be had. `onlyPinned` takes the fan off the
  * chart and leaves the selected lines — see `segmentsToDraw` — and a focus is read against the fan
  * it was picked out of, so a click naming a bar there moves the highlight somewhere nobody can
- * watch it land, then hands it back dimmed when the next candle brings the fan in. The line half of
+ * watch it land, then hands it back cut down when the next candle brings the fan in. The line half of
  * the click is untouched: what survived the hide is on screen, and clicking it still deselects it.
  */
 function onClick(param: MouseEventParams<Time>) {
@@ -620,9 +690,14 @@ function onClick(param: MouseEventParams<Time>) {
   // of that is gone, and with it the question a bar answers.
   if (props.onlyPinned) return
 
-  // A bar time is a number on this chart's scale; anything else — or a click past the last bar,
-  // where `time` is absent — names no bar.
-  emit('bar', typeof param.time === 'number' ? param.time : null)
+  // A click past the last bar, where `time` is absent, names no bar and is reported as nothing: a
+  // missed click cannot cost the highlight, which is the one case that is neither a new question
+  // nor an answer to the old one.
+  if (typeof param.time !== 'number') return
+
+  // The fan's own reading of the bar, asked here rather than on the page because `points` and the
+  // side filter are both props: a bar lines arrive at, or the clear.
+  emit('bar', linesArriveAt(props.points, props.sides, param.time) ? param.time : null)
 }
 
 /** The ids currently handed to the primitive, which is exactly what a click can name. */
@@ -677,11 +752,13 @@ watch(
     () => props.pinned,
     () => props.onlyPinned,
     () => props.focus,
+    () => props.focusOnHover,
     () => props.previewOnHover,
     () => props.moves,
     () => props.bars,
     () => props.selected,
     hovered,
+    hoveredBar,
     dragging,
   ],
   ([bars, api]) => {
@@ -704,6 +781,7 @@ watch(
       pane = api.chartElement()
       pane.addEventListener('pointerdown', onPointerDown)
       pane.addEventListener('pointermove', onPointerMove)
+      pane.addEventListener('pointerleave', onPointerLeave)
       window.addEventListener('pointerup', onPointerUp)
       window.addEventListener('keydown', onKeyDown)
 
@@ -792,6 +870,7 @@ onBeforeUnmount(() => {
 
   pane?.removeEventListener('pointerdown', onPointerDown)
   pane?.removeEventListener('pointermove', onPointerMove)
+  pane?.removeEventListener('pointerleave', onPointerLeave)
   pane = null
   window.removeEventListener('pointerup', onPointerUp)
   window.removeEventListener('keydown', onKeyDown)

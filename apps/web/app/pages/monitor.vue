@@ -749,22 +749,24 @@ function toggleFocusMode(producer: string) {
 }
 
 /**
- * A click on the chart, once the switch is on: focus that bar. It never clears one.
+ * A click on the chart, once the switch is on: focus that bar, or drop the focus when `null` says
+ * the bar was one the fan does not reach. The overlay decides which of the two a click is — see
+ * `linesArriveAt` — and a click that named no bar at all never gets here.
  *
- * This used to clear when you clicked the focused bar again, and that fought the thing a focus is
- * for. A focused pivot is something you work *against* — you select one of the lines arriving at
- * it, then another, then another — and those clicks land on bars, so sooner or later one lands on
- * the focused bar and the highlight would vanish in the middle of the job. Clicks have to be free
- * to land anywhere.
+ * Clearing on an ordinary bar does not bring back the thing that made this function never clear.
+ * That was a click on the *focused* bar toggling the highlight off in the middle of the job: a
+ * focused pivot is something you work against, you select one of the lines arriving at it and then
+ * another, and sooner or later a click lands back on the pivot. It still does, and it still keeps
+ * the highlight — lines arrive at that bar, so it re-focuses itself.
  *
- * So the way out is the switch, which is the deliberate act and was always the better one:
- * `toggleFocusMode` drops the bar on its way off.
+ * What clears is a click on a bar that would highlight nothing, and it clears because the
+ * alternative is worse: with the fan taken off the chart rather than faded, a highlight of nothing
+ * is an empty chart. So the cheap way out is any bar you have no interest in, and the deliberate
+ * one is still the switch — `toggleFocusMode` drops the bar on its way off.
  */
 function setFocusBar(producer: string, time: number | null) {
-  // A click past the last bar names no bar, and leaves the focus alone rather than clearing it —
-  // a missed click cannot cost the highlight either.
-  if (time === null) return
-  focusBar.value.set(producer, time)
+  if (time === null) focusBar.value.delete(producer)
+  else focusBar.value.set(producer, time)
 }
 
 /**
@@ -927,7 +929,7 @@ const hideTimer = useHideTimer(bar.epoch, () => autoHide.value.size > 0)
  *
  * A focused pivot is read against the lines arriving at it, so when the timer takes those lines off
  * the chart the answer goes with the question: a window that closes and reopens on the next candle
- * would otherwise bring the fan back dimmed against a bar chosen minutes ago, which is the stale
+ * would otherwise bring the fan back cut down to a bar chosen minutes ago, which is the stale
  * highlight `toggleFocusMode` already refuses to park. The `Destacar por ponto` switch stays on —
  * the next window wants a fresh click, not a fresh setup.
  *
@@ -1691,10 +1693,10 @@ function pinnedGaps(overlay: { producer: string, points: PatternPoint[] }): GapB
  * It needs the Series' colour, which neither of the two above do — the swatch in this list is the
  * line's actual colour, because for this Pattern the palette colour *is* what gets drawn.
  *
- * No `focus`, unlike the overlay, and this is the one place the list is deliberately not a mirror
- * of the chart: dimming is emphasis on a drawing, not a change to what a line is, and a swatch at
- * `DIM_ALPHA` would read as a broken row rather than as a legend. The side filter is still passed,
- * because that one really does take lines off the screen.
+ * No `focus`, unlike the overlay, and this list is none the poorer for it: a focus takes lines off
+ * the *fan*, and every line on this list is pinned or moved, which is exactly what a focus leaves
+ * alone. So the two agree without the argument being passed. The side filter is still passed,
+ * because that one decides what exists at all, here as on the chart.
  */
 function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color: string }): DrawnTrend[] {
   const ids = new Set(pinsFor(overlay.producer))
@@ -1856,9 +1858,14 @@ function extraProps(overlay: { producer: string, name: string }) {
           // Only wired while the switch is on. With it off the overlay still reports every click's
           // bar — it cannot know the switch exists — and nothing here is listening, so a click on
           // the chart means exactly what it has always meant.
-          // The switch again, at the cursor: hovering a line draws it as though it were selected.
-          // Not gated on a bar being chosen — the preview is worth having on the raw fan too, and
-          // once a bar *is* chosen only the lit lines are hit-testable, so only they preview.
+          // The switch at the cursor, which is two things and not one. `focusOnHover` is the
+          // highlight itself following the mouse along the candles, so reading the fan bar by bar
+          // costs no clicks and the click below is left doing the thing only it can — holding a bar
+          // still. `previewOnHover` is the smaller one: hovering a line draws it as though it were
+          // selected. Not gated on a bar being chosen — the preview is worth having on the raw fan
+          // too, and once a bar *is* chosen the rest of the fan is not drawn, so only what is left
+          // previews.
+          focusOnHover: focusMode.value.has(overlay.producer),
           previewOnHover: focusMode.value.has(overlay.producer),
           // The hand-adjusted lines, and the candles a drag snaps to. Both belong to this Pattern
           // alone: it is the only one whose drawing anybody edits.
@@ -2464,10 +2471,12 @@ function isVisible(overlay: { producer: string }) {
               </div>
 
               <!-- The fan is the problem this answers: a few hundred strokes in one colour, and the
-                   thing worth reading in them is which lines converge on one pivot. On, a click
-                   picks a candle and the lines arriving there keep their colour while the rest fade
-                   back — dimmed and not hidden, because the convergence only reads against the fan
-                   it was picked out of.
+                   thing worth reading in them is which lines converge on one pivot. On, the cursor
+                   answers it candle by candle: the lines arriving at the bar under the mouse are
+                   all that is left on the chart, and the rest of the fan goes — a faded stroke in a
+                   fan this dense is still something to read the answer through. A click fixes the
+                   bar, which is what stops the drawing moving while you go and click one of those
+                   lines. What you pinned or moved stays either way.
 
                    Under the side filter rather than beside it: that row decides what exists, this
                    one only decides what stands out. -->
@@ -2496,7 +2505,8 @@ function isVisible(overlay: { producer: string }) {
                   v-if="focusMode.has(overlay.producer) && focusFor(overlay.producer) === null"
                   class="mt-0.5 text-xs text-gray-400"
                 >
-                  Clique num candle para destacar as linhas que terminam nele.
+                  Passe o mouse por um candle para destacar as linhas que terminam nele; clique
+                  para fixar.
                 </p>
               </div>
 
