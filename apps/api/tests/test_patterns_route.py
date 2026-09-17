@@ -19,6 +19,7 @@ from pattern_engine.patterns import (
     LineRespectPattern,
     TrendRelationsPattern,
 )
+from pattern_engine.patterns.proximity import ProximityLevel, ProximityRule, reach
 
 from playbook_api.db import get_session
 from playbook_api.lines_body import MAX_LINES
@@ -859,9 +860,13 @@ PINNED_NEAR = {
     "lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "price": NEAR_PRICE}]
 }
 
-#: A ladder claiming every leg the wave carves, at a fifth of its size. The wave's legs run about
-#: seven points tall, so the reach is over a point and the peaks — half a point short — are in it.
-LADDER = [{"points": 1.0, "trigger": 0.2}]
+#: A ladder claiming every leg the wave carves, at half its size. The wave's legs run about seven
+#: points tall, so the reach is three and a half — five, once `proximity.reach` puts it on the
+#: instrument's tick — and the peaks, half a point short, are inside it.
+#:
+#: Half and not a fifth because of that tick: a fifth of seven points rounds away to nothing, and
+#: this window's whole wave is smaller than the grid the reach is reported on.
+LADDER = [{"points": 1.0, "trigger": 0.5}]
 
 
 def test_a_line_nobody_reached_answers_nothing_without_a_ladder(client):
@@ -880,8 +885,13 @@ def test_a_posted_ladder_turns_the_near_misses_into_points(client):
     assert points
     assert {point["kind"] for point in points} == {"close"}
     # The two fields only this kind carries, and the claim they let a reader check: the gap is
-    # under the reach, which is `trigger` of the leg.
-    assert all(0 < point["gap"] <= 0.2 * point["leg"] for point in points)
+    # under the reach the posted ladder grants for that leg. Asked of `reach` rather than
+    # recomputed here, because the reach is rounded and a second copy of that rounding would be a
+    # second answer to the question this route exists to forward.
+    rule = ProximityRule(
+        name="proximidade", levels=(ProximityLevel(points=1.0, trigger=0.5),)
+    )
+    assert all(0 < point["gap"] <= reach(rule, point["leg"]) for point in points)
 
 
 def test_a_ladder_alone_changes_nothing(client):

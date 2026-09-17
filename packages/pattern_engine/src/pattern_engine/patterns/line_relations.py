@@ -39,7 +39,12 @@ The rules, and what each one deliberately does not say:
   bar's `[low, high]` entirely, and the distance from the nearer extreme to it is within the reach
   a `ProximityRule` grants — see `proximity.py`, which is where the whole of "how near is near"
   lives. That reach is a fraction of the leg the bar sits in, so the answer scales with the move
-  rather than with a constant nobody could write down.
+  rather than with a constant nobody could write down — rounded, before it gets here, to the tick
+  the instrument moves in, so the dial is set in points a person could have named.
+
+  The comparison is inclusive: a bar that stopped *exactly* the reach short of the line is a
+  `close`. The boundary belongs to the near side, the way a rung's `points` belongs to the leg that
+  is exactly it.
 
   **It cannot co-occur with any of the other three**, and not because anything suppresses it: the
   line is strictly outside the bar's range, so no wick can contain it and neither the open nor the

@@ -42,7 +42,8 @@ def test_a_rung_claims_its_own_size() -> None:
 
 
 def test_a_leg_between_two_rungs_takes_the_lower_one() -> None:
-    assert reach(LADDER, 999.0) == pytest.approx(99.9)
+    """A point short of the next rung is still the old bucket — 99.9, on the grid, is 100."""
+    assert reach(LADDER, 999.0) == pytest.approx(100.0)
 
 
 def test_the_last_rung_claims_everything_above_it() -> None:
@@ -51,9 +52,47 @@ def test_the_last_rung_claims_everything_above_it() -> None:
 
 
 def test_the_fraction_is_of_the_leg_and_not_of_the_rung() -> None:
-    """The decision this module exists to make: a bigger leg in one bucket reaches further."""
+    """The decision this module exists to make: a bigger leg in one bucket reaches further.
+
+    Two legs within a few points of each other now answer the same reach, because the answer is on
+    the tick — the claim here is about a leg two hundred points bigger, which is a scale the grid
+    cannot blunt.
+    """
     assert reach(LADDER, 1200.0) == pytest.approx(60.0)
     assert reach(LADDER, 1200.0) != reach(LADDER, 1000.0)
+
+
+def test_a_reach_already_on_the_grid_is_left_alone() -> None:
+    """Rounding that moved an exact answer would be the grid inventing a difference."""
+    assert reach(LADDER, 1000.0) == pytest.approx(50.0)
+    assert reach(LADDER, 300.0) == pytest.approx(30.0)
+
+
+def test_a_reach_under_the_half_tick_rounds_down() -> None:
+    """50.5 is nearer fifty than fifty-five, and the ladder says fifty."""
+    assert reach(LADDER, 1010.0) == pytest.approx(50.0)
+
+
+def test_a_reach_over_the_half_tick_rounds_up() -> None:
+    assert reach(LADDER, 1290.0) == pytest.approx(65.0)
+
+
+def test_a_reach_exactly_on_the_half_tick_rounds_up() -> None:
+    """The banker's-rounding trap: `round(62.5 / 5) * 5` is 60, and 65 is what was asked for."""
+    assert reach(LADDER, 1250.0) == pytest.approx(65.0)
+
+
+def test_a_leg_whose_reach_rounds_away_is_claimed_and_says_nothing() -> None:
+    """Twenty points at a tenth is two, under half a tick. `0.0`, and no bar is within zero.
+
+    Distinct from the `None` a leg below the ladder gets: a rung took this leg and answered that
+    nothing here is near enough to be worth a Point. It takes a ladder reaching lower than `LADDER`
+    to get there, which is itself the reason the case is rare.
+    """
+    fine = ProximityRule(name="proximidade", levels=(ProximityLevel(points=10.0, trigger=0.1),))
+
+    assert reach(fine, 20.0) is not None
+    assert reach(fine, 20.0) == pytest.approx(0.0)
 
 
 def test_a_bar_with_no_leg_is_not_claimed_by_any_ladder() -> None:

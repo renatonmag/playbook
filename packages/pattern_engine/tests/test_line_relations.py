@@ -414,12 +414,15 @@ def spans(*values: float | None) -> list[float | None]:
     return list(values)
 
 
-#: A bar that ran up to 96 and turned, under a line at 100. Four points short, so a leg of 50 (a
-#: reach of five) misses it and a leg of 100 (a reach of ten) does not. The bar before it is the
-#: line's own anchor and is skipped.
+#: A bar that ran up to 93 and turned, under a line at 100. Seven points short, so a leg of 100 (a
+#: reach of ten) names it and a leg of 30 (a reach of three, five on the grid) does not. The bar
+#: before it is the line's own anchor and is skipped.
+#:
+#: Seven and not four because the reach is rounded to a five-point tick: under a grid that coarse,
+#: the two legs have to be told apart by a gap wider than the tick itself.
 STOPPED_SHORT = (
     (80.0, 85.0, 79.0, 84.0),
-    (90.0, 96.0, 89.0, 92.0),
+    (90.0, 93.0, 89.0, 92.0),
 )
 
 
@@ -434,6 +437,16 @@ def test_a_bar_that_stopped_short_outside_the_reach_is_nothing() -> None:
 def test_the_side_is_where_the_bar_was_and_the_bear_case_says_the_same() -> None:
     """`side` means the side price came from, here as on the other three kinds."""
     assert nears(bar(110.0, 111.0, 104.0, 108.0), LINE, 10.0) == ("above", 4.0)
+
+
+def test_a_bar_that_stopped_exactly_the_reach_short_is_a_close() -> None:
+    """The boundary belongs to the near side, and a point past it to nobody.
+
+    Worth its own case because the reach is now a rounded number: a gap that lands exactly on the
+    tick is the common reading, not the corner one.
+    """
+    assert nears(bar(90.0, 95.0, 89.0, 92.0), LINE, 5.0) == ("below", 5.0)
+    assert nears(bar(90.0, 94.0, 89.0, 92.0), LINE, 5.0) is None
 
 
 def test_a_bar_that_reached_the_line_is_not_a_near_miss() -> None:
@@ -451,11 +464,11 @@ def test_a_line_inside_the_bar_is_not_a_near_miss_however_small_the_gap() -> Non
 def test_a_close_is_reported_when_the_leg_grants_the_reach() -> None:
     found = line_relations(series(*STOPPED_SHORT).points, lines(("a", 0)), NEAR, spans(100.0, 100.0))
     assert kinds(found) == [(1, "close", None, "below")]
-    assert (found[0].gap, found[0].leg) == (4.0, 100.0)
+    assert (found[0].gap, found[0].leg) == (7.0, 100.0)
 
 
 def test_the_same_bar_under_a_smaller_leg_says_nothing() -> None:
-    """The whole point of scaling: four points short of a thirty-point move is not a near miss."""
+    """The whole point of scaling: seven points short of a thirty-point move is not a near miss."""
     assert line_relations(series(*STOPPED_SHORT).points, lines(("a", 0)), NEAR, spans(30.0, 30.0)) == []
 
 
@@ -529,8 +542,9 @@ def test_a_window_with_no_legs_has_no_spans() -> None:
 # --- the near miss through the engine -----------------------------------------------------------
 
 #: A climb that runs to 96 and turns back down, under a line at 100. One leg over the whole window,
-#: 48 points tall, so the rung's tenth grants a reach of 4.8 — and the bar four points short is
-#: inside it while the one that fell away by seven is not.
+#: 48 points tall, so the rung's tenth grants a reach of 4.8 — five, on the tick the reach is
+#: rounded to — and the bar four points short is inside it while the one that fell away by seven
+#: is not.
 APPROACHED = (
     (50.0, 55.0, 48.0, 54.0),
     (54.0, 70.0, 53.0, 69.0),

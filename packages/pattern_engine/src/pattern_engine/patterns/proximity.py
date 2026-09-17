@@ -39,6 +39,20 @@ The rules, and what each one deliberately does not say:
   built from the wire, for the same reason: a sort here would be a second answer to a question
   already settled, run on every bar of every line.
 
+- **The reach is reported on the instrument's tick, not on the float.** `leg_points * trigger` is
+  exact and unactionable: a 1230-point leg at five percent reaches 61.5, a distance no price here
+  can be that far away, since `WIN@N` moves in fives. The answer is rounded to the nearest `TICK`,
+  and 61.5 becomes 60. What it costs is the thing the bucket design refused, reintroduced at a
+  smaller scale: two legs a few points apart can now answer the same reach, and the reach jumps at
+  every half-tick rather than sliding. Five points is the scale the price itself moves in, so the
+  jump is under the resolution of the question.
+
+- **A reach can round to zero, and that reports nothing.** A leg whose trigger comes to under half
+  a tick — a 40-point leg at five percent — answers `0.0`, and `line_relations` finds no near miss
+  under it, because a line strictly outside a bar is always some distance away and nothing is
+  within zero. Not special-cased, and not the same answer as `None`: a rung *did* claim the leg,
+  and what it said is that nothing is near enough to mention.
+
 What it costs, stated rather than hidden:
 
 - **The producer key does not name the numbers.** `__str__` answers a constant, so two runs under
@@ -51,7 +65,15 @@ What it costs, stated rather than hidden:
   being a Pattern that is sometimes in the tuple.
 """
 
+import math
 from dataclasses import dataclass
+
+#: The grid a reach is reported on, in points. A claim about this installation rather than about
+#: arithmetic: the only Instrument here is `WIN@N`, quoted in whole points and moving in fives, so
+#: a reach carrying a fraction of a point describes a precision the instrument does not have. An
+#: Instrument with a finer tick would want its own, and it would come from the Instrument — the
+#: same absence `apps/web/app/utils/ruler.ts` names where it rounds a measured distance.
+TICK = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +119,9 @@ def reach(rule: ProximityRule, leg_points: float | None) -> float | None:
     vertices to carve one, or a Pattern handed no leg Series. One answer for both, because they are
     one fact: nothing says how big the move is, so nothing says how near is near.
 
+    The answer is on the `TICK` grid — see the module docstring — and so can be `0.0` for a leg
+    small enough, which is a rung saying nothing is near enough here rather than no rung at all.
+
     A walk rather than a search: a hand-typed ladder is a few rungs, and the loop reads as the rule
     reads.
     """
@@ -112,7 +137,10 @@ def reach(rule: ProximityRule, leg_points: float | None) -> float | None:
     if found is None:
         return None
 
-    return leg_points * found.trigger
+    # `floor(x + 0.5)` and not `round(x)`: the builtin rounds a half to the even side, so a reach
+    # of 62.5 would answer 60 while 67.5 answered 70. A person reading "nearest multiple of five"
+    # means the half goes up, every time.
+    return math.floor(leg_points * found.trigger / TICK + 0.5) * TICK
 
 
 #: The parameter a pipeline built without a browser gets: no rungs, and so no near misses. What
