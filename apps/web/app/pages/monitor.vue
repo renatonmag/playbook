@@ -5,6 +5,7 @@ import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~
 import { producerName, type BarGap, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import { toProximityBody } from '~/utils/proximity'
+import type { Ruler } from '~/utils/ruler'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import BarsOverlay from '~/components/BarsOverlay.vue'
@@ -293,6 +294,11 @@ const bar = useBarClock(live.bars, () => candles.value?.at(-1)?.time ?? null)
  */
 watch([symbol, timeframe], () => {
   bar.reset()
+  // A measurement is two bars of one Instrument and Timeframe read against one price scale. Kept
+  // across a switch it would be a line between times the new series does not hold, labelled in the
+  // old one's points — a wrong answer drawn as confidently as a right one.
+  rulers.value = []
+  rulerArmed.value = false
   // A bar time is only comparable within one Instrument and Timeframe for the replay too: the cut
   // would name a bar in the new series that nobody chose, or no bar at all.
   stopReplay()
@@ -915,6 +921,20 @@ const barsByTime = computed(() => {
 })
 
 /**
+ * The same bars again, by position rather than by name — what a bar *count* is measured in.
+ *
+ * The ruler's, and the reason it is a second map over the same array is that the two questions are
+ * different: "which candle is under the cursor" is a lookup by `time`, and "how many candles apart
+ * are these two" is arithmetic on positions. Deriving the second from elapsed time and `SECONDS`
+ * would count the hours nobody traded — see `barsBetween`.
+ */
+const barIndex = computed(() => {
+  const map = new Map<number, number>()
+  replay.shown.value.forEach((candle, position) => map.set(candle.time, position))
+  return map
+})
+
+/**
  * Producers whose levels should fade out between bars, keyed the same way `shown` is.
  *
  * Off by default and stored as the exception, for the third time on this page: a Series you turned
@@ -1372,6 +1392,12 @@ function onPaneClick(time: number | null) {
     // and letting it cut the chart as well would make every line on the pane a second replay
     // control. `null` is a click past the last bar, which names no bar to stand on.
     if (!claimed) {
+      // Except while the ruler is armed. The first of the two clicks that make a measurement lands
+      // on nothing by definition — there is no ruler yet for it to claim — and reading it as a
+      // click on nothing would deselect whatever the reader is measuring *about*, and cut the
+      // replay at whichever bar they happened to start from.
+      if (rulerArmed.value) return
+
       selected.value = null
       if (time !== null) replay.pick(time)
     }
@@ -1411,6 +1437,38 @@ const replayY = ref<number | null>(null)
 const chartCandles = computed(() => (replay.cut.value === null ? candles.value ?? [] : replay.shown.value))
 
 /**
+ * The ruler's key, standing where a producer key stands — `WICK_KEY`'s arrangement, and for the
+ * same reason: it is not a Pattern, nothing runs on the server for it, and it draws off nothing the
+ * pipeline produced. What it borrows through the key is narrower than the wick tool's, though. A
+ * ruler has no chip, no `Ligar` and no pins; the one piece of bookkeeping it joins is the
+ * selection, so that the `Trash` floating over the pane can reach one.
+ *
+ * It cannot collide with a real producer: those always carry their `(params)` — see `producerName`.
+ */
+const RULER_KEY = 'ruler'
+
+/**
+ * Whether the next two clicks on the pane are a measurement.
+ *
+ * Turned on by the button in `ChartTools` and off again by the second click — see `RulerOverlay`
+ * for why the tool does not re-arm itself. It is where the cursor is rather than something chosen,
+ * so it is neither stored nor undoable, the test `selected` states.
+ */
+const rulerArmed = ref(false)
+
+/**
+ * The measurements on the chart. Several may stand at once; each is removed through the same
+ * `Trash` as everything else selectable.
+ *
+ * Deliberately not in `useStoredOverlays` and not in `useSelectionHistory`, unlike the pins and the
+ * moves. A pin is a judgement about a line the engine proposed and is worth carrying between
+ * visits; a ruler is a question asked of the chart in front of you, and its two ends are bars of
+ * *this* window at prices read off *this* scale. Coming back to the page with yesterday's
+ * measurements floating over today's candles would be an answer to nothing anybody asked.
+ */
+const rulers = ref<Ruler[]>([])
+
+/**
  * The `Trash`, and the `✕` in `Selecionadas`: take one line off the chart.
  *
  * The two doors, and which one a line leaves by is not a choice — a hand-placed line answers to a
@@ -1421,6 +1479,14 @@ const chartCandles = computed(() => (replay.cut.value === null ? candles.value ?
  * Everything that is not `trend-lines` — a leg extreme, a wick level — is a plain pin.
  */
 function removeSelection(producer: string, segment: string) {
+  // A ruler answers to neither door: there is no Point behind it for a pin to name and no line it
+  // was moved from, so the list it is in is the whole of its existence.
+  if (producer === RULER_KEY) {
+    rulers.value = rulers.value.filter(ruler => ruler.id !== segment)
+    if (selected.value === pinKey(producer, segment)) selected.value = null
+    return
+  }
+
   const overlay = overlays.value.find(item => item.producer === producer)
 
   const drawn = overlay?.name === 'trend-lines'
@@ -2225,10 +2291,30 @@ function isVisible(overlay: { producer: string }) {
                     @pin="(id: string) => addPin(WICK_KEY, id)"
                     @select="(id: string | null) => onSelect(WICK_KEY, id)"
                   />
+                  <!-- The ruler, joined the same way and for the same reasons as the wick tool:
+                       no Series behind it, no Points, no colour from the palette. Unlike it, it
+                       has no chip either — it is armed from the corner of the pane rather than
+                       from the sidebar, because it is a way of reading the chart and not a thing
+                       the chart is showing. -->
+                  <RulerOverlay
+                    :rulers="rulers"
+                    :bars="barsByTime"
+                    :index="barIndex"
+                    :armed="rulerArmed"
+                    :selected="selectedIn(RULER_KEY)"
+                    @add="(ruler: Ruler) => rulers.push(ruler)"
+                    @move="(ruler: Ruler) => { rulers = rulers.map(item => item.id === ruler.id ? ruler : item) }"
+                    @select="(id: string | null) => onSelect(RULER_KEY, id)"
+                    @disarm="rulerArmed = false"
+                  />
                   <!-- Draws nothing and listens for one thing: the click that lands on no line, and
                        so ends the selection. It cannot be any of the overlays' business — each of
                        them only ever knows the click was not *its* — so it is the page's. -->
                   <PaneClicks @click="onPaneClick" />
+                  <!-- The pane's own tools, in its top-left corner. First and only member: the
+                       ruler. Inside the slot, like the two bars below, because it is positioned
+                       against the chart's box. -->
+                  <ChartTools :ruler="rulerArmed" @toggle-ruler="rulerArmed = !rulerArmed" />
                   <!-- The actions for whatever is selected. Inside the chart's box, and therefore
                        inside the slot, because it is positioned against that box. -->
                   <ChartToolbar

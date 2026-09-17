@@ -99,8 +99,14 @@ export interface TrendHandle {
   active: 'from' | 'to' | null
 }
 
-/** Where a line lies in media (CSS) space: the same numbers the renderer strokes, unscaled. */
-interface SegmentBounds {
+/**
+ * Where a line lies in media (CSS) space: the same numbers the renderer strokes, unscaled.
+ *
+ * Exported, along with the two functions below it, for the reason `level-segments.ts` exports
+ * `barSpacing`: the ruler is a second sloped drawing, and a second copy of point-to-segment
+ * distance would be a second place for "which line did I click" to be answered differently.
+ */
+export interface SegmentBounds {
   x1: number
   y1: number
   x2: number
@@ -159,7 +165,7 @@ function boundsOf(
  * and because it is the clamping that makes a near miss past a line's end still count as a hit on
  * the line — which is what lets a cursor a few pixels beyond an endpoint reach that endpoint's dot.
  */
-function projectOnto(bounds: SegmentBounds, x: number, y: number): { x: number, y: number } {
+export function projectOnto(bounds: SegmentBounds, x: number, y: number): { x: number, y: number } {
   const dx = bounds.x2 - bounds.x1
   const dy = bounds.y2 - bounds.y1
   const length = dx * dx + dy * dy
@@ -175,7 +181,7 @@ function projectOnto(bounds: SegmentBounds, x: number, y: number): { x: number, 
 }
 
 /** How far `(x, y)` is from the line segment, in CSS pixels. */
-function distanceTo(bounds: SegmentBounds, x: number, y: number): number {
+export function distanceTo(bounds: SegmentBounds, x: number, y: number): number {
   const nearest = projectOnto(bounds, x, y)
   return Math.hypot(x - nearest.x, y - nearest.y)
 }
