@@ -364,7 +364,9 @@ export class Rulers implements ISeriesPrimitive<Time> {
     return {
       externalId: hit.id,
       zOrder: 'top',
-      cursorStyle: 'pointer',
+      // `move` rather than `pointer`: a press on a ruler anywhere along its length carries the
+      // whole thing, so the cursor says so. See `RulerOverlay`'s line drag.
+      cursorStyle: 'move',
       distance,
       // Line-style, per the interface's own scale — these are strokes, not markers.
       hitTestPriority: 1,

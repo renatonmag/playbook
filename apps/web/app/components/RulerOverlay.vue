@@ -27,7 +27,14 @@ import { Rulers } from '~/utils/ruler-segments'
  * ruler icon, deliberately: a tool that re-armed would turn every later click on the pane into the
  * start of a line nobody asked for, and the pane's clicks already mean three other things.
  *
- * Both ends stay draggable afterwards, and the drag is `TrendLinesOverlay`'s down to the constants
+ * Both ends stay draggable afterwards, and so is the line between them — a press anywhere along a
+ * ruler slides the whole thing, both ends together, and the reading it gives does not change on the
+ * way. That is the difference between the two gestures rather than a detail of them: an end is for
+ * correcting *what* was measured, and the line is for correcting *where* the same question was
+ * asked. Any ruler answers the second, not only the selected one; a press that never travels is
+ * still the click that selects, so the one press can mean both without either being in the way.
+ *
+ * The drag is `TrendLinesOverlay`'s down to the constants
  * — the threshold before a press becomes a drag, suspending the chart's own pan on the *press*
  * rather than at the threshold, `Escape` abandoning, and the synthetic click the library makes out
  * of a release being claimed rather than swallowed. Each of those is there for a reason that
@@ -52,10 +59,14 @@ const props = defineProps<{
    */
   bars: ReadonlyMap<number, Candle>
   /**
-   * The same bars by position, which is what a bar *count* is. See `barsBetween` for why elapsed
-   * time divided by the timeframe is the wrong answer.
+   * The same bars again as a list, in order — which is what a bar *position* is.
+   *
+   * Both directions are wanted here and only this one is a prop: a label counts bars between two
+   * times, and a line drag turns a shifted position back into the time to put an end on. The page
+   * holds one array and this holds the `Map` over it, rather than the page holding two things that
+   * could disagree. See `barsBetween` for why elapsed time over the timeframe is not the answer.
    */
-  index: ReadonlyMap<number, number>
+  times: readonly number[]
   /** The tool button's state: a measurement is being taken. */
   armed: boolean
   /** Which ruler the page holds selected, if any — `selectedIn`'s half of the page's selection. */
@@ -65,7 +76,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** A second click landed: this is the finished measurement. */
   add: [ruler: Ruler]
-  /** An end was dragged somewhere else. Same id, new geometry. */
+  /** An end, or the whole line, was dragged somewhere else. Same id, new geometry. */
   move: [ruler: Ruler]
   /** A ruler was clicked — or, with `null`, the selection handed here no longer resolves. */
   select: [id: string | null]
@@ -94,14 +105,43 @@ const RULER_COLOR = '#0f172a'
  */
 const draft = ref<{ from: RulerEnd, to: RulerEnd } | null>(null)
 
-/** The end being carried, with the whole ruler it belongs to so the drawing can follow it. */
-const dragging = ref<(Ruler & { end: 'from' | 'to', changed: boolean }) | null>(null)
+/** What a press takes hold of: one of the two ends, or the line, which is both of them at once. */
+type Hold = 'from' | 'to' | 'line'
 
-/** A button held on an end that has not travelled far enough to be a drag yet. */
-let pressed: { ruler: Ruler, end: 'from' | 'to', x: number, y: number } | null = null
+/**
+ * What is being carried: the ruler as it is right now, plus what a release owes the page.
+ *
+ * `origin` and `anchor` are the line drag's, and they are the reason this is not simply the live
+ * geometry. A whole-line drag is a *shift*, and a shift has to be applied to where the ruler stood
+ * when the press landed — applied to the live geometry instead, each frame's rounding to a whole bar
+ * would be measured against the last frame's, and a slow drag across the pane would creep. `anchor`
+ * is what was under the cursor at that same moment, which is what the shift is measured from: the
+ * cursor is somewhere along the line and almost never on either end, so neither end can stand in
+ * for it.
+ *
+ * An end drag carries both unused rather than splitting this into two shapes for one gesture.
+ */
+const dragging = ref<(Ruler & {
+  hold: Hold
+  origin: { from: RulerEnd, to: RulerEnd }
+  anchor: RulerEnd
+  changed: boolean
+}) | null>(null)
 
-/** The end a press would take hold of right now, as the cursor last reported it. */
-let grabbable: { ruler: Ruler, end: 'from' | 'to' } | null = null
+/** A button held on something that has not travelled far enough to be a drag yet. */
+let pressed: { ruler: Ruler, hold: Hold, anchor: RulerEnd, x: number, y: number } | null = null
+
+/** What a press would take hold of right now, as the cursor last reported it. */
+let grabbable: { ruler: Ruler, hold: Hold } | null = null
+
+/**
+ * The bar and price under the cursor, as of its last real move.
+ *
+ * Kept because the press cannot ask: `pointerdown` carries client pixels and nothing else, and the
+ * bar under them is the library's to say. The same reason the drag itself reads its position from
+ * the crosshair rather than from the pointer events that drive it.
+ */
+let hovered: RulerEnd | null = null
 
 /**
  * The ruler a release just finished moving, so the click the library makes out of that release can
@@ -159,7 +199,19 @@ function nearestEnd(ruler: Ruler, point: { x: number, y: number }): 'from' | 'to
   return best
 }
 
-/** The ruler as it stands right now: the page's copy, unless a drag is carrying one of its ends. */
+/**
+ * Where each bar of the window sits in it, by `time` — the other direction of `times`.
+ *
+ * A `computed` and not a function, because both readers ask it a bar at a time: a label asks twice
+ * per ruler per frame, and a line drag asks three times on every mouse move.
+ */
+const positions = computed(() => {
+  const map = new Map<number, number>()
+  props.times.forEach((time, position) => map.set(time, position))
+  return map
+})
+
+/** The ruler as it stands right now: the page's copy, unless a drag is carrying part of it. */
 function current(ruler: Ruler): Ruler {
   const drag = dragging.value
   return drag && drag.id === ruler.id ? { id: drag.id, from: drag.from, to: drag.to } : ruler
@@ -173,7 +225,7 @@ function marksToDraw(): RulerMark[] {
       id: at.id,
       from: at.from,
       to: at.to,
-      label: rulerLabel(at.from, at.to, barsBetween(at.from.time, at.to.time, props.index)),
+      label: rulerLabel(at.from, at.to, barsBetween(at.from.time, at.to.time, positions.value)),
       selected: at.id === props.selected,
     }
   })
@@ -185,7 +237,7 @@ function marksToDraw(): RulerMark[] {
       id: 'ruler:draft',
       from: open.from,
       to: open.to,
-      label: rulerLabel(open.from, open.to, barsBetween(open.from.time, open.to.time, props.index)),
+      label: rulerLabel(open.from, open.to, barsBetween(open.from.time, open.to.time, positions.value)),
       selected: false,
       draft: true,
     })
@@ -223,33 +275,110 @@ function onCrosshairMove(param: MouseEventParams<Time>) {
     return
   }
 
-  // The grab affordance, read off the *selection* rather than off what the cursor is over: the
-  // selected ruler's dots are already drawn, and all the cursor decides is which of them a press
-  // would take. Pushed straight at the primitive, not through the watcher — a dot growing by two
-  // pixels is not a reason to rebuild every mark on the pane.
-  const ruler = props.selected === null
+  // What a press would take, and what the drawing should say about it. Two questions of the same
+  // move, and the answers are pushed straight at the primitive rather than through the watcher — a
+  // dot growing by two pixels is not a reason to rebuild every mark on the pane.
+  hovered = endAt(param)
+
+  // The ends are the *selected* ruler's, read off the selection rather than off what the cursor is
+  // over: its two dots are already drawn, and all the cursor decides is which of them is in reach.
+  const chosen = props.selected === null
     ? null
     : props.rulers.find(item => item.id === props.selected) ?? null
 
-  const end = ruler && param.point ? nearestEnd(ruler, param.point) : null
-  grabbable = ruler && end ? { ruler, end } : null
-  if (ruler) primitive?.setHandle({ id: ruler.id, active: end })
+  const end = chosen && param.point ? nearestEnd(chosen, param.point) : null
+  if (chosen) primitive?.setHandle({ id: chosen.id, active: end })
+
+  if (chosen && end) {
+    grabbable = { ruler: chosen, hold: end }
+    return
+  }
+
+  // Otherwise the line under the cursor, whichever ruler it belongs to. Below the ends and not
+  // beside them: within a dot's reach the cursor is over both, and taking hold of one end is the
+  // finer of the two things it could mean — the line is grabbable everywhere else along its length.
+  //
+  // `hoveredInfo.objectId` is whatever the primitives' hit tests last returned, and every primitive
+  // on the pane reports into that one field, which is what the `drawnIds` check is for.
+  const id = param.hoveredInfo?.objectId
+  const under = typeof id === 'string' && drawnIds.has(id)
+    ? props.rulers.find(item => item.id === id) ?? null
+    : null
+
+  grabbable = under ? { ruler: under, hold: 'line' } : null
 }
 
-/** The cursor moved with an end in hand: put that end where it now is. */
+/**
+ * The cursor moved with something in hand: an end goes where the cursor is, and a line goes as far
+ * as the cursor has travelled since the press.
+ */
 function dragTo(param: MouseEventParams<Time>) {
   const drag = dragging.value
   if (!drag) return
 
-  const end = endAt(param)
-  if (!end) return
+  const at = endAt(param)
+  if (!at) return
 
-  const held = drag[drag.end]
-  if (end.time === held.time && end.price === held.price) return
+  const next = drag.hold === 'line'
+    ? slid(drag, at)
+    : drag.hold === 'from'
+      ? { from: at, to: drag.to }
+      : { from: drag.from, to: at }
 
-  dragging.value = drag.end === 'from'
-    ? { ...drag, from: end, changed: true }
-    : { ...drag, to: end, changed: true }
+  if (!next) return
+
+  // Every mouse move inside one bar at one pixel reports the same geometry; only a change is worth
+  // reshaping the marks and repainting for.
+  if (same(next.from, drag.from) && same(next.to, drag.to)) return
+
+  dragging.value = { ...drag, ...next, changed: true }
+}
+
+/** Two ends at the same bar and the same price. */
+function same(one: RulerEnd, other: RulerEnd): boolean {
+  return one.time === other.time && one.price === other.price
+}
+
+/**
+ * The whole ruler carried by however far the cursor has come since the press: the same number of
+ * bars across and the same distance in price, applied to where it stood then.
+ *
+ * Which is what keeps the measurement itself out of it. Both ends take one `shiftBars` and one
+ * `shiftPrice`, so the points and the bars the label reads are the ones it read before the press —
+ * by construction, rather than by two roundings that happen to cancel. Moving a ruler asks the same
+ * question somewhere else; changing the question is what the end handles are for.
+ *
+ * The shift across is clamped to the window, so the ruler slides up against its edge and stops
+ * there rather than running off. Both ends must sit on a real bar — an end past the last candle is
+ * a bar count that counts bars nobody drew — and refusing the move outright instead would stop the
+ * drag dead the moment either end reached an edge, with the cursor still travelling.
+ *
+ * `null` when an end's bar has left the window under it, which a replay cut or a new window can do
+ * mid-drag: there is no position to shift from, and the ruler is left where it was.
+ */
+function slid(drag: { origin: { from: RulerEnd, to: RulerEnd }, anchor: RulerEnd }, at: RulerEnd) {
+  const { origin, anchor } = drag
+
+  const held = positions.value.get(anchor.time)
+  const start = positions.value.get(origin.from.time)
+  const end = positions.value.get(origin.to.time)
+  const now = positions.value.get(at.time)
+  if (held === undefined || start === undefined || end === undefined || now === undefined) return null
+
+  const shiftBars = Math.min(
+    Math.max(now - held, -Math.min(start, end)),
+    props.times.length - 1 - Math.max(start, end),
+  )
+  const shiftPrice = at.price - anchor.price
+
+  const from = props.times[start + shiftBars]
+  const to = props.times[end + shiftBars]
+  if (from === undefined || to === undefined) return null
+
+  return {
+    from: { time: from as UTCTimestamp, price: origin.from.price + shiftPrice },
+    to: { time: to as UTCTimestamp, price: origin.to.price + shiftPrice },
+  }
 }
 
 /**
@@ -310,7 +439,17 @@ function onPointerDown(event: PointerEvent) {
   if (event.button !== 0) return
   if (!grabbable) return
 
-  pressed = { ...grabbable, x: event.clientX, y: event.clientY }
+  // A line drag is measured from what was under the cursor when the button went down, and only the
+  // crosshair can say what that was — see `hovered`. Without one there is nothing to measure
+  // against, so the press is not offered: past the last candle there is no bar to slide along.
+  if (grabbable.hold === 'line' && !hovered) return
+
+  pressed = {
+    ...grabbable,
+    anchor: hovered ?? grabbable.ruler.from,
+    x: event.clientX,
+    y: event.clientY,
+  }
 
   // Here and not at the threshold below: the library starts its own pan on the press, and an option
   // changed a frame later does not call it off — the chart would slide under the ruler for as long
@@ -322,7 +461,13 @@ function onPointerMove(event: PointerEvent) {
   if (!pressed || dragging.value) return
   if (Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < GRAB_THRESHOLD) return
 
-  dragging.value = { ...pressed.ruler, end: pressed.end, changed: false }
+  dragging.value = {
+    ...pressed.ruler,
+    hold: pressed.hold,
+    origin: { from: pressed.ruler.from, to: pressed.ruler.to },
+    anchor: pressed.anchor,
+    changed: false,
+  }
 }
 
 /**
@@ -357,6 +502,13 @@ function onPointerUp() {
   if (!changed) return
 
   emit('move', { id: drag.id, from: drag.from, to: drag.to })
+
+  // And the ruler that was moved is the one being worked on, which is only news when the drag began
+  // on a ruler that was not selected — the line is grabbable on any of them. Emitted here rather
+  // than left to the synthetic click above, which the library does not always make: a drag that
+  // ended with the ruler still unselected left its two dots on some *other* ruler, which is the
+  // drawing saying the wrong thing about what a press would take next.
+  emit('select', drag.id)
 }
 
 /** Give the chart its own drag back, and stop carrying anything. */
@@ -412,7 +564,7 @@ watch(
     candleSeries,
     chart,
     () => props.rulers,
-    () => props.index,
+    () => props.times,
     () => props.selected,
     draft,
     dragging,
@@ -455,10 +607,12 @@ watch(
 
     // The selected ruler wears its dots for as long as it is selected — that is what says it is
     // selected. `active` is the cursor's business and is answered without coming back through here.
+    // A line drag grows neither dot: nothing in particular is in reach during one, and the ruler is
+    // moving as a whole rather than by one of its ends.
     const carried = dragging.value
     primitive.setHandle(
       carried
-        ? { id: carried.id, active: carried.end }
+        ? { id: carried.id, active: carried.hold === 'line' ? null : carried.hold }
         : props.selected !== null && drawnIds.has(props.selected)
           ? { id: props.selected, active: null }
           : null,

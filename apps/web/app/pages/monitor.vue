@@ -921,18 +921,18 @@ const barsByTime = computed(() => {
 })
 
 /**
- * The same bars again, by position rather than by name — what a bar *count* is measured in.
+ * The same bars again as a bare list of times, in order — which is what a bar *position* is.
  *
- * The ruler's, and the reason it is a second map over the same array is that the two questions are
+ * The ruler's, and the reason it is a second view of the same array is that the two questions are
  * different: "which candle is under the cursor" is a lookup by `time`, and "how many candles apart
- * are these two" is arithmetic on positions. Deriving the second from elapsed time and `SECONDS`
- * would count the hours nobody traded — see `barsBetween`.
+ * are these two", or "which candle is nine to the left of this one", is arithmetic on positions.
+ * Deriving either from elapsed time and `SECONDS` would count the hours nobody traded — see
+ * `barsBetween`.
+ *
+ * A list rather than the `time → position` map the ruler also wants, because that map is derivable
+ * from this and the reverse is not. The overlay holds it; one array here is one thing to keep true.
  */
-const barIndex = computed(() => {
-  const map = new Map<number, number>()
-  replay.shown.value.forEach((candle, position) => map.set(candle.time, position))
-  return map
-})
+const barTimes = computed(() => replay.shown.value.map(candle => candle.time))
 
 /**
  * Producers whose levels should fade out between bars, keyed the same way `shown` is.
@@ -2299,7 +2299,7 @@ function isVisible(overlay: { producer: string }) {
                   <RulerOverlay
                     :rulers="rulers"
                     :bars="barsByTime"
-                    :index="barIndex"
+                    :times="barTimes"
                     :armed="rulerArmed"
                     :selected="selectedIn(RULER_KEY)"
                     @add="(ruler: Ruler) => rulers.push(ruler)"
