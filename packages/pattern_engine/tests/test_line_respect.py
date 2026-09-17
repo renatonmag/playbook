@@ -33,6 +33,12 @@ from pattern_engine.patterns.line_respect import (
     respected_side,
     undone_breakouts,
 )
+from pattern_engine.patterns.proximity import ProximityLevel, ProximityRule
+from pattern_engine.patterns.trend_relations import (
+    PinnedTrend,
+    PinnedTrends,
+    TrendRelationsPattern,
+)
 from pattern_engine.series import CANDLES
 
 OPEN = datetime(2026, 8, 12, 13, 0, tzinfo=UTC)
@@ -119,8 +125,9 @@ ADJACENT = (
 )
 
 #: An anchor, a break up, a break back down inside the span, then a break up again. Three
-#: crossings, two seams, and no breakout that stands — one group over all three bars, held from
-#: below, since that is where the first of them opened.
+#: crossings, two seams, and no breakout that stands — one group over all three bars. The only
+#: fixture whose events disagree about the side: the first two respected `below` and the last
+#: closed back above, so the group is held from *above*, which is where the run finished.
 WHIPPED = (
     (80.0, 85.0, 79.0, 84.0),
     (90.0, 115.0, 89.0, 110.0),
@@ -136,7 +143,7 @@ def relation(kind: str, side: str | None) -> LineRelation:
     """A bare Point, for the two readings that look at nothing but `kind` and `side`."""
     return LineRelation.anchored(
         bar(90.0, 105.0, 89.0, 95.0), line="a", price=LINE, kind=kind, wick=None, side=side,
-        since=None,
+        since=None, gap=None, leg=None,
     )
 
 
@@ -183,6 +190,46 @@ def test_a_run_with_no_seams_has_nothing_undone() -> None:
     assert undone_breakouts(line_relations(bars, lines(("a", 0)))) == set()
 
 
+# --- the fourth kind ------------------------------------------------------------------------------
+
+#: An anchor, a bar that stops four points short of the line, and a bar that touches it. Under no
+#: rule the first of those says nothing and the group is one bar; with a rule wide enough to name
+#: it, the same window is one group of two. The pair is the whole of what a `close` does here.
+APPROACHED = (
+    (80.0, 85.0, 79.0, 84.0),
+    (90.0, 96.0, 89.0, 92.0),
+    (90.0, 105.0, 89.0, 95.0),
+)
+
+#: Near is a tenth of the leg, and every bar of the fixture above sits in a leg of a hundred — so
+#: the reach is ten and a miss of four is inside it.
+NEAR = ProximityRule(name="proximidade", levels=(ProximityLevel(points=10.0, trigger=0.1),))
+
+
+def test_a_close_extends_the_stretch_it_falls_in() -> None:
+    """Respect is the absence of a definitive breakout, and a bar that stopped short is not one."""
+    bars = series(*APPROACHED).points
+    events = line_relations(bars, lines(("a", 0)), NEAR, [100.0] * 3)
+    found = line_respects(events, bars)
+
+    assert [(point.side, index(point.bars[0].time), index(point.time)) for point in found] == [
+        ("below", 1, 2)
+    ]
+
+
+def test_the_same_window_without_a_rule_is_the_shorter_stretch() -> None:
+    """The cost, stated as a test: a group is only comparable with one computed under one rule."""
+    assert runs(APPROACHED, ("a", 0)) == [("a", "below", 2, 2)]
+
+
+def test_a_close_says_which_side_it_held_from() -> None:
+    """`side` on a `close` is where the bar was, so it reads as the other kinds' does."""
+    bars = series(*APPROACHED).points
+    lone = line_respects(line_relations(bars[:2], lines(("a", 0)), NEAR, [100.0] * 2), bars[:2])
+
+    assert [point.side for point in lone] == ["below"]
+
+
 # --- the run ------------------------------------------------------------------------------------
 
 
@@ -223,7 +270,18 @@ def test_a_definitive_breakout_closes_a_group_and_joins_none(specs: tuple) -> No
 @pytest.mark.parametrize("specs", [WHIPPED, flipped(WHIPPED)])
 def test_the_breakout_a_seam_undid_is_inside_the_group(specs: tuple) -> None:
     """All three crossings are one run: the first is undone, and the other two are the seams."""
-    assert runs(specs, ("a", 0)) == [("a", "below" if specs == WHIPPED else "above", 1, 3)]
+    assert runs(specs, ("a", 0)) == [("a", "above" if specs == WHIPPED else "below", 1, 3)]
+
+
+def test_the_side_is_the_last_event_and_not_the_first_when_they_disagree() -> None:
+    """A run of seams crosses the line without ever ending, so its events *do* disagree — and the
+    group is named for the crossing that stands, not for the one that opened the stretch."""
+    bars = series(*WHIPPED).points
+    events = line_relations(bars, lines(("a", 0)))
+
+    assert respected_side(events[0]) == "below"
+    assert respected_side(events[-1]) == "above"
+    assert [point.side for point in line_respects(events, bars)] == ["above"]
 
 
 def test_a_breakout_that_also_touched_still_joins_no_group() -> None:
@@ -232,14 +290,16 @@ def test_a_breakout_that_also_touched_still_joins_no_group() -> None:
     assert runs(STEPPED_OFF, ("a", 0)) == [("a", "below", 1, 1)]
 
 
-def test_the_side_is_the_first_event_that_could_say() -> None:
-    """A bar that opened exactly on the line decides nothing; the next one in the run does."""
+def test_the_side_is_the_last_event_that_could_say() -> None:
+    """A bar that opened exactly on the line decides nothing, whether it comes first or last; the
+    last event in the run that *can* say is the one that names the group."""
     on_the_line = (
         (80.0, 85.0, 79.0, 84.0),
         (100.0, 105.0, 95.0, 100.0),
         (90.0, 105.0, 89.0, 95.0),
+        (100.0, 105.0, 95.0, 100.0),
     )
-    assert runs(on_the_line, ("a", 0)) == [("a", "below", 1, 2)]
+    assert runs(on_the_line, ("a", 0)) == [("a", "below", 1, 3)]
 
 
 def test_a_run_that_never_says_which_side_is_dropped() -> None:
@@ -277,7 +337,8 @@ def test_the_producer_key_names_its_source() -> None:
     pattern = LineRespectPattern(source=source, reads=("5m",), emits="5m")
 
     assert pattern.producer == (
-        "line-respect(source=<line-relations(lines=pinned,reads=5m,emits=5m)>,reads=5m,emits=5m)"
+        "line-respect(source=<line-relations(lines=pinned,proximity=proximidade,legs=None,"
+        "reads=5m,emits=5m)>,reads=5m,emits=5m)"
     )
 
 
@@ -302,6 +363,58 @@ def test_a_source_with_no_lines_produces_an_empty_series() -> None:
     engine = PatternEngine({"5m": series(*HELD)}, (source, pattern))
 
     assert not engine.run()[pattern.producer]
+
+
+def test_a_sloped_source_is_read_on_exactly_the_same_terms() -> None:
+    """Nothing here knows which kind of line drew its events, and this is that stated as a test.
+
+    The line is pinned flat at the price the level fixtures use, with its two ends on bars 0 and 1.
+    So it is the same line `lines(("a", 0))` is, and the only difference is which bars drew it —
+    a trend line skips both of its ends, so the touch on bar 1 is not asked about and the run it
+    would have opened is not there. Everything after bar 1 has to come back identical.
+    """
+    flat = PinnedTrends(
+        (
+            PinnedTrend(
+                id="a", from_time=at(0), from_price=LINE, to_time=at(1), to_price=LINE
+            ),
+        )
+    )
+
+    source = TrendRelationsPattern(trends=flat, reads=("5m",), emits="5m")
+    pattern = LineRespectPattern(source=source, reads=("5m",), emits="5m")
+    ctx = PatternEngine({"5m": series(*BROKEN)}, (source, pattern)).run()
+
+    over_level = line_respects(
+        line_relations(series(*BROKEN).points, lines(("a", 0))), series(*BROKEN).points
+    )
+    groups = list(ctx[pattern.producer].points)
+
+    assert [(point.line, point.side, index(point.time)) for point in groups] == [("a", "above", 3)]
+    assert groups == [group for group in over_level if index(group.time) == 3]
+
+
+def test_the_two_sources_are_two_series_with_two_names() -> None:
+    """One class instantiated twice, so the key has to separate them and the label has to as well.
+
+    `LegPattern`'s trade, made here for `LegPattern`'s reason: the key is total and derived, the
+    name is written for a person, and a class attribute could only say one of the two things.
+    """
+    level = LineRelationsPattern(lines=lines(("a", 0)), reads=("5m",), emits="5m")
+    sloped = TrendRelationsPattern(trends=PinnedTrends(()), reads=("5m",), emits="5m")
+
+    over_level = LineRespectPattern(source=level, reads=("5m",), emits="5m")
+    over_sloped = LineRespectPattern(source=sloped, reads=("5m",), emits="5m")
+
+    assert over_level.producer != over_sloped.producer
+    assert over_sloped.producer == (
+        "line-respect(source=<trend-relations(trends=pinned,proximity=proximidade,legs=None,"
+        "reads=5m,emits=5m)>,reads=5m,emits=5m)"
+    )
+    assert (over_level.name, over_sloped.name) == (
+        "Respect · Line relations",
+        "Respect · Trend relations",
+    )
 
 
 def test_declared_before_its_source_it_writes_nothing() -> None:

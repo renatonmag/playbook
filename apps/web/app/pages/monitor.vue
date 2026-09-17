@@ -4,6 +4,8 @@ import { useDebounceFn } from '@vueuse/core'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
 import { producerName, type BarGap, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
+import { toProximityBody } from '~/utils/proximity'
+import type { Ruler } from '~/utils/ruler'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import BarsOverlay from '~/components/BarsOverlay.vue'
@@ -12,7 +14,9 @@ import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
+import RetracementOverlay from '~/components/RetracementOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
+import ProximityControls from '~/components/ProximityControls.vue'
 import PatternLog from '~/components/PatternLog.vue'
 import { Button } from '~/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
@@ -80,6 +84,12 @@ const LOG_MIN_PX = 160
  * the extreme on the side *away* from the line it reports, which is the one surprising thing about
  * it and is argued in `PLACEMENT`. It is also the first entry fed by the manual run rather than the
  * automatic one — see `MANUAL`.
+ *
+ * The ninth, `retracement`, comes back to markers — and is the first drawing on this chart that is
+ * **text**. That is why it is a marker and not a fifth primitive: `SeriesMarker.text` already puts a
+ * short string clear of a bar, and going through the shared plugin is what stacks the two
+ * retracement Series when both put a number on one candle. It is also the first entry that draws
+ * nothing by default, answering the cursor instead — see `labelsAlways`.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
@@ -92,6 +102,7 @@ const OVERLAYS: Record<string, Component> = {
   'general-direction': GeneralDirectionOverlay,
   'trend-lines': TrendLinesOverlay,
   'line-respect': LineRespectOverlay,
+  'retracement': RetracementOverlay,
 }
 
 /**
@@ -104,8 +115,15 @@ const OVERLAYS: Record<string, Component> = {
  *
  * `line-relations` is in the set although it has no entry in `OVERLAYS`: it is read in the Log, and
  * what this set decides is *which response a Series comes from*, not whether it is drawn.
+ * `trend-relations` is there on both counts — it is the sloped twin, and it is read the same way.
+ *
+ * `line-respect` covers **two** Series, because the pipeline declares that Pattern twice: once over
+ * the levels and once over the sloped lines. One name, one `OVERLAYS` entry, two rows in the
+ * sidebar — which is right rather than merely convenient, since a respect group is the same thing
+ * whichever kind of line it was held against, and `LineRespectOverlay` draws its pills in pixels
+ * beside the run rather than at the line's price.
  */
-const MANUAL = new Set(['line-relations', 'line-respect'])
+const MANUAL = new Set(['line-relations', 'line-respect', 'trend-relations'])
 
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
 const COLORS = ['#2563eb', '#c026d3', '#ea580c', '#0d9488']
@@ -175,6 +193,24 @@ function pin(value: string) {
  * the numbers travel instead. See the module docstring on `/patterns`.
  */
 const { rule, update: updateRule, reset: resetRule } = useStoredRule()
+
+/**
+ * The proximity ladder, the second rule this page composes and the server runs.
+ *
+ * Beside the Forma rule and kept apart from it for the reason `useStoredProximity` states: they
+ * reach different Patterns, they travel by different routes — eight numbers on the query string,
+ * a list in the body — and an empty ladder is a real setting where an empty rule would not be.
+ * What they share is the argument that lets either travel at all: how near a bar came to a line
+ * is a fraction of the zigzag leg it sits in, and that leg is sliced in the engine out of a window
+ * of bars the browser holds only as Points. See the module docstring on `/patterns`.
+ */
+const {
+  levels,
+  add: addLevel,
+  update: updateLevel,
+  remove: removeLevel,
+  clear: clearLevels,
+} = useStoredProximity()
 
 // Reached directly rather than through `usePatterns`, which owns the automatic `GET`. `calculate`
 // below asks the same route with a body, and that is not a fetch a composable keyed by a window
@@ -266,6 +302,11 @@ const bar = useBarClock(live.bars, () => candles.value?.at(-1)?.time ?? null)
  */
 watch([symbol, timeframe], () => {
   bar.reset()
+  // A measurement is two bars of one Instrument and Timeframe read against one price scale. Kept
+  // across a switch it would be a line between times the new series does not hold, labelled in the
+  // old one's points — a wrong answer drawn as confidently as a right one.
+  rulers.value = []
+  rulerArmed.value = false
   // A bar time is only comparable within one Instrument and Timeframe for the replay too: the cut
   // would name a bar in the new series that nobody chose, or no bar at all.
   stopReplay()
@@ -708,6 +749,27 @@ function toggleSide(producer: string, side: string) {
 }
 
 /**
+ * Producers whose `Sempre visível` switch is on: the retracement Series that draw every leg's
+ * number rather than only the leg under the cursor.
+ *
+ * **The exception is stored**, the fifth time on this page, and here the default is the interesting
+ * half: off means the chart answers the cursor and is otherwise unmarked. That is not timidity
+ * about a new overlay — this Pattern emits a Point per leg, and the simple-leg Series marks a leg
+ * roughly every three bars, so a five-day window drawn in full is a wall of percentages with no
+ * reading in it. Hovering asks about one candle, which is the question a retracement answers.
+ *
+ * Not in `focusMode` despite looking like it: that switch changes what a *click* means, which is
+ * why it is saved and why it is somebody's decision to turn on. This one only decides how much of
+ * a Series is drawn, and a click on the chart means exactly what it always did.
+ */
+const labelsAlways = ref(new Set<string>())
+
+function toggleLabelsAlways(producer: string) {
+  if (labelsAlways.value.has(producer)) labelsAlways.value.delete(producer)
+  else labelsAlways.value.add(producer)
+}
+
+/**
  * Producers whose `Destacar por ponto` switch is on, keyed the way `shown` and `autoHide` are.
  *
  * Off by default and stored as the exception, the fourth time on this page — and here the rule has
@@ -749,22 +811,24 @@ function toggleFocusMode(producer: string) {
 }
 
 /**
- * A click on the chart, once the switch is on: focus that bar. It never clears one.
+ * A click on the chart, once the switch is on: focus that bar, or drop the focus when `null` says
+ * the bar was one the fan does not reach. The overlay decides which of the two a click is — see
+ * `linesArriveAt` — and a click that named no bar at all never gets here.
  *
- * This used to clear when you clicked the focused bar again, and that fought the thing a focus is
- * for. A focused pivot is something you work *against* — you select one of the lines arriving at
- * it, then another, then another — and those clicks land on bars, so sooner or later one lands on
- * the focused bar and the highlight would vanish in the middle of the job. Clicks have to be free
- * to land anywhere.
+ * Clearing on an ordinary bar does not bring back the thing that made this function never clear.
+ * That was a click on the *focused* bar toggling the highlight off in the middle of the job: a
+ * focused pivot is something you work against, you select one of the lines arriving at it and then
+ * another, and sooner or later a click lands back on the pivot. It still does, and it still keeps
+ * the highlight — lines arrive at that bar, so it re-focuses itself.
  *
- * So the way out is the switch, which is the deliberate act and was always the better one:
- * `toggleFocusMode` drops the bar on its way off.
+ * What clears is a click on a bar that would highlight nothing, and it clears because the
+ * alternative is worse: with the fan taken off the chart rather than faded, a highlight of nothing
+ * is an empty chart. So the cheap way out is any bar you have no interest in, and the deliberate
+ * one is still the switch — `toggleFocusMode` drops the bar on its way off.
  */
 function setFocusBar(producer: string, time: number | null) {
-  // A click past the last bar names no bar, and leaves the focus alone rather than clearing it —
-  // a missed click cannot cost the highlight either.
-  if (time === null) return
-  focusBar.value.set(producer, time)
+  if (time === null) focusBar.value.delete(producer)
+  else focusBar.value.set(producer, time)
 }
 
 /**
@@ -824,6 +888,22 @@ const CONFIRMABLE = new Set(['bars'])
  */
 const RULED = new Set(['bars'])
 
+/**
+ * The Patterns the proximity ladder reaches, and so get the ladder editor under them.
+ *
+ * `RULED`'s counterpart, and it must match what `build_pipeline` hands `proximity` to for the same
+ * reasons — the failure is quiet in both directions.
+ *
+ * Where it does **not** match is worth stating, because it looks like an omission. The ladder
+ * reaches four Series: the two that ask about a line bar by bar, and the two that read those as
+ * stretches. Only the second pair is here, because only that pair has an entry in `OVERLAYS` —
+ * `line-relations` and `trend-relations` are read as rows in the Log and never drawn, so `listed`
+ * drops them from this column entirely and a set naming them would gate on a chip that is not
+ * there. One entry covers both instances of the pair: a level and a sloped line are asked the same
+ * fourth question, and the editor under either chip is the same rows.
+ */
+const NEAR = new Set(['line-respect'])
+
 function toggleConfirmedOnly(producer: string) {
   if (confirmedOnly.value.has(producer)) confirmedOnly.value.delete(producer)
   else confirmedOnly.value.add(producer)
@@ -868,6 +948,20 @@ const barsByTime = computed(() => {
   for (const bar of replay.shown.value) map.set(bar.time, bar)
   return map
 })
+
+/**
+ * The same bars again as a bare list of times, in order — which is what a bar *position* is.
+ *
+ * The ruler's, and the reason it is a second view of the same array is that the two questions are
+ * different: "which candle is under the cursor" is a lookup by `time`, and "how many candles apart
+ * are these two", or "which candle is nine to the left of this one", is arithmetic on positions.
+ * Deriving either from elapsed time and `SECONDS` would count the hours nobody traded — see
+ * `barsBetween`.
+ *
+ * A list rather than the `time → position` map the ruler also wants, because that map is derivable
+ * from this and the reverse is not. The overlay holds it; one array here is one thing to keep true.
+ */
+const barTimes = computed(() => replay.shown.value.map(candle => candle.time))
 
 /**
  * Producers whose levels should fade out between bars, keyed the same way `shown` is.
@@ -927,7 +1021,7 @@ const hideTimer = useHideTimer(bar.epoch, () => autoHide.value.size > 0)
  *
  * A focused pivot is read against the lines arriving at it, so when the timer takes those lines off
  * the chart the answer goes with the question: a window that closes and reopens on the next candle
- * would otherwise bring the fan back dimmed against a bar chosen minutes ago, which is the stale
+ * would otherwise bring the fan back cut down to a bar chosen minutes ago, which is the stale
  * highlight `toggleFocusMode` already refuses to park. The `Destacar por ponto` switch stays on —
  * the next window wants a fresh click, not a fresh setup.
  *
@@ -1327,6 +1421,12 @@ function onPaneClick(time: number | null) {
     // and letting it cut the chart as well would make every line on the pane a second replay
     // control. `null` is a click past the last bar, which names no bar to stand on.
     if (!claimed) {
+      // Except while the ruler is armed. The first of the two clicks that make a measurement lands
+      // on nothing by definition — there is no ruler yet for it to claim — and reading it as a
+      // click on nothing would deselect whatever the reader is measuring *about*, and cut the
+      // replay at whichever bar they happened to start from.
+      if (rulerArmed.value) return
+
       selected.value = null
       if (time !== null) replay.pick(time)
     }
@@ -1366,6 +1466,38 @@ const replayY = ref<number | null>(null)
 const chartCandles = computed(() => (replay.cut.value === null ? candles.value ?? [] : replay.shown.value))
 
 /**
+ * The ruler's key, standing where a producer key stands — `WICK_KEY`'s arrangement, and for the
+ * same reason: it is not a Pattern, nothing runs on the server for it, and it draws off nothing the
+ * pipeline produced. What it borrows through the key is narrower than the wick tool's, though. A
+ * ruler has no chip, no `Ligar` and no pins; the one piece of bookkeeping it joins is the
+ * selection, so that the `Trash` floating over the pane can reach one.
+ *
+ * It cannot collide with a real producer: those always carry their `(params)` — see `producerName`.
+ */
+const RULER_KEY = 'ruler'
+
+/**
+ * Whether the next two clicks on the pane are a measurement.
+ *
+ * Turned on by the button in `ChartTools` and off again by the second click — see `RulerOverlay`
+ * for why the tool does not re-arm itself. It is where the cursor is rather than something chosen,
+ * so it is neither stored nor undoable, the test `selected` states.
+ */
+const rulerArmed = ref(false)
+
+/**
+ * The measurements on the chart. Several may stand at once; each is removed through the same
+ * `Trash` as everything else selectable.
+ *
+ * Deliberately not in `useStoredOverlays` and not in `useSelectionHistory`, unlike the pins and the
+ * moves. A pin is a judgement about a line the engine proposed and is worth carrying between
+ * visits; a ruler is a question asked of the chart in front of you, and its two ends are bars of
+ * *this* window at prices read off *this* scale. Coming back to the page with yesterday's
+ * measurements floating over today's candles would be an answer to nothing anybody asked.
+ */
+const rulers = ref<Ruler[]>([])
+
+/**
  * The `Trash`, and the `✕` in `Selecionadas`: take one line off the chart.
  *
  * The two doors, and which one a line leaves by is not a choice — a hand-placed line answers to a
@@ -1376,6 +1508,14 @@ const chartCandles = computed(() => (replay.cut.value === null ? candles.value ?
  * Everything that is not `trend-lines` — a leg extreme, a wick level — is a plain pin.
  */
 function removeSelection(producer: string, segment: string) {
+  // A ruler answers to neither door: there is no Point behind it for a pin to name and no line it
+  // was moved from, so the list it is in is the whole of its existence.
+  if (producer === RULER_KEY) {
+    rulers.value = rulers.value.filter(ruler => ruler.id !== segment)
+    if (selected.value === pinKey(producer, segment)) selected.value = null
+    return
+  }
+
   const overlay = overlays.value.find(item => item.producer === producer)
 
   const drawn = overlay?.name === 'trend-lines'
@@ -1483,9 +1623,12 @@ function restoreLayout() {
  * the server about a line nobody can see would put an answer in the response with nothing to
  * attach it to.
  *
- * Only the two the question is about. `bar-gap` is a band and `trend-lines` is sloped; neither is
- * a level, and `line-relations` reads one price per line. A sloped line is a real question and a
- * different Pattern, not a wider parameter on this one.
+ * Only the two the question is about. `bar-gap` is a band, and a band is not a level — a caller
+ * would have to say which of its two edges it meant, which is a question this list has no room for.
+ * `trend-lines` is not here either, and that is no longer because a sloped line has nowhere to go:
+ * it has `pinnedTrendLines` below, and `trend-relations` at the other end of it. One price per line
+ * and two prices at two bars are different shapes on the wire and different Patterns behind it, so
+ * they are two lists rather than one with a discriminator — see `playbook_api.lines_body`.
  *
  * `autoOverlays` and not `overlays`, which is load-bearing now rather than a shade of meaning. The
  * wide list ends in `manualOverlays`, which is derived from `relations` — so reading it here would
@@ -1507,28 +1650,71 @@ const pinnedLines = computed(() =>
 )
 
 /**
+ * The pinned trend lines as the pipeline wants them: an id, and the two bars they run between.
+ *
+ * `pinnedLines`' sibling, and everything argued there applies here unchanged — read back through
+ * the same `pinnedTrends` the sidebar lists and the chart draws, so the lines that travel are
+ * exactly the ones on the screen, and `autoOverlays` rather than `overlays` so this computed does
+ * not end up downstream of the run it starts.
+ *
+ * **The moved lines travel too**, which `pinnedTrends` already folds in. A line somebody dragged
+ * the end of is the one they most want answered — it is the reading they corrected the engine to
+ * get — and its ends are real bars at real prices like any other's. A move is its own pin there,
+ * so nothing extra is said here about which of the two a row is.
+ *
+ * `DrawnTrend` extends `TrendSegment`, which is already `{ id, from: { time, price }, to: { time,
+ * price } }`, so this is a narrowing plus a rename onto the wire's own spelling. The ends go over
+ * in the caller's order, not the clock's: which is earlier is `trend_relations`' business and is
+ * decided there once.
+ */
+const pinnedTrendLines = computed(() =>
+  autoOverlays.value
+    .filter(overlay => overlay.name === 'trend-lines')
+    .flatMap(overlay => pinnedTrends(overlay))
+    .map(({ id, from, to }) => ({
+      id,
+      from_time: from.time,
+      from_price: from.price,
+      to_time: to.time,
+      to_price: to.price,
+    })),
+)
+
+/**
  * What makes the manual run a different question from the last one it answered.
  *
  * A string rather than the lines themselves, because `pinnedLines` builds a fresh array on every
  * read and a watcher over it would fire on identity alone, several times a bar.
  *
- * **The ids and not `pinned`.** A `trend-lines` or `bar-gap` pin never reaches the body, so it is
- * not a new question and must not spend a request; a level hidden by a direction filter *is* one,
- * and drops out of `pinnedLines` and out of here with it. The key tracks what would travel, which
- * is the only thing the server would notice.
+ * **The ids and not `pinned`.** A `bar-gap` pin never reaches the body, so it is not a new question
+ * and must not spend a request; a line hidden by a filter *is* one, and drops out of the two
+ * computeds above and out of here with them. The key tracks what would travel, which is the only
+ * thing the server would notice.
+ *
+ * **An id is enough for a sloped line too**, which is worth saying because it is less obvious than
+ * for a level. `trendSegmentId` is the line's two bar times and its side, and a move's key is both
+ * bars plus which of each one's four prices the end was dropped on — so dragging an end mints a
+ * different key and this fires. What an id does *not* pin down is the near end of a line whose
+ * hinge nobody moved: that price is the engine's own leg extreme and re-resolves on every pipeline
+ * run. Which is exactly the looseness a pinned level already has through `extremeSegmentId`, and
+ * it is bounded the same way — `runWindow` is in this key, and a re-run that moves an extreme has
+ * moved the window that found it.
  *
  * **The window, because the answer is about bars.** `runWindow.to` moves once per bar the socket
  * opens — see `useBarClock` — and again whenever the Timeframe or the timepicker's `at` does. A
  * `line-respect` answer left standing across those would be drawn over a span it was never computed
  * from. The replay cut needs no term of its own: it already moves `runWindow`.
  *
- * **The rule is deliberately absent.** It is a parameter of a run, not a reason to start one: a
- * threshold is edited a digit at a time, and re-asking between keystrokes would send a body per
- * digit. `calculate` reads `rule` when it runs, so the next pin or the next bar carries the new
- * numbers, and `Calcular` is the way to have them at once.
+ * **Neither rule is here, deliberately.** A rule is a parameter of a run, not a reason to start
+ * one: a threshold is edited a digit at a time, and re-asking between keystrokes would send a body
+ * per digit. `calculate` reads `rule` and `levels` when it runs, so the next pin or the next bar
+ * carries the new numbers, and `Calcular` is the way to have them at once. That holds twice over
+ * for the ladder, where adding a rung lands a row with a placeholder size in it that nobody means
+ * yet.
  */
 const calculateKey = computed(() => [
   pinnedLines.value.map(line => line.id).join(','),
+  pinnedTrendLines.value.map(line => line.id).join(','),
   runWindow.value.from,
   runWindow.value.to,
 ].join('|'))
@@ -1565,8 +1751,8 @@ let calculateRun = 0
  *
  * This is the one run the automatic ones cannot be. `usePatterns` re-fetches on every closed bar
  * and on every rule edit, but it asks a `GET` and a `GET` carries no lines — the pinned set is a
- * `Set<string>` in this page and nowhere else, so the server has no way to know a level exists
- * until somebody hands it over.
+ * `Set<string>` in this page and nowhere else, so the server has no way to know a level, or a line
+ * somebody dragged an end of, exists until somebody hands it over.
  *
  * It used to be a menu item *only*, on the argument that the run is a question a person asks about
  * lines they just placed. The question turned out to be asked by the placing: a pinned line whose
@@ -1589,17 +1775,20 @@ let calculateRun = 0
  *
  * The same window and the same rule the automatic run uses, so the two answers are about one
  * pipeline over one span of bars. The rule is *read* here and does not appear in `calculateKey`,
- * which is a decision rather than an oversight — it is recorded there. See the module docstring on
- * `/patterns` for why the rule and the lines are the only two things this page may hand the server.
+ * which is a decision rather than an oversight — it is recorded there. The proximity ladder is
+ * read the same way and absent from that key for the same reason. See the module docstring on
+ * `/patterns` for why the two rules and the lines are the only things this page may hand the
+ * server.
  */
 async function calculate() {
   const lines = pinnedLines.value
+  const trends = pinnedTrendLines.value
 
   // Cleared rather than returned early, which is the whole difference a watcher makes. As a menu
   // item this branch was "nothing to ask, so nothing happens"; now it is reached by taking the last
   // line off the list, and leaving the previous answer up would draw `line-respect` over a
-  // selection that no longer exists.
-  if (lines.length === 0) {
+  // selection that no longer exists. Both lists, because either one alone is still a question.
+  if (lines.length === 0 && trends.length === 0) {
     calculateRun++
     relations.value = null
     calculateError.value = null
@@ -1616,7 +1805,7 @@ async function calculate() {
       baseURL: apiBase,
       method: 'POST',
       query: { ...runWindow.value, ...(rule.value ? toPatternQuery(rule.value) : {}) },
-      body: { lines },
+      body: { lines, trends, proximity: toProximityBody(levels.value) },
     })
     if (run !== calculateRun) return
     relations.value = response
@@ -1691,10 +1880,10 @@ function pinnedGaps(overlay: { producer: string, points: PatternPoint[] }): GapB
  * It needs the Series' colour, which neither of the two above do — the swatch in this list is the
  * line's actual colour, because for this Pattern the palette colour *is* what gets drawn.
  *
- * No `focus`, unlike the overlay, and this is the one place the list is deliberately not a mirror
- * of the chart: dimming is emphasis on a drawing, not a change to what a line is, and a swatch at
- * `DIM_ALPHA` would read as a broken row rather than as a legend. The side filter is still passed,
- * because that one really does take lines off the screen.
+ * No `focus`, unlike the overlay, and this list is none the poorer for it: a focus takes lines off
+ * the *fan*, and every line on this list is pinned or moved, which is exactly what a focus leaves
+ * alone. So the two agree without the argument being passed. The side filter is still passed,
+ * because that one decides what exists at all, here as on the chart.
  */
 function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color: string }): DrawnTrend[] {
   const ids = new Set(pinsFor(overlay.producer))
@@ -1856,9 +2045,14 @@ function extraProps(overlay: { producer: string, name: string }) {
           // Only wired while the switch is on. With it off the overlay still reports every click's
           // bar — it cannot know the switch exists — and nothing here is listening, so a click on
           // the chart means exactly what it has always meant.
-          // The switch again, at the cursor: hovering a line draws it as though it were selected.
-          // Not gated on a bar being chosen — the preview is worth having on the raw fan too, and
-          // once a bar *is* chosen only the lit lines are hit-testable, so only they preview.
+          // The switch at the cursor, which is two things and not one. `focusOnHover` is the
+          // highlight itself following the mouse along the candles, so reading the fan bar by bar
+          // costs no clicks and the click below is left doing the thing only it can — holding a bar
+          // still. `previewOnHover` is the smaller one: hovering a line draws it as though it were
+          // selected. Not gated on a bar being chosen — the preview is worth having on the raw fan
+          // too, and once a bar *is* chosen the rest of the fan is not drawn, so only what is left
+          // previews.
+          focusOnHover: focusMode.value.has(overlay.producer),
           previewOnHover: focusMode.value.has(overlay.producer),
           // The hand-adjusted lines, and the candles a drag snaps to. Both belong to this Pattern
           // alone: it is the only one whose drawing anybody edits.
@@ -1870,10 +2064,23 @@ function extraProps(overlay: { producer: string, name: string }) {
             : {},
         }
       : {},
-    // The same axis on the eighth overlay, and nothing else it needs: a pill has no direction, no
-    // state and nothing to pin. See `RESPECT_SIDES` for why the two lists are not one.
+    // The same axis on the eighth overlay, and still nothing it can be pinned or pointed at by: a
+    // mark has no direction, no state and no handle. See `RESPECT_SIDES` for why the two lists are
+    // not one. `mark` is the second prop and the only one that is not a filter — a pill for the
+    // runs that held a level, a sawtooth for the ones that held a slope, read off the producer
+    // because that is where the source Pattern is written down. See `respectMark`.
     ...overlay.name === 'line-respect'
-      ? { sides: sidesFor(overlay.producer, RESPECT_SIDE_VALUES) }
+      ? {
+          sides: sidesFor(overlay.producer, RESPECT_SIDE_VALUES),
+          mark: respectMark(overlay.producer),
+        }
+      : {},
+    // The only switch this Pattern has, and it decides how much of the Series is drawn rather than
+    // what any of it means: off, the overlay draws the leg under the cursor and nothing else. The
+    // hover itself is the overlay's own — a bar time off the crosshair, with no page state behind
+    // it, because nothing else on this page is asking the same question. See `labelsAlways`.
+    ...overlay.name === 'retracement'
+      ? { always: labelsAlways.value.has(overlay.producer) }
       : {},
     // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
     // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and
@@ -2120,10 +2327,30 @@ function isVisible(overlay: { producer: string }) {
                     @pin="(id: string) => addPin(WICK_KEY, id)"
                     @select="(id: string | null) => onSelect(WICK_KEY, id)"
                   />
+                  <!-- The ruler, joined the same way and for the same reasons as the wick tool:
+                       no Series behind it, no Points, no colour from the palette. Unlike it, it
+                       has no chip either — it is armed from the corner of the pane rather than
+                       from the sidebar, because it is a way of reading the chart and not a thing
+                       the chart is showing. -->
+                  <RulerOverlay
+                    :rulers="rulers"
+                    :bars="barsByTime"
+                    :times="barTimes"
+                    :armed="rulerArmed"
+                    :selected="selectedIn(RULER_KEY)"
+                    @add="(ruler: Ruler) => rulers.push(ruler)"
+                    @move="(ruler: Ruler) => { rulers = rulers.map(item => item.id === ruler.id ? ruler : item) }"
+                    @select="(id: string | null) => onSelect(RULER_KEY, id)"
+                    @disarm="rulerArmed = false"
+                  />
                   <!-- Draws nothing and listens for one thing: the click that lands on no line, and
                        so ends the selection. It cannot be any of the overlays' business — each of
                        them only ever knows the click was not *its* — so it is the page's. -->
                   <PaneClicks @click="onPaneClick" />
+                  <!-- The pane's own tools, in its top-left corner. First and only member: the
+                       ruler. Inside the slot, like the two bars below, because it is positioned
+                       against the chart's box. -->
+                  <ChartTools :ruler="rulerArmed" @toggle-ruler="rulerArmed = !rulerArmed" />
                   <!-- The actions for whatever is selected. Inside the chart's box, and therefore
                        inside the slot, because it is positioned against that box. -->
                   <ChartToolbar
@@ -2464,10 +2691,12 @@ function isVisible(overlay: { producer: string }) {
               </div>
 
               <!-- The fan is the problem this answers: a few hundred strokes in one colour, and the
-                   thing worth reading in them is which lines converge on one pivot. On, a click
-                   picks a candle and the lines arriving there keep their colour while the rest fade
-                   back — dimmed and not hidden, because the convergence only reads against the fan
-                   it was picked out of.
+                   thing worth reading in them is which lines converge on one pivot. On, the cursor
+                   answers it candle by candle: the lines arriving at the bar under the mouse are
+                   all that is left on the chart, and the rest of the fan goes — a faded stroke in a
+                   fan this dense is still something to read the answer through. A click fixes the
+                   bar, which is what stops the drawing moving while you go and click one of those
+                   lines. What you pinned or moved stays either way.
 
                    Under the side filter rather than beside it: that row decides what exists, this
                    one only decides what stands out. -->
@@ -2496,7 +2725,46 @@ function isVisible(overlay: { producer: string }) {
                   v-if="focusMode.has(overlay.producer) && focusFor(overlay.producer) === null"
                   class="mt-0.5 text-xs text-gray-400"
                 >
-                  Clique num candle para destacar as linhas que terminam nele.
+                  Passe o mouse por um candle para destacar as linhas que terminam nele; clique
+                  para fixar.
+                </p>
+              </div>
+
+              <!-- The only control this Pattern has. Off — the default — the chart is unmarked and
+                   the cursor is what asks: the leg closing on the candle under the mouse shows its
+                   number and nothing else does. On, every measurable leg carries one.
+
+                   The default is off because this Pattern answers about *every* leg, and the
+                   simple-leg Series marks one roughly every three bars: a five-day window drawn in
+                   full is a wall of percentages, which is not a reading. The zigzag Series is
+                   several times sparser and is the one worth leaving on.
+
+                   No `Destacar por ponto` beside it, and the difference is worth naming: that
+                   switch makes a *click* on the chart mean something new, so it is saved and it is
+                   somebody's decision. This one changes how much of a Series is drawn and nothing
+                   else, so it lives and dies with the session. -->
+              <div
+                v-if="overlay.name === 'retracement' && shown.has(overlay.producer)"
+                class="mt-1"
+              >
+                <button
+                  class="rounded border px-2 py-0.5 text-xs"
+                  :class="labelsAlways.has(overlay.producer)
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-500'"
+                  @click="toggleLabelsAlways(overlay.producer)"
+                >
+                  Sempre visível
+                </button>
+
+                <!-- Only while the switch is off, and needed for the same reason the trend-lines
+                     hint is: with it off the `Ligar` above draws nothing at all, and a Series that
+                     answers only the cursor has no way of saying so by itself. -->
+                <p
+                  v-if="!labelsAlways.has(overlay.producer)"
+                  class="mt-0.5 text-xs text-gray-400"
+                >
+                  Passe o mouse por um candle para ver o recuo da perna que fecha nele.
                 </p>
               </div>
 
@@ -2766,6 +3034,19 @@ function isVisible(overlay: { producer: string }) {
                   @update="updateRule"
                   @reset="resetRule"
                   @load="loadSaved"
+                />
+
+                <!-- The second rule this page composes, under the two Series that read it. Same
+                     condition as the one above and the same reason: an editor offered under a
+                     Pattern nobody is looking at spends a request on nothing. Inside the same
+                     `ClientOnly` because the stored ladder arrives after mount. -->
+                <ProximityControls
+                  v-if="NEAR.has(overlay.name) && shown.has(overlay.producer)"
+                  :levels="levels"
+                  @add="addLevel"
+                  @update="updateLevel"
+                  @remove="removeLevel"
+                  @clear="clearLevels"
                 />
               </ClientOnly>
             </div>

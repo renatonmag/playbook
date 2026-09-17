@@ -20,17 +20,6 @@ export const TREND_LABELS: Record<TrendSide, string> = {
 }
 
 /**
- * How much of a line is left when it is not the one being asked about: the alpha byte appended to
- * the Series' colour, ~15%.
- *
- * A colour rather than a filter, because the primitive reads `strokeStyle` per segment on every
- * frame and needs no change to accept one — the same 8-digit-hex idiom the sidebar's gap swatch
- * already uses. It assumes the `color` handed to `trendSegments` is a 6-digit `#rrggbb`, which is
- * true of every entry in the page's palette and of the overlay's default.
- */
-const DIM_ALPHA = '26'
-
-/**
  * What a drawn trend line is called, for the whole app: its two bars and the side it runs along.
  *
  * Both ends, unlike `gapBoxId`, which needs only its anchor. A leg extreme is the start of
@@ -93,11 +82,11 @@ export interface DrawnTrend extends TrendSegment {
  * that would spend two hues from an already crowded palette to repeat what the picture says, and
  * would cost the sidebar swatch its meaning as a legend for the checkbox.
  *
- * `focus` is a bar: the lines that *arrive* there keep the Series' colour and stay clickable, and
- * every other line fades to `DIM_ALPHA` and stops being a target. The far end and not either end,
- * because the question the switch answers is which lines converge on a pivot — a line that merely
- * starts there is part of a different fan, running the other way. Decided here for `extend`'s
- * reason: this is the module that already knows what selecting a line does to the drawing.
+ * `focus` is a bar: the lines that *arrive* there are the only ones left on the chart. The far end
+ * and not either end, because the question the switch answers is which lines converge on a pivot —
+ * a line that merely starts there is part of a different fan, running the other way. Decided here
+ * for `extend`'s reason: this is the module that already knows what selecting a line does to the
+ * drawing.
  *
  * `hovered` is the line under the cursor, and it is drawn as though it were selected. The
  * projection is the reason to select a line in the first place — where this ceiling would sit now
@@ -106,21 +95,26 @@ export interface DrawnTrend extends TrendSegment {
  * `extend` rather than getting a look of its own on purpose: a preview that drew differently from
  * the thing it previews would not be a preview.
  *
- * One answer to both questions — which lines to read, and which lines a click may name — and
- * deliberately so. This Series is dense enough that a dimmed line lies across a lit one every few
- * pixels, so a backdrop that still took clicks would hand back the wrong line most of the time and
- * leave the highlight worse than no highlight at all. The cost is that a line which is pinned but
- * not lit can no longer be unpinned from the chart; it is still listed in the sidebar with its
- * `✕`, which is where a line you currently cannot pick out belongs.
+ * It takes the rest off the chart rather than fading them, and that is the whole point. A fan of
+ * some hundreds of strokes in one colour reads as texture, and a faded stroke is still texture: the
+ * lines that answer the question were being read through the ones that do not. The cost is real and
+ * is the trade made knowingly — the convergence is no longer seen *against* the fan it was picked
+ * out of, so the eye has nothing to judge how selective the answer is. The switch is one click away
+ * for exactly that.
  *
- * It dims rather than filters, which is the whole point. This Series is a fan of some hundreds of
- * strokes, and a handful of lines converging on a bar is only legible against the ones they were
- * picked out of — drop the rest and the picture stops saying anything about the pivot. So this is
- * emphasis, not a fourth filter: the side checkboxes and `Ligar` still decide what exists.
+ * Still not a fourth filter. The side checkboxes and `Ligar` decide what *exists* — they survive the
+ * saved layout and the sidebar's lists follow them — while a focus is one bar's question, cleared by
+ * turning the switch off, and every line it takes off the chart is still listed in the sidebar.
  *
- * A `focus` no line reaches dims the whole fan, deliberately: "nothing ends on this bar" is an
- * answer, and silently keeping the previous highlight would be a different bar's answer shown for
- * this one. Note also that `focus` is a bar of the *displayed* timeframe while `to.time` is one of
+ * **A pinned line is the exception and is always drawn, whatever bar is focused.** A pin is a line
+ * you decided to keep, and a highlight that threw one away would spend the answer to the last
+ * question on asking the next one. Which also keeps the `✕` on the chart reachable: everything drawn
+ * is a target now, so there is no second rule about what a click may name.
+ *
+ * A `focus` no line reaches would empty the fan, and no caller hands one over any more: a bar
+ * nothing arrives at clears the highlight instead of becoming one — see `linesArriveAt`, and the
+ * overlay's `onClick`, which is where that is decided. The behaviour is kept here rather than
+ * guarded against, because it is the honest drawing of the argument it is given. Note also that `focus` is a bar of the *displayed* timeframe while `to.time` is one of
  * the Pattern's; when those differ nothing matches, which is the honest reading and is already what
  * the sidebar's "fora do timeframe exibido" warning is about.
  *
@@ -141,9 +135,10 @@ export function trendSegments(
     if (!sides.includes(point.direction)) continue
 
     const id = trendSegmentId(point.time, point.to.time, point.direction)
-    // One decision, read twice below, so the colour and the hit test cannot come to disagree about
-    // which lines the chart is currently about.
+    // Whether this line answers the question the focused bar asks — and, unless it is one you
+    // pinned, whether it is on the chart at all.
     const lit = focus === null || point.to.time === focus
+    if (!lit && !pinned.has(id)) continue
 
     segments.push({
       id,
@@ -155,11 +150,9 @@ export function trendSegments(
       fromPrice: point.price,
       toPrice: point.to.price,
       provisional: point.provisional,
-      // Full strength when nothing is being asked about, and when this is one of the lines that
-      // answers. `DIM_ALPHA` for the rest of the fan.
-      color: lit ? color : color + DIM_ALPHA,
-      // And the backdrop is a backdrop for the cursor too: only a lit line can be clicked.
-      hittable: lit,
+      // One colour for every line that survived the focus: what is drawn is what answers, so there
+      // is nothing left on the chart for a second weight to distinguish it from.
+      color,
       // What selecting a line does to the drawing, decided here because this is the module that
       // knows what a pin is: the line keeps its slope, its weight and its colour, and only its
       // length changes — it runs on to the current candle.
@@ -172,6 +165,26 @@ export function trendSegments(
   }
 
   return segments
+}
+
+/**
+ * Whether the fan reaches a bar at all: is there a line that *ends* there, once the side filter has
+ * had its say.
+ *
+ * `trendSegments`' own `lit`, asked of the whole Series rather than of one line, and here for that
+ * reason — the two have to agree about what "the lines that end on this bar" means, or a focus
+ * could be set on a bar that then draws nothing. The far end only, and the filter honoured: see
+ * `trendSegments`, which argues both.
+ *
+ * The fan only. A line somebody moved by hand is drawn whatever bar is focused, so a bar reached by
+ * nothing but a move would take the whole fan off the chart and put nothing new on it — which is
+ * the dead chart this predicate exists to prevent, not an answer.
+ *
+ * Read by the overlay's click handler, which is where a bar is chosen: a bar this returns `false`
+ * for is not a highlight anybody wants, it is the way out of the one on screen.
+ */
+export function linesArriveAt(points: TrendLine[], sides: TrendSide[], time: number): boolean {
+  return points.some(point => sides.includes(point.direction) && point.to.time === time)
 }
 
 /**
@@ -330,10 +343,10 @@ export function parseMove(key: string): TrendMove | null {
  * A moved line is always `extend`ed and needs no `pinned` argument: the move is the pin. There is
  * nothing else a moved line could be for — you moved it to read where it now points.
  *
- * `focus` means exactly what it means in `trendSegments`, applied here too so a moved line dims
- * with the fan rather than floating above a highlight that no longer includes it. There is no
- * `hovered`: that argument previews the projection a pin would give a line, and this line already
- * has it.
+ * No `focus`, unlike `trendSegments`. A move is its own pin, and a pinned line is drawn whatever bar
+ * is being asked about — so there is no bar this function could be handed that would change what it
+ * draws. And no `hovered`: that argument previews the projection a pin would give a line, and this
+ * line already has it.
  *
  * **Either end may have been placed by hand.** A near end nobody moved is read off the origin
  * Point, exactly as it always was; one that was moved is read off its bar like the far end, and the
@@ -351,7 +364,6 @@ export function movedSegments(
   color: string,
   moves: readonly string[],
   bars: ReadonlyMap<number, Candle>,
-  focus: number | null = null,
 ): DrawnTrend[] {
   if (moves.length === 0) return []
 
@@ -390,7 +402,6 @@ export function movedSegments(
 
     const toPrice = far[move.to.field]
     const id = movedTrendId(fromTime, move.to.time, point.direction, move.to.field, move.from?.field ?? null)
-    const lit = focus === null || move.to.time === focus
 
     segments.push({
       id,
@@ -408,8 +419,7 @@ export function movedSegments(
       origin: move.origin,
       field: move.to.field,
       fromField: move.from?.field,
-      color: lit ? color : color + DIM_ALPHA,
-      hittable: lit,
+      color,
       // Always, unlike a fan line: the move is the pin, and a line you adjusted by hand is one you
       // adjusted in order to read where it now points.
       extend: true,

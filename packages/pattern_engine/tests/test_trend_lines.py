@@ -49,11 +49,20 @@ def at(index: int) -> datetime:
     return OPEN + timedelta(minutes=5 * index)
 
 
-def bar(index: int, low: float, high: float | None = None) -> Candle:
-    """One bar, named by its `low` and given a high far out of the way unless one is asked for."""
+def bar(
+    index: int, low: float, high: float | None = None, body: float | None = None
+) -> Candle:
+    """One bar, named by its `low` and given a high far out of the way unless one is asked for.
+
+    `body` is where the bar opened and closed, and it defaults to the low: the rule reads the body,
+    so a bar named only by its low is one whose low *is* its body, which is the fixture that says
+    "this candle really is down here" rather than "this candle poked down here". A fixture about
+    the wick exemption sets the two apart.
+    """
+    settled = low if body is None else body
     top = low + CLEARANCE if high is None else high
     return Candle(
-        time=at(index), open=low, high=top, low=low, close=low, volume=1.0
+        time=at(index), open=settled, high=top, low=low, close=settled, volume=1.0
     )
 
 
@@ -103,6 +112,17 @@ def flipped_bar(candle: Candle) -> Candle:
         close=-candle.close,
         volume=candle.volume,
     )
+
+
+def capped(index: int, high: float, body: float | None = None) -> Candle:
+    """One bar named by its `high`, body at the high and its low far out of the way.
+
+    `bar`'s mirror, built by the very flip the top-side fixtures use so the two builders cannot
+    drift apart. A ceiling fixture needs its body at its high for the same reason a floor fixture
+    needs its body at its low: the rule reads the body, and a bar whose body sits at the other
+    extreme is a bar whose watched side is all wick.
+    """
+    return flipped_bar(bar(index, -high, body=None if body is None else -body))
 
 
 def flipped_mark(point: LegMark) -> LegMark:
@@ -183,11 +203,11 @@ def test_a_sub_tick_dip_under_the_line_is_not_a_collision():
 
 
 def test_a_high_over_the_line_blocks_a_top_line():
-    """The mirror comparison: for a ceiling it is the highs that reach through."""
-    bars = [bar(index, 0.0, high=100.0) for index in range(5)]
-    bars[2] = bar(2, 0.0, high=101.0)
+    """The mirror comparison: for a ceiling it is the tops that reach through."""
+    bars = [capped(index, 100.0) for index in range(5)]
+    bars[2] = capped(2, 101.0)
     assert clear(bars, 0, 4, 100.0, 100.0, "high") is False
-    bars[2] = bar(2, 0.0, high=99.0)
+    bars[2] = capped(2, 99.0)
     assert clear(bars, 0, 4, 100.0, 100.0, "high") is True
 
 
@@ -218,11 +238,11 @@ def test_the_exemption_is_one_bar_deep_and_not_a_softening():
 
 def test_the_flanking_bars_are_exempt_on_a_top_line_too():
     """The mirror: a high over a ceiling is ignored beside the ends, caught in the middle."""
-    bars = [bar(index, 0.0, high=100.0) for index in range(5)]
-    bars[1] = bar(1, 0.0, high=150.0)
-    bars[3] = bar(3, 0.0, high=150.0)
+    bars = [capped(index, 100.0) for index in range(5)]
+    bars[1] = capped(1, 150.0)
+    bars[3] = capped(3, 150.0)
     assert clear(bars, 0, 4, 100.0, 100.0, "high") is True
-    bars[2] = bar(2, 0.0, high=150.0)
+    bars[2] = capped(2, 150.0)
     assert clear(bars, 0, 4, 100.0, 100.0, "high") is False
 
 
@@ -234,6 +254,50 @@ def test_a_span_of_three_has_nothing_left_to_test():
     """
     bars = [bar(0, 100.0), bar(1, 1.0), bar(2, 1.0), bar(3, 100.0)]
     assert clear(bars, 0, 3, 100.0, 100.0, "low") is True
+
+
+# --- the wicks -------------------------------------------------------------------------------
+
+
+def test_a_wick_through_the_line_is_not_a_collision():
+    """Bar 2 dips to 95 under a line at 100 and settles back at 102. The floor stands."""
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 95.0, body=102.0), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
+
+
+def test_a_body_through_the_line_still_blocks_it():
+    """The same dip, but price settled down there: that is a candle in the way."""
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 95.0, body=99.0), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is False
+
+
+def test_a_body_exactly_on_the_line_keeps_it():
+    """Strict on the body as it was on the low: settling *on* the line is the line working."""
+    bars = [bar(0, 100.0), bar(1, 100.0), bar(2, 95.0, body=100.0), bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is True
+
+
+def test_the_body_is_the_lower_of_open_and_close():
+    """Which end of the body is read is the side's question, not the candle's colour.
+
+    An up candle that opened under the line and closed over it settled below at some point, so it
+    is in the way; the same two prices in the other order say the same thing.
+    """
+    down = Candle(time=at(2), open=99.0, high=110.0, low=95.0, close=105.0, volume=1.0)
+    up = Candle(time=at(2), open=105.0, high=110.0, low=95.0, close=99.0, volume=1.0)
+    bars = [bar(0, 100.0), bar(1, 100.0), down, bar(3, 100.0), bar(4, 100.0)]
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is False
+    bars[2] = up
+    assert clear(bars, 0, 4, 100.0, 100.0, "low") is False
+
+
+def test_a_wick_over_a_ceiling_is_not_a_collision_either():
+    """The mirror: a top line is blocked by `max(open, close)`, not by the high."""
+    bars = [capped(index, 100.0) for index in range(5)]
+    bars[2] = capped(2, 105.0, body=100.0)
+    assert clear(bars, 0, 4, 100.0, 100.0, "high") is True
+    bars[2] = capped(2, 105.0, body=101.0)
+    assert clear(bars, 0, 4, 100.0, 100.0, "high") is False
 
 
 # --- where a leg reached --------------------------------------------------------------------
@@ -354,6 +418,14 @@ BLOCKED: tuple[list[Candle], list[LegMark]] = (
     CLEAN[1],
 )
 
+#: `BLOCKED`'s spike again, this time as a wick: bar 6 reaches the same 99 and closes back at the
+#: 121 it had. The endpoint still moves to bar 6 — endpoints are wick extremes and always were —
+#: but nothing it spans is severed, so the fan is whole apart from the pair bar 6 is too close to.
+GRAZED: tuple[list[Candle], list[LegMark]] = (
+    [*CLEAN[0][:6], bar(6, 99.0, body=121.0), *CLEAN[0][7:]],
+    CLEAN[1],
+)
+
 #: Bottoms at 0 and 4 with a top mark between them at 2. If sides were ignored the top's own
 #: extreme would be picked up as an endpoint; with sides respected the two bottoms connect straight
 #: through it and the lone top pairs with nothing, having no second top to reach.
@@ -381,6 +453,19 @@ def test_every_reachable_pivot_is_connected_not_only_the_next_one(case):
 def test_a_candle_in_the_way_drops_that_connection_and_no_other(case):
     bars, marks = case
     assert named(trend_lines(bars, marks)) == [(0, 4), (0, 6), (6, 12)]
+
+
+@pytest.mark.parametrize("case", [GRAZED, flipped(GRAZED)])
+def test_a_spike_that_closed_back_inside_severs_nothing(case):
+    """`BLOCKED`'s counterpart, and the reason the wick exemption exists.
+
+    Bar 6 goes exactly as far down, so it is still the bottom its leg reached and still the
+    endpoint — the wick exemption says nothing about where a leg got to. What changes is that the
+    lines spanning it no longer die on it: `(0, 12)` and `(4, 12)` come back, and the window is
+    whole again.
+    """
+    bars, marks = case
+    assert named(trend_lines(bars, marks)) == [(0, 4), (0, 6), (0, 12), (4, 12), (6, 12)]
 
 
 @pytest.mark.parametrize("case", [MIXED, flipped(MIXED)])

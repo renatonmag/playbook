@@ -49,6 +49,36 @@ export interface LegMark extends PatternPoint {
 }
 
 /**
+ * Where one leg actually reached — a detector's pivot repriced at the extreme its leg made.
+ *
+ * **Not the vertex.** A `LegMark` or a `ZigZagPivot` says which leg ended and on which side; this
+ * says where that leg *got to*, which is a different bar whenever the detector marked the turn
+ * late. `simple-leg` reads one side of the bar at a time, so a leg can top out several bars before
+ * the bar that ends it; the zigzag elects a vertex only among bars that made a rolling-window
+ * extreme. Anything measuring a distance between pivots measures short unless it reads this.
+ *
+ * One Point per source pivot, in the source's order, so the two Series can be held side by side.
+ * The anchors still never go backwards, but two Points can share a bar — one candle can be both
+ * the top of the leg into it and the bottom of the leg out of it.
+ *
+ * No overlay is registered for it: the Series ships so a chain can read it, and `monitor.vue`
+ * drops a producer it has no entry for.
+ */
+export interface LegReach extends PatternPoint {
+  /** The extreme the leg reached: its highest `high` for a top, its lowest `low` for a bottom. */
+  price: number
+  /** Which extreme this is — the side of the pivot whose leg it measures. */
+  direction: 'high' | 'low'
+  /**
+   * True for the last Point only. It measures the source's newest pivot, which is unsettled on
+   * either detector, so this leg's extreme moves with every bar. Read positionally rather than
+   * copied from the source, because a `ZigZagPivot` has no such flag at all — so a settled final
+   * mark is flagged too.
+   */
+  provisional: boolean
+}
+
+/**
  * One turn of the general direction — the market's lean, read off the simple legs' pivots.
  *
  * The Series holds only the turns: the direction at any bar is that of the last Point at or
@@ -337,8 +367,8 @@ export interface TrendLine extends PatternPoint {
 }
 
 /**
- * One thing a pinned line did on one bar: the line was touched, broken through, or the breakout
- * before it was undone.
+ * One thing a pinned line did on one bar: the line was touched, missed narrowly, broken through, or
+ * the breakout before it was undone.
  *
  * The Series is sparse — most bars say nothing about most lines — and it is bar-major, so its
  * anchors never go backwards. One bar and one line make at most one crossing, and a crossing that
@@ -346,6 +376,13 @@ export interface TrendLine extends PatternPoint {
  * crossing, read the two kinds together. A bar repeats when several lines answer on it, and on one
  * bar for one line: a bar that opens exactly on the line touches it with the base of a wick and
  * crosses it with its close, so it carries a `touch` and a crossing both.
+ *
+ * A `close` is the near miss, and it is the one kind that depends on a rule this page sends: the
+ * bar stopped short of the line by less than the reach the proximity ladder granted its leg — see
+ * `utils/proximity.ts`. It is exclusive with the other three by construction rather than by rule,
+ * since a line near enough to be *missed* is outside the bar's range entirely, so no wick can hold
+ * it and no close can be on the far side of it. It is also the one kind that is not final: the leg
+ * behind the reach is measured whole, so a longer window can move it.
  *
  * `price` is the **line's** price, not the bar's: the OHLCV every Point carries is already the
  * bar's, and repeating one of its numbers here would say nothing.
@@ -355,7 +392,7 @@ export interface LineRelation extends PatternPoint {
   line: string
   /** The line's price — the level the bar met, not anything about the bar. */
   price: number
-  kind: 'touch' | 'breakout' | 'seam'
+  kind: 'touch' | 'close' | 'breakout' | 'seam'
   /** Which wick reached the line. Only on `touch`. */
   wick: 'high' | 'low' | null
   /**
@@ -365,6 +402,14 @@ export interface LineRelation extends PatternPoint {
   side: 'above' | 'below' | null
   /** The bar that broke out first, whole. Only on `seam`. */
   since: PatternPoint | null
+  /** How far the line sat from the bar's nearer extreme, in points. Only on `close`. */
+  gap: number | null
+  /**
+   * The span of the zigzag leg that set the reach, in points. Only on `close`, and carried so a
+   * reader can check the claim — `gap` against `leg` times the rung's trigger — without leaving
+   * the row.
+   */
+  leg: number | null
 }
 
 /**
@@ -392,6 +437,97 @@ export interface LineRespect extends PatternPoint {
   side: 'above' | 'below'
   /** The run, first bar to last. `bars[bars.length - 1]` is this Point's own anchor. */
   bars: PatternPoint[]
+}
+
+/**
+ * The move a leg came back into, and how far back into it the leg came.
+ *
+ * **Whole or absent**, which is why it nests inside `Retracement` rather than spreading six
+ * optional fields across it: there is no state where some of these are known and others are not,
+ * so a reader gets one `point.measured?.ratio` instead of six nulls the type system cannot know
+ * are correlated.
+ *
+ * The first nested payload here that is **not** a `PatternPoint` — `TrendLineEnd` and `LegPoint`
+ * both are. It is anchored on nothing and has no bar of its own; the two Points it carries do.
+ */
+export interface RetracedMove {
+  /** Where the retraced move began: the nearest earlier pivot on the leg's closing side that
+   *  price had not exceeded. A bare pivot, so both detectors produce one shape here. */
+  origin: PatternPoint & { price: number }
+  /** Where the retraced move ended and the measured one began — the deepest opposite-side pivot
+   *  between `origin` and the close. The 0% end of the ladder, `origin` being the 100% end. */
+  turn: PatternPoint & { price: number }
+  /** `|origin.price - turn.price|` — the whole move, in price units. */
+  retraced: number
+  /** `|close price - turn.price|` — how far back the leg came. */
+  move: number
+  /**
+   * `move / retraced`, and **a fraction, not a percentage**: 0.618, never 61.8. The engine
+   * measures and the browser formats.
+   *
+   * Always in `[0, 1]`, by construction rather than by clamping — the origin is at or beyond the
+   * close and the turn is at or beyond it the other way, so the numerator is a part of the
+   * denominator. There is no such thing as an extension here.
+   */
+  ratio: number
+  /**
+   * How many pivots each half of the move spans. `(1, 1)` is the textbook reading — this leg
+   * against the one before it.
+   *
+   * Anything larger says the search walked back past a top the leg had taken out, and the number
+   * above is a fraction of a **bigger** swing than the previous leg. That is the only thing that
+   * explains a reading dropping sharply between two adjacent legs: a leg creeping through the
+   * previous top reads 0.97, then 0.99, then one tick more and 0.41 against a swing three legs
+   * deep. Nothing else on the Point says so.
+   */
+  retraced_legs: number
+  move_legs: number
+}
+
+/**
+ * One leg and how much of the move before it it gave back, anchored on the pivot that **closes**
+ * the leg — unlike `LegWindow` and `LegExtremes`, which describe a span and anchor where it
+ * starts. This reports a level reached, and the bar it was reached on is where a number belongs.
+ *
+ * The pipeline runs this Pattern twice, and **neither instance reads a detector directly**: both
+ * read a `LegReach` Series, because a detector's own pivot is not its leg's extreme and a fraction
+ * taken between four such prices is short by whatever the detector left on the table. So both
+ * Series' percentages match a ruler dragged over the swing they name, and what still differs
+ * between the two is only *which swings* each detector calls a leg.
+ *
+ * One consequence to expect on the chart: a Point is anchored where the leg **reached**, not where
+ * the detector marked it, so the number does not sit on the drawn `zig-zag` or `simple-leg` line
+ * and on a leg marked late it can be several candles away from the vertex there.
+ */
+export interface Retracement extends PatternPoint {
+  /** The closing pivot's own price — the level this fraction is measured to. */
+  price: number
+  /**
+   * Which extreme of its bar the closing pivot is. `'high'` is a leg that rose into a top, and the
+   * move it retraces is the fall before it.
+   *
+   * The side vocabulary, not the bull/bear one — so a filter on it would join `SIDES` in
+   * `pages/monitor.vue`, never `DIRECTIONAL`.
+   */
+  direction: 'high' | 'low'
+  /**
+   * The measurement, or `null`. Three causes and they are not told apart on the wire: no
+   * un-exceeded pivot anywhere in the window, a "leg" whose two ends are on one side, or an origin
+   * and a turn at one price.
+   *
+   * `null` means **"not measured in this window"** and never "unmeasurable" — the same honesty
+   * `BarGap.closed_by` keeps, and the same trap: the identical leg reads `null` on a short window
+   * and 0.45 on a longer one.
+   */
+  measured: RetracedMove | null
+  /**
+   * This leg closes on the newest pivot its source produced, so its closing price can still move.
+   *
+   * Read positionally on the server, so one rule serves both detectors — which makes it
+   * conservative: a genuinely closed final leg is flagged too. Carried, not acted on, the trade
+   * `LegMark.provisional` makes.
+   */
+  provisional: boolean
 }
 
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {

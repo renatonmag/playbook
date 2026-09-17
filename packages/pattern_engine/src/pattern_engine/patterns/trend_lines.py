@@ -10,15 +10,20 @@ Four rules carry the whole thing:
 - **Same side only.** A `LegMark` is a top (`direction == "high"`) or a bottom (`"low"`), and a
   line joins two marks of one side. Tops to tops is a ceiling, bottoms to bottoms a floor; a line
   from a top to a bottom is a leg, which `simple-leg` already draws.
-- **A candle in the way kills the line, except the two beside its ends.** Between the two
-  endpoints the line sits at an interpolated price on each bar. A bottom line dies the moment some
-  intervening candle's `low` is strictly *below* it, a top line the moment some `high` is strictly
+- **A candle in the way kills the line, and two things are not in the way.** Between the two
+  endpoints the line sits at an interpolated price on each bar, and a bottom line dies the moment
+  some intervening candle reaches strictly *below* it, a top line the moment one reaches strictly
   *above* it — that is what "in the way" means for a line meant to sit under, or over, the price
   action. Strictly: a candle resting exactly on the line is a candle the line touched, which is
-  the whole point of a line. Wicks, not bodies — a low is where price actually went. The one bar
-  inward from each endpoint is exempt along with the endpoint itself: it is still inside the turn
-  that made that pivot, price is still at the extreme's own level there, and so it grazes every
-  line drawn through the pivot at any slope. Testing it rejected lines a reader draws by eye.
+  the whole point of a line. Two exemptions narrow it, and both come from the same observation —
+  the lines that died were lines a reader keeps drawing:
+  - **The one bar inward from each endpoint**, exempt along with the endpoint itself: it is still
+    inside the turn that made that pivot, price is still at the extreme's own level there, and so
+    it grazes every line drawn through the pivot at any slope.
+  - **Every bar's wick.** What reaches through is read on the body — `min(open, close)` under a
+    floor, `max(open, close)` over a ceiling — so a candle that spiked past the line and closed
+    back inside it is not in the way. A wick is where price went and did not stay; the line is a
+    level that held, and a level that held is a statement about where candles *settled*.
 - **Every reachable pivot, not the next one.** Each mark is joined to *every* later same-side mark
   it can see, not merely to the first. A line that skips three pivots is the long trend the eye is
   looking for, and it is exactly the one a chain of nearest-neighbour links would never draw.
@@ -29,7 +34,9 @@ Four rules carry the whole thing:
   bar that actually made the high is one of the candles that *blocks* it. So each mark is first
   rewritten as the bar its leg reached: the highest `high` of the leg for a top, the lowest `low`
   for a bottom, over the leg's bars — the span from the previous mark to this one, inclusive,
-  which is `split_legs`' own definition of a leg.
+  which is `split_legs`' own definition of a leg. That scan is no longer written here: it is
+  `leg_reach.leg_reaches`, which a second Pattern needed whole, and `leg_ends` below is what is
+  left of this module's use of it.
 
 The output is a fan: one Point per surviving pair, anchored on the **first** of the two — where a
 drawing wants to start, the reason `bar_gap` anchors on the first bar of its triple. The far
@@ -65,6 +72,11 @@ What it costs, stated rather than hidden:
   such a pair connects unconditionally — which is true and useless. The exemption above widens the
   same hole: three bars apart, both bars in between are the ones beside the ends, and there is
   again nothing a candle could block. Only pairs with a bar no exemption covers are emitted.
+- **A line can run visibly through a spike.** The wick exemption is a real loss of information,
+  not a rounding of one: a candle whose low pierced a floor by a hundred ticks and closed above it
+  leaves the floor standing, and on the screen the line crosses the wick. What the Series claims is
+  therefore "no body reached through", and a reader who wants wick breaks has the same bars this
+  read and can ask them.
 - **Nothing says a line is still unbroken.** It is clear between its endpoints, and says nothing
   at all about the bars after the second one. A line extended past its far pivot is a drawing
   decision, and it is the screen's — see `TrendLinesOverlay`.
@@ -79,8 +91,7 @@ from ..engine import BARS, INSTRUMENT
 from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..timeframes import Timeframe
-from .leg_extremes import extreme_points
-from .leg_processor import bar_positions, position_of
+from .leg_reach import leg_reaches
 from .simple_leg import LegMark, integer
 
 
@@ -114,6 +125,15 @@ def clear(
     the deaths were spurious. The cost is stated rather than hidden: an obstruction sitting exactly
     one bar in from an end is now invisible, so what this returns is "clear from `start + 2` to
     `end - 2`", and a caller wanting more has to look itself.
+
+    Nor is any bar's wick. The bars that are read are read on the body, so a candle that spiked
+    through the line and closed back on the right side of it is not an obstruction. Same reasoning
+    once more: the deaths were spurious, because a reader looking at that candle still draws the
+    line. And the asymmetry it leaves is deliberate rather than an oversight — the *endpoints* are
+    wick extremes, since `leg_ends` takes them from `extreme_points`, which reads highs and lows.
+    A line is drawn through wicks and blocked only by bodies. A floor is pinned to the furthest
+    price a leg reached and then asked to survive where price *stayed*, which is the two questions
+    a reader actually asks of it, and neither one answered on the other's terms.
     """
     span = end - start
     slope = (to_price - from_price) / span
@@ -122,9 +142,9 @@ def clear(
         line = integer(from_price + slope * offset)
         bar = bars[start + offset]
         if side == "low":
-            if integer(bar.low) < line:
+            if integer(min(bar.open, bar.close)) < line:
                 return False
-        elif integer(bar.high) > line:
+        elif integer(max(bar.open, bar.close)) > line:
             return False
 
     return True
@@ -151,54 +171,38 @@ class LineEnd(Pivot):
     provisional: bool
 
 
-def leg_ends(
-    bars: Sequence[Candle], marks: Sequence[LegMark]
-) -> list[tuple[LineEnd, int]]:
+def leg_ends(bars: Sequence[Candle], marks: Sequence[LegMark]) -> list[tuple[LineEnd, int]]:
     """Each mark rewritten as the bar its leg reached, with that bar's position in `bars`.
 
-    A mark's leg is the span from the **previous mark to it, inclusive** — `split_legs`' own
-    definition, boundary bar shared and all — and the first mark takes the window head, the same
-    fold `split_legs` does. The extreme over that span is the endpoint: the highest `high` for a
-    top, the lowest `low` for a bottom.
+    The scan itself is `leg_reaches`, which is where the rule and all of its costs are written: a
+    mark's leg is the span from the previous mark to it inclusive, the reach is the extreme over it
+    on the mark's own side, and the first mark takes the window head. It was extracted out of here
+    once a second Pattern needed the same answer, and moving it rather than copying it is what
+    keeps the lines and that Pattern from quietly disagreeing about where a leg got to.
 
-    The extreme itself comes from `extreme_points`, which is where the tie rule (the earliest bar
-    to reach a level keeps it) and the direction table are already written and tested. It answers
-    all three of a leg's levels and only `reach`, the first, is wanted here; the two discarded
-    passes are over a slice a few bars long, which is cheaper than a second strict scan living
-    here and drifting from that one.
+    What stays here is the only thing the two callers do differently: **`provisional` comes from
+    the mark itself**, not from the mark's position in the Series. A line is provisional because
+    the leg behind one of its ends is still running, which is what `SimpleLegPattern` flags, and
+    coarsening that to "the last one" would taint a settled line and clear a running one.
 
     Positions come back alongside because everything downstream is index work — the interpolation
     in `clear` and the "is there anything in between" guard — and looking a bar up twice by `time`
     would be the same dictionary hit written in two places.
 
-    Raises `ValueError` through `position_of` for a mark that sits on no bar of `bars` — the
-    mismatched-Timeframe guard, shared rather than rewritten.
+    Raises `ValueError` through `leg_reaches` for a mark that sits on no bar of `bars`.
     """
-    positions = bar_positions(bars)
-
-    ends: list[tuple[LineEnd, int]] = []
-    opened = 0
-
-    for mark in marks:
-        at = position_of(mark, positions)
-        leg = bars[opened : at + 1]
-        # `reach` — how far the leg went — read on the leg's own side: a top mark closes a leg
-        # that ran up, a bottom mark one that ran down.
-        reach = extreme_points(leg, "bullish" if mark.direction == "high" else "bearish")[0]
-        ends.append(
-            (
-                LineEnd.anchored(
-                    leg[reach.at],
-                    price=reach.price,
-                    direction=mark.direction,
-                    provisional=mark.provisional,
-                ),
-                opened + reach.at,
-            )
+    return [
+        (
+            LineEnd.anchored(
+                bars[at],
+                price=price,
+                direction=mark.direction,
+                provisional=mark.provisional,
+            ),
+            at,
         )
-        opened = at
-
-    return ends
+        for mark, (at, price) in zip(marks, leg_reaches(bars, marks))
+    ]
 
 
 def trend_lines(

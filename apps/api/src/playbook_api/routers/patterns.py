@@ -42,14 +42,21 @@ level is a `Set<string>` in the browser and nowhere else: it is not a quantity t
 compute better or worse, it is a quantity this server does not have. Where the rule's case had to
 argue that the client *could* evaluate it and shouldn't, this one has no such argument to lose.
 
+`trend-relations` is the same exception and not a widening of it. A sloped line is a second kind of
+line, not a second kind of parameter: it travels in the same body, through the same two refusals,
+into a Pattern that is in the tuple whether or not anybody sent one. That this server *does* draw
+trend lines of its own, in `trend-lines`, is the one thing that could make it look like a widening,
+and it is the opposite — the fan is hundreds of lines and what arrives here is the two somebody
+kept, or dragged an end of, which is precisely the fact no Series holds.
+
 What keeps it contained is the same pair:
 
 - **No line changes the shape of the pipeline.** The Pattern is in the tuple on every run, lines
   or not; with none it emits an empty Series. A caller adds data to a question, never a Pattern.
-- **The producer key does not move.** `PinnedLines.__str__` answers a constant, exactly as
-  `FormaRule.__str__` does, so the key is identical whether or not lines were sent — and the same
-  cost follows, in the same words: the response does not say which lines ran, and a client that
-  caches has to fold them into its own key.
+- **The producer key does not move.** `PinnedLines.__str__` answers a constant, and so does
+  `PinnedTrends.__str__`, exactly as `FormaRule.__str__` does — so the keys are identical whether
+  or not lines were sent, and the same cost follows, in the same words: the response does not say
+  which lines ran, and a client that caches has to fold them into its own key.
 
 The lines travel in a **body**, so they arrive on a `POST` beside the `GET` rather than on it. A
 list has no bounded length and a URL does, and a body on a `GET` is not something clients, proxies
@@ -73,9 +80,26 @@ final bar is not read until the next session opens one past it.
 overlays end one bar behind its candles, and that gap is this paragraph rather than a defect. A
 window that ends before the live edge loses nothing, so a pinned window is unaffected.
 
+**The third exception is the proximity rule**, and it is the Forma rule's argument again rather
+than a third kind of thing. `line-relations` reports that a bar came *near* a pinned line without
+reaching it, and how near counts as near is a fraction of the leg the bar sits in — a zigzag leg,
+sliced in the engine, whose span is `max(high) - min(low)` over bars the browser holds as Points
+and would have to re-derive the split for. So the ladder of `(leg size, fraction)` travels and the
+arithmetic stays here, under the same three guards: the rule's name is never a parameter
+(`lines_body.PROXIMITY_NAME` borrows it, so the keys do not move), no rung changes the shape of the
+pipeline, and an empty ladder is a real setting that turns the fourth kind off rather than a
+half-specified rule wearing this server's defaults.
+
+It rides in the **body** and not on the query string, which is the one way it differs from the
+Forma rule and is a fact about its shape rather than about its standing: a ladder is a list
+somebody adds rungs to, and the argument against lists on a URL is already written above. That it
+is absent from the `GET` costs nothing and is worth saying so plainly — without lines, the two
+Series it could move are empty, so a `GET` carrying one would be a parameter that provably changes
+no byte of the response.
+
 `symbol` and `timeframe` remain absent for the original reason: the pipeline names the Instrument
-and each Pattern declares the Timeframes it reads. The caller chooses the window, and now the one
-rule the browser cannot evaluate for itself.
+and each Pattern declares the Timeframes it reads. The caller chooses the window, and now the rules
+the browser cannot evaluate for itself.
 
 One consequence for callers that cache: because the keys do not move, a window plus a producer no
 longer names a response. A client that caches by window alone will serve one rule's marks for
@@ -90,7 +114,7 @@ from pattern_engine import FormaRule, Pattern, PatternEngine
 from sqlmodel import Session
 
 from ..db import get_session
-from ..lines_body import LinesIn, to_lines
+from ..lines_body import LinesIn, to_lines, to_proximity, to_trends
 from ..pipeline import PIPELINE, SYMBOL, build_pipeline, timeframes
 from ..rule_query import rule_override
 from ..schemas.pattern import PatternsOut, SeriesOut
@@ -209,15 +233,24 @@ def run_patterns(
     """The same run, for a caller holding lines the server has no way to know about.
 
     Every query parameter of the `GET` means the same thing here, `rule_override` included, so a
-    caller does not choose between sending a rule and sending lines. The body is the only
-    addition, and `line-relations` is the only Series it can change.
+    caller does not choose between sending a rule and sending lines. The body is the only addition,
+    and the four Series it can change — `line-relations` and `trend-relations`, and the
+    `line-respect` reading each of them — are the four that are empty without it.
+
+    The body carries a second rule beside the lines — the proximity ladder — and it changes those
+    same four Series and no others. With no lines it changes nothing at all, which is why it is not
+    on the `GET`: see the module docstring.
 
     `PIPELINE` is deliberately *not* reused when a rule is absent, as the `GET` reuses it: a
     pipeline carrying lines is by definition not the declared one, and pretending otherwise would
     make "the same object" stop meaning what the `GET` uses it to mean. The absent rule is left to
     `build_pipeline`'s own default rather than named again here, so `RULE_K` stays written once.
     """
-    lines = to_lines(body)
-    pipeline = build_pipeline(lines=lines) if rule is None else build_pipeline(rule, lines)
+    lines, trends, proximity = to_lines(body), to_trends(body), to_proximity(body)
+    pipeline = (
+        build_pipeline(lines=lines, trends=trends, proximity=proximity)
+        if rule is None
+        else build_pipeline(rule, lines, trends, proximity)
+    )
 
     return _run(session, pipeline, start, end, limit)

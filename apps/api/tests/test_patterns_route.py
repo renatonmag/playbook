@@ -17,7 +17,9 @@ from pattern_engine.patterns import (
     LegExtremesPattern,
     LineRelationsPattern,
     LineRespectPattern,
+    TrendRelationsPattern,
 )
+from pattern_engine.patterns.proximity import ProximityLevel, ProximityRule, reach
 
 from playbook_api.db import get_session
 from playbook_api.lines_body import MAX_LINES
@@ -485,6 +487,18 @@ RESPECT = next(
     pattern.producer for pattern in PIPELINE if isinstance(pattern, LineRespectPattern)
 )
 
+#: The sloped pair, found the same way. `LineRespectPattern` is declared twice now — once per
+#: relations Series — so the respect key here is the one whose *source* is the sloped one, which is
+#: also the shortest statement of why the two are distinguishable at all.
+TRENDS = next(
+    pattern.producer for pattern in PIPELINE if isinstance(pattern, TrendRelationsPattern)
+)
+TREND_RESPECT = next(
+    pattern.producer
+    for pattern in PIPELINE
+    if isinstance(pattern, LineRespectPattern) and pattern.source.producer == TRENDS
+)
+
 #: A second price, off the bodies rather than on them.
 #:
 #: `LINE_PRICE` sits *exactly* where every touching bar opens, so `side` is `None` on all of them
@@ -498,6 +512,27 @@ PINNED = {"lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "pr
 #: The same line at `RESPECT_PRICE`, for the two tests that need a side.
 PINNED_OFF_BODY = {
     "lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "price": RESPECT_PRICE}]
+}
+
+#: One sloped line, and it is deliberately **flat**: both ends at `LINE_PRICE`, on the window's
+#: first two bars. A flat trend line is the same line `PINNED` is, so what the two Series answer can
+#: be compared directly — which is the only thing this file is testing. Whether the interpolation is
+#: right is `test_trend_relations`' business, and it is settled there without a database.
+PINNED_TREND = {
+    "trends": [
+        {
+            "id": "1:2:high",
+            "from_time": int(OPEN.timestamp()),
+            "from_price": LINE_PRICE,
+            "to_time": int((OPEN + timedelta(minutes=5)).timestamp()),
+            "to_price": LINE_PRICE,
+        }
+    ]
+}
+
+#: The same sloped line at `RESPECT_PRICE`, for the test that needs a side.
+PINNED_TREND_OFF_BODY = {
+    "trends": [{**PINNED_TREND["trends"][0], "from_price": RESPECT_PRICE, "to_price": RESPECT_PRICE}]
 }
 
 
@@ -517,7 +552,7 @@ def test_a_posted_line_reaches_the_pattern(client):
     assert {point["kind"] for point in points} == {"touch"}
     # The line's price, not the bar's — and the bar's own OHLCV rides along beside it.
     assert {point["price"] for point in points} == {LINE_PRICE}
-    assert {"time", "open", "high", "low", "close", "volume", "line", "price", "kind", "wick", "side", "since"} == set(points[0])
+    assert {"time", "open", "high", "low", "close", "volume", "line", "price", "kind", "wick", "side", "since", "gap", "leg"} == set(points[0])
 
 
 def test_the_get_runs_the_respect_pattern_with_no_lines(client):
@@ -650,6 +685,150 @@ def test_an_invalid_window_is_refused_on_the_post_too(client):
     assert client.post("/patterns", params=window, json=PINNED).status_code == 400
 
 
+# --- the sloped lines a browser drew ------------------------------------------------------------
+
+
+def test_the_get_runs_the_trend_pattern_with_no_lines(client):
+    """Present and empty, never absent — the same fact its level twin asserts."""
+    body = client.get("/patterns", params=WINDOW).json()
+    assert {TRENDS, TREND_RESPECT} <= set(body["series"])
+    assert body["series"][TRENDS]["points"] == []
+    assert body["series"][TREND_RESPECT]["points"] == []
+
+
+def test_a_posted_trend_line_reaches_the_pattern(client):
+    body = client.post("/patterns", params=WINDOW, json=PINNED_TREND).json()
+    points = body["series"][TRENDS]["points"]
+
+    # Both ends are skipped, so nothing at or before the far end is on this list even though the
+    # level at the same price reports it.
+    far = PINNED_TREND["trends"][0]["to_time"]
+    assert [point["time"] for point in points] == [t for t in touching() if t > far]
+    assert far in touching()
+    assert {point["line"] for point in points} == {"1:2:high"}
+    assert {point["kind"] for point in points} == {"touch"}
+    assert {point["price"] for point in points} == {LINE_PRICE}
+    assert set(points[0]) == set(
+        client.post("/patterns", params=WINDOW, json=PINNED).json()["series"][LINES]["points"][0]
+    )
+
+
+def test_a_flat_trend_line_answers_what_the_level_answers(client):
+    """The two Patterns over one line, across the wire: the same events, minus the skipped ends."""
+    sloped = client.post("/patterns", params=WINDOW, json=PINNED_TREND).json()
+    level = client.post("/patterns", params=WINDOW, json=PINNED).json()
+
+    def without_the_id(points):
+        return [{key: value for key, value in point.items() if key != "line"} for point in points]
+
+    assert without_the_id(sloped["series"][TRENDS]["points"]) == [
+        point
+        for point in without_the_id(level["series"][LINES]["points"])
+        if point["time"] > PINNED_TREND["trends"][0]["to_time"]
+    ]
+
+
+def test_a_posted_trend_line_reaches_its_respect_series_too(client):
+    """The second `line-respect` instance is wired to the sloped source and not to the level one."""
+    body = client.post("/patterns", params=WINDOW, json=PINNED_TREND_OFF_BODY).json()
+
+    groups = body["series"][TREND_RESPECT]["points"]
+    assert groups
+    assert {group["line"] for group in groups} == {"1:2:high"}
+    assert {group["side"] for group in groups} == {"below"}
+    # And the level's own respect Series is untouched by a body that carried no levels.
+    assert body["series"][RESPECT]["points"] == []
+
+
+def test_the_two_respect_series_are_named_apart(client):
+    """One class declared twice, so the label has to separate them as the key does."""
+    body = client.get("/patterns", params=WINDOW).json()
+
+    assert body["series"][RESPECT]["name"] != body["series"][TREND_RESPECT]["name"]
+
+
+def test_levels_and_trend_lines_travel_in_one_body(client):
+    """Two lists, one request: neither is a choice against the other."""
+    both = {**PINNED, **PINNED_TREND}
+    body = client.post("/patterns", params=WINDOW, json=both).json()
+
+    assert body["series"][LINES]["points"]
+    assert body["series"][TRENDS]["points"]
+
+
+def test_a_body_with_no_trends_is_still_valid(client):
+    """Both lists default to empty, so an older caller sending only levels is still saying
+    something the server understands."""
+    assert client.post("/patterns", params=WINDOW, json=PINNED).status_code == 200
+    assert client.post("/patterns", params=WINDOW, json={}).status_code == 200
+
+
+def test_a_trend_line_with_an_end_outside_the_window_is_answered_not_refused(client):
+    away = {
+        "trends": [
+            {**PINNED_TREND["trends"][0], "from_time": int(OPEN.timestamp()) - 86_400}
+        ]
+    }
+    response = client.post("/patterns", params=WINDOW, json=away)
+
+    assert response.status_code == 200
+    assert response.json()["series"][TRENDS]["points"] == []
+
+
+def test_two_trend_lines_sharing_an_id_are_refused(client):
+    doubled = {
+        "trends": [
+            PINNED_TREND["trends"][0],
+            {**PINNED_TREND["trends"][0], "to_price": 105.0},
+        ]
+    }
+    response = client.post("/patterns", params=WINDOW, json=doubled)
+
+    assert response.status_code == 400
+    assert "1:2:high" in response.json()["detail"]
+
+
+def test_a_trend_line_may_share_an_id_with_a_level(client):
+    """The ids name lines in different Series, so they are not compared across the two lists."""
+    shared = {
+        "lines": [{**PINNED["lines"][0], "id": "same"}],
+        "trends": [{**PINNED_TREND["trends"][0], "id": "same"}],
+    }
+    assert client.post("/patterns", params=WINDOW, json=shared).status_code == 200
+
+
+def test_more_trend_lines_than_the_ceiling_are_refused(client):
+    many = {
+        "trends": [
+            {**PINNED_TREND["trends"][0], "id": f"trend-{n}"} for n in range(MAX_LINES + 1)
+        ]
+    }
+    response = client.post("/patterns", params=WINDOW, json=many)
+
+    assert response.status_code == 400
+    assert str(MAX_LINES) in response.json()["detail"]
+
+
+def test_the_ceiling_is_counted_per_list(client):
+    """A full set of each is not a refusal: they are two Series, and the ceiling is about one."""
+    full = {
+        "lines": [{**PINNED["lines"][0], "id": f"line-{n}"} for n in range(MAX_LINES)],
+        "trends": [{**PINNED_TREND["trends"][0], "id": f"trend-{n}"} for n in range(MAX_LINES)],
+    }
+    assert client.post("/patterns", params=WINDOW, json=full).status_code == 200
+
+
+def test_the_rest_of_the_pipeline_is_unmoved_by_a_trend_line(client):
+    """A line adds data to a question; it must not change any other Series' answer."""
+    plain = client.get("/patterns", params=WINDOW).json()
+    posted = client.post("/patterns", params=WINDOW, json=PINNED_TREND).json()
+
+    moved = {TRENDS, TREND_RESPECT}
+    assert {key: value for key, value in posted["series"].items() if key not in moved} == {
+        key: value for key, value in plain["series"].items() if key not in moved
+    }
+
+
 def test_the_browser_may_preflight_the_post(client):
     """The `POST` is useless from a browser unless CORS admits the method.
 
@@ -667,3 +846,105 @@ def test_the_browser_may_preflight_the_post(client):
     )
     assert response.status_code == 200
     assert "POST" in response.headers["access-control-allow-methods"]
+
+
+# --- the proximity rule ---------------------------------------------------------------------------
+
+#: A price no bar of the wave reaches. The wave peaks at a body of 106 and a wick of 106.5, so this
+#: sits half a point above the highest wick in the window: every bar misses it, and the only
+#: question left is whether the rule calls the miss a near one.
+NEAR_PRICE = 107.0
+
+#: The same single line at `NEAR_PRICE`, anchored on the window's first bar.
+PINNED_NEAR = {
+    "lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "price": NEAR_PRICE}]
+}
+
+#: A ladder claiming every leg the wave carves, at half its size. The wave's legs run about seven
+#: points tall, so the reach is three and a half — five, once `proximity.reach` puts it on the
+#: instrument's tick — and the peaks, half a point short, are inside it.
+#:
+#: Half and not a fifth because of that tick: a fifth of seven points rounds away to nothing, and
+#: this window's whole wave is smaller than the grid the reach is reported on.
+LADDER = [{"points": 1.0, "trigger": 0.5}]
+
+
+def test_a_line_nobody_reached_answers_nothing_without_a_ladder(client):
+    """The gap the fourth kind was written for: a miss is silence until a rule says how near counts."""
+    body = client.post("/patterns", params=WINDOW, json=PINNED_NEAR).json()
+    assert body["series"][LINES]["points"] == []
+
+
+def test_a_posted_ladder_turns_the_near_misses_into_points(client):
+    """The whole round trip: rungs on the wire, leg spans in the engine, `close` on the way back."""
+    body = client.post(
+        "/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": LADDER}
+    ).json()
+    points = body["series"][LINES]["points"]
+
+    assert points
+    assert {point["kind"] for point in points} == {"close"}
+    # The two fields only this kind carries, and the claim they let a reader check: the gap is
+    # under the reach the posted ladder grants for that leg. Asked of `reach` rather than
+    # recomputed here, because the reach is rounded and a second copy of that rounding would be a
+    # second answer to the question this route exists to forward.
+    rule = ProximityRule(
+        name="proximidade", levels=(ProximityLevel(points=1.0, trigger=0.5),)
+    )
+    assert all(0 < point["gap"] <= reach(rule, point["leg"]) for point in points)
+
+
+def test_a_ladder_alone_changes_nothing(client):
+    """No lines, no questions — which is why the ladder is not on the `GET`."""
+    body = client.post("/patterns", params=WINDOW, json={"proximity": LADDER}).json()
+    assert body["series"][LINES]["points"] == []
+
+
+def test_the_producer_keys_do_not_name_the_ladder(client):
+    """`ProximityRule.__str__`'s property, end to end: the same keys with a ladder and without."""
+    without = client.post("/patterns", params=WINDOW, json=PINNED_NEAR).json()
+    with_ladder = client.post(
+        "/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": LADDER}
+    ).json()
+
+    assert set(without["series"]) == set(with_ladder["series"])
+
+
+def test_too_many_rungs_is_refused(client):
+    many = [{"points": float(size), "trigger": 0.1} for size in range(1, 13)]
+    response = client.post("/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": many})
+
+    assert response.status_code == 400
+    assert "proximity levels" in response.json()["detail"]
+
+
+def test_two_rungs_at_one_size_are_refused(client):
+    """Not a stricter rule — a row somebody edited twice, and keeping one of them silently."""
+    twice = [{"points": 100.0, "trigger": 0.1}, {"points": 100.0, "trigger": 0.2}]
+    response = client.post("/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": twice})
+
+    assert response.status_code == 400
+    assert "share the size" in response.json()["detail"]
+
+
+def test_a_percentage_where_a_fraction_was_wanted_is_refused(client):
+    """`wf=49`'s twin. Nothing downstream raises on it — it would just name every bar a near miss."""
+    response = client.post(
+        "/patterns",
+        params=WINDOW,
+        json={**PINNED_NEAR, "proximity": [{"points": 100.0, "trigger": 5.0}]},
+    )
+
+    assert response.status_code == 400
+    assert "fraction" in response.json()["detail"]
+
+
+def test_a_rung_claiming_every_leg_by_size_zero_is_refused(client):
+    response = client.post(
+        "/patterns",
+        params=WINDOW,
+        json={**PINNED_NEAR, "proximity": [{"points": 0.0, "trigger": 0.1}]},
+    )
+
+    assert response.status_code == 400
+    assert "above zero" in response.json()["detail"]

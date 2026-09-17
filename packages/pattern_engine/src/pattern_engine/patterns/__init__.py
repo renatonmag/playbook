@@ -12,6 +12,7 @@ from .leg_extremes import (
     extreme_points,
 )
 from .leg_processor import Leg, LegPattern, bar_positions, position_of, split_legs
+from .leg_reach import LegReach, LegReachPattern, SidedPivot, leg_reaches
 from .leg_reversals import LegBar, LegReversals, LegReversalsPattern, marked_bars
 from .leg_window import LegWindow, LegWindowPattern, split_leg_windows
 from .line_relations import (
@@ -21,12 +22,18 @@ from .line_relations import (
     LineRelation,
     LineRelationsPattern,
     PinnedLines,
+    PriceAt,
     RelationKind,
     Side,
     Wick,
     breaks_out,
+    constantly,
+    leg_spans,
     line_relations,
+    nears,
+    relations_of,
     side_of,
+    spans_from,
     touches,
 )
 from .line_respect import (
@@ -37,6 +44,8 @@ from .line_respect import (
     undone_breakouts,
 )
 from .nested_legs import NestedLegs, NestedLegsPattern, nested_legs
+from .proximity import NO_PROXIMITY, ProximityLevel, ProximityRule, reach
+from .retracement import RetracedMove, Retracement, RetracementPattern, retracements
 # Re-exported from here rather than from `leg_reversals`, where they used to live: they are the
 # arithmetic two Patterns share, and the names a pipeline imports must not move because of it.
 from .reversal_filters import (
@@ -55,6 +64,15 @@ from .reversal_filters import (
 )
 from .simple_leg import LegMark, PbMark, SimpleLegPattern
 from .trend_lines import LineEnd, TrendLine, TrendLinesPattern, clear, leg_ends, trend_lines
+from .trend_relations import (
+    NO_TRENDS,
+    PinnedTrend,
+    PinnedTrends,
+    TrendRelationsPattern,
+    price_at,
+    resolver,
+    trend_relations,
+)
 from .zigzag import ZigZagIndidicator, ZigZagPattern, ZigZagPivot
 
 __all__ = [
@@ -78,6 +96,8 @@ __all__ = [
     "LegMark",
     "LegPattern",
     "LegPoint",
+    "LegReach",
+    "LegReachPattern",
     "LegReversals",
     "LegReversalsPattern",
     "LegWindow",
@@ -90,16 +110,28 @@ __all__ = [
     "LineRespectPattern",
     "MarkType",
     "NO_LINES",
+    "NO_PROXIMITY",
+    "NO_TRENDS",
     "NestedLegs",
     "NestedLegsPattern",
     "OPPOSITE",
     "PbMark",
     "PinnedLines",
+    "PinnedTrend",
+    "PinnedTrends",
+    "PriceAt",
+    "ProximityLevel",
+    "ProximityRule",
     "RelationKind",
+    "RetracedMove",
+    "Retracement",
+    "RetracementPattern",
     "Side",
+    "SidedPivot",
     "SimpleLegPattern",
     "TrendLine",
     "TrendLinesPattern",
+    "TrendRelationsPattern",
     "Wick",
     "ZigZagIndidicator",
     "ZigZagPattern",
@@ -111,25 +143,36 @@ __all__ = [
     "bar_positions",
     "breaks_out",
     "clear",
+    "constantly",
     "dominates",
     "expands",
     "extreme_points",
     "general_direction",
     "implied_body_min",
     "leg_ends",
+    "leg_reaches",
+    "leg_spans",
     "line_relations",
     "line_respects",
     "marked_bars",
+    "nears",
     "nested_legs",
     "nests",
     "position_of",
+    "price_at",
+    "reach",
+    "relations_of",
+    "resolver",
     "respected_side",
+    "retracements",
     "reverses",
     "side_of",
+    "spans_from",
     "split_leg_windows",
     "split_legs",
     "touches",
     "trend_lines",
+    "trend_relations",
     "trim_tail",
     "undone_breakouts",
 ]

@@ -15,25 +15,40 @@ The rules, and what each one deliberately does not say:
 
 - **Respect is the absence of a definitive breakout, not the presence of a touch.** A breakout is
   definitive when no later `seam` names it as `since` — that is, when nothing undid it. Everything
-  else a bar can do about a line leaves the line standing: a touch is a rejection, a seam is a
-  crossing taken back, and the breakout a seam undid was never a break at all. So all three extend
-  a run and only the definitive breakout ends one.
+  else a bar can do about a line leaves the line standing: a touch is a rejection, a `close` is a
+  rejection that stopped short, a seam is a crossing taken back, and the breakout a seam undid was
+  never a break at all. So all four extend a run and only the definitive breakout ends one.
+
+  **A `close` is in, deliberately.** A bar that ran to within the rule's reach and turned is the
+  same evidence a touch is, arriving a few points earlier, and nothing here re-asks how near it got
+  — that judgement was made upstream by the `ProximityRule` and is not made twice. What it costs is
+  worth stating: with a rule in force, stretches start earlier and run longer than the same window
+  answered before, so a group is only comparable with another computed under the same rule.
 
 - **A definitive breakout belongs to no group.** It is the bar that put price on the other side, so
   counting it into the run it ended would claim the line held on a bar that broke it, and counting
   it into the run it opened would claim the new side started with a bar that opened on the old one.
   It is the separator, and separators are not members.
 
-- **The side is the first event's, and every later one agrees.** `side` on a `LineRelation` is
-  where the bar *opened*; what a group needs is where price *sat*, and the two coincide on every
-  kind but one. A `touch` and an undone `breakout` both opened on the side they held; a `seam`
-  opened on the broken side and closed back, so its respected side is the opposite. Read off the
-  first event because the rest cannot disagree — price does not change sides without a definitive
-  breakout, and a definitive breakout would have ended the run.
+- **The side is the last event that could say.** `side` on a `LineRelation` is where the bar
+  *opened*; what a group needs is where price *sat*, and the two coincide on every kind but one. A
+  `touch` and an undone `breakout` both opened on the side they held; a `seam` opened on the broken
+  side and closed back, so its respected side is the opposite.
+
+  Read off the last event because the events of one run *can* disagree, which is the thing a run of
+  seams does. Price changes sides on every crossing, and a crossing that a later one takes back is
+  never a definitive breakout, so it never ends the run: break up, seam back down, seam back up is
+  one group whose bars respected `below`, `below`, then `above`. The last reading is the one that
+  is still true at the anchor, which is where a reader is standing.
+
+  What that costs is worth saying plainly: one side names a stretch that may have had two, so a
+  whipsawed run is labelled for the side it *finished* on and not for the side it spent most of
+  itself on. The bars are all carried, so a reader who wants the whole story reads them; what this
+  field answers is "which side is the line being held from now".
 
   This is one meaning of `side` across one Series, the same discipline `line_relations` keeps, and
-  it is why this is a second Pattern rather than a fourth `kind` there: that field means "where the
-  bar opened" on all three of its kinds, and this one cannot.
+  it is why this is a second Pattern rather than a fifth `kind` there: that field means "where the
+  bar opened" on all four of its kinds, and this one cannot.
 
 - **A run of one is a run.** A lone touch with nothing either side of it is a group of one bar. No
   minimum, and no dial for one: a threshold would be a claim about how much respect counts, which
@@ -97,7 +112,7 @@ class LineRespect(Candle):
     """One stretch over which one line held, anchored on the last bar of the stretch.
 
     Every field is total — there is one kind here, so nothing is `None` on some of them the way
-    three kinds forced on `LineRelation`.
+    four kinds forced on `LineRelation`.
     """
 
     #: The line's own id, unparsed. See `Line.id`.
@@ -201,9 +216,9 @@ def line_respects(
         undone = undone_breakouts(events)
 
         # The open run, as the three things emitting it needs: where its events fell, the side it
-        # holds, and the price of the line they held. `side` is taken off the first event that could
-        # say rather than off the first event outright, so one that opened exactly on the line does
-        # not decide the group merely by being at the front of it. All three are cleared together —
+        # holds, and the price of the line they held. `side` trails the last event that could say
+        # rather than the last event outright, so one that opened exactly on the line does not blank
+        # a reading already taken merely by being the most recent. All three are cleared together —
         # see `_closed`.
         run: list[int] = []
         side: Side | None = None
@@ -218,9 +233,9 @@ def line_respects(
                 # The bar that broke out may already be in the run, put there by its own touch — a
                 # bar opening exactly on the line does both. It is the separator, and separators
                 # are not members, so it comes back out before the group is made. What it leaves
-                # behind is `side`, which that touch may have been the first event able to say;
-                # taking that back too would be a group with no side at all rather than a group
-                # named by a bar just outside it.
+                # behind is `side`, and that is right rather than merely convenient: the touch of a
+                # bar that went on to break opened on the side the run was holding, so it says the
+                # same thing the run's own last event says.
                 if run and run[-1] == at:
                     run.pop()
 
@@ -243,8 +258,9 @@ def line_respects(
 
             run.append(at)
             price = event.price
-            if side is None:
-                side = respected_side(event)
+            respected = respected_side(event)
+            if respected is not None:
+                side = respected
 
         # The run still open at the window's edge, emitted on the same terms as one a breakout
         # ended. See the module docstring on why it carries no mark saying so.
@@ -265,9 +281,17 @@ class LineRespectPattern(Pattern):
 
     **One source, no dials.** `source` is an **instance** rather than a producer key, for the
     reason `LegExtremesPattern` gives: the key is derived from the constructor call, so naming the
-    Pattern is the only way to name its key without writing the key out. It must be a
-    `LineRelationsPattern` — nothing checks it, and nothing here parses what it produced beyond the
-    fields `LineRelation` declares.
+    Pattern is the only way to name its key without writing the key out.
+
+    **Either relations Pattern will do, and nothing checks which.** `LineRelationsPattern` answers
+    about levels and `TrendRelationsPattern` about sloped lines, and this module cannot tell them
+    apart because there is nothing here to tell apart: a respect group is a run of events with no
+    definitive breakout in it, and that reads `kind`, `side` and `since` off a `LineRelation`
+    without ever asking what drew the line. A pipeline declares one instance per source, and they
+    are distinct in `ctx` because `producer` renders the source into the key.
+
+    Which leaves the label, and that is why `name` is set per instance here rather than being a
+    class attribute — the trade `LegPattern` already makes, for the same collision.
 
     The lines never reach this Pattern. They are `source`'s parameter, and a group names its line
     by the id the events carried, so a pipeline built without a browser produces an empty source
@@ -280,13 +304,12 @@ class LineRespectPattern(Pattern):
     emits nothing.
     """
 
-    name = "Line respect"
-
     def __init__(
         self, *, source: Pattern, reads: tuple[Timeframe, ...], emits: Timeframe
     ) -> None:
         super().__init__(reads=reads, emits=emits)
         self.source = source
+        self.name = f"Respect · {source.name}"
 
     def run(self, ctx: Ctx) -> BaseSeries[LineRespect]:
         relations: BaseSeries[LineRelation] = ctx[self.source.producer]
