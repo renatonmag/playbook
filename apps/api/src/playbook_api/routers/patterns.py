@@ -80,9 +80,26 @@ final bar is not read until the next session opens one past it.
 overlays end one bar behind its candles, and that gap is this paragraph rather than a defect. A
 window that ends before the live edge loses nothing, so a pinned window is unaffected.
 
+**The third exception is the proximity rule**, and it is the Forma rule's argument again rather
+than a third kind of thing. `line-relations` reports that a bar came *near* a pinned line without
+reaching it, and how near counts as near is a fraction of the leg the bar sits in — a zigzag leg,
+sliced in the engine, whose span is `max(high) - min(low)` over bars the browser holds as Points
+and would have to re-derive the split for. So the ladder of `(leg size, fraction)` travels and the
+arithmetic stays here, under the same three guards: the rule's name is never a parameter
+(`lines_body.PROXIMITY_NAME` borrows it, so the keys do not move), no rung changes the shape of the
+pipeline, and an empty ladder is a real setting that turns the fourth kind off rather than a
+half-specified rule wearing this server's defaults.
+
+It rides in the **body** and not on the query string, which is the one way it differs from the
+Forma rule and is a fact about its shape rather than about its standing: a ladder is a list
+somebody adds rungs to, and the argument against lists on a URL is already written above. That it
+is absent from the `GET` costs nothing and is worth saying so plainly — without lines, the two
+Series it could move are empty, so a `GET` carrying one would be a parameter that provably changes
+no byte of the response.
+
 `symbol` and `timeframe` remain absent for the original reason: the pipeline names the Instrument
-and each Pattern declares the Timeframes it reads. The caller chooses the window, and now the one
-rule the browser cannot evaluate for itself.
+and each Pattern declares the Timeframes it reads. The caller chooses the window, and now the rules
+the browser cannot evaluate for itself.
 
 One consequence for callers that cache: because the keys do not move, a window plus a producer no
 longer names a response. A client that caches by window alone will serve one rule's marks for
@@ -97,7 +114,7 @@ from pattern_engine import FormaRule, Pattern, PatternEngine
 from sqlmodel import Session
 
 from ..db import get_session
-from ..lines_body import LinesIn, to_lines, to_trends
+from ..lines_body import LinesIn, to_lines, to_proximity, to_trends
 from ..pipeline import PIPELINE, SYMBOL, build_pipeline, timeframes
 from ..rule_query import rule_override
 from ..schemas.pattern import PatternsOut, SeriesOut
@@ -220,16 +237,20 @@ def run_patterns(
     and the four Series it can change — `line-relations` and `trend-relations`, and the
     `line-respect` reading each of them — are the four that are empty without it.
 
+    The body carries a second rule beside the lines — the proximity ladder — and it changes those
+    same four Series and no others. With no lines it changes nothing at all, which is why it is not
+    on the `GET`: see the module docstring.
+
     `PIPELINE` is deliberately *not* reused when a rule is absent, as the `GET` reuses it: a
     pipeline carrying lines is by definition not the declared one, and pretending otherwise would
     make "the same object" stop meaning what the `GET` uses it to mean. The absent rule is left to
     `build_pipeline`'s own default rather than named again here, so `RULE_K` stays written once.
     """
-    lines, trends = to_lines(body), to_trends(body)
+    lines, trends, proximity = to_lines(body), to_trends(body), to_proximity(body)
     pipeline = (
-        build_pipeline(lines=lines, trends=trends)
+        build_pipeline(lines=lines, trends=trends, proximity=proximity)
         if rule is None
-        else build_pipeline(rule, lines, trends)
+        else build_pipeline(rule, lines, trends, proximity)
     )
 
     return _run(session, pipeline, start, end, limit)

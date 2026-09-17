@@ -551,7 +551,7 @@ def test_a_posted_line_reaches_the_pattern(client):
     assert {point["kind"] for point in points} == {"touch"}
     # The line's price, not the bar's — and the bar's own OHLCV rides along beside it.
     assert {point["price"] for point in points} == {LINE_PRICE}
-    assert {"time", "open", "high", "low", "close", "volume", "line", "price", "kind", "wick", "side", "since"} == set(points[0])
+    assert {"time", "open", "high", "low", "close", "volume", "line", "price", "kind", "wick", "side", "since", "gap", "leg"} == set(points[0])
 
 
 def test_the_get_runs_the_respect_pattern_with_no_lines(client):
@@ -845,3 +845,96 @@ def test_the_browser_may_preflight_the_post(client):
     )
     assert response.status_code == 200
     assert "POST" in response.headers["access-control-allow-methods"]
+
+
+# --- the proximity rule ---------------------------------------------------------------------------
+
+#: A price no bar of the wave reaches. The wave peaks at a body of 106 and a wick of 106.5, so this
+#: sits half a point above the highest wick in the window: every bar misses it, and the only
+#: question left is whether the rule calls the miss a near one.
+NEAR_PRICE = 107.0
+
+#: The same single line at `NEAR_PRICE`, anchored on the window's first bar.
+PINNED_NEAR = {
+    "lines": [{"id": "wick:1:high:end", "time": int(OPEN.timestamp()), "price": NEAR_PRICE}]
+}
+
+#: A ladder claiming every leg the wave carves, at a fifth of its size. The wave's legs run about
+#: seven points tall, so the reach is over a point and the peaks — half a point short — are in it.
+LADDER = [{"points": 1.0, "trigger": 0.2}]
+
+
+def test_a_line_nobody_reached_answers_nothing_without_a_ladder(client):
+    """The gap the fourth kind was written for: a miss is silence until a rule says how near counts."""
+    body = client.post("/patterns", params=WINDOW, json=PINNED_NEAR).json()
+    assert body["series"][LINES]["points"] == []
+
+
+def test_a_posted_ladder_turns_the_near_misses_into_points(client):
+    """The whole round trip: rungs on the wire, leg spans in the engine, `close` on the way back."""
+    body = client.post(
+        "/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": LADDER}
+    ).json()
+    points = body["series"][LINES]["points"]
+
+    assert points
+    assert {point["kind"] for point in points} == {"close"}
+    # The two fields only this kind carries, and the claim they let a reader check: the gap is
+    # under the reach, which is `trigger` of the leg.
+    assert all(0 < point["gap"] <= 0.2 * point["leg"] for point in points)
+
+
+def test_a_ladder_alone_changes_nothing(client):
+    """No lines, no questions — which is why the ladder is not on the `GET`."""
+    body = client.post("/patterns", params=WINDOW, json={"proximity": LADDER}).json()
+    assert body["series"][LINES]["points"] == []
+
+
+def test_the_producer_keys_do_not_name_the_ladder(client):
+    """`ProximityRule.__str__`'s property, end to end: the same keys with a ladder and without."""
+    without = client.post("/patterns", params=WINDOW, json=PINNED_NEAR).json()
+    with_ladder = client.post(
+        "/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": LADDER}
+    ).json()
+
+    assert set(without["series"]) == set(with_ladder["series"])
+
+
+def test_too_many_rungs_is_refused(client):
+    many = [{"points": float(size), "trigger": 0.1} for size in range(1, 13)]
+    response = client.post("/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": many})
+
+    assert response.status_code == 400
+    assert "proximity levels" in response.json()["detail"]
+
+
+def test_two_rungs_at_one_size_are_refused(client):
+    """Not a stricter rule — a row somebody edited twice, and keeping one of them silently."""
+    twice = [{"points": 100.0, "trigger": 0.1}, {"points": 100.0, "trigger": 0.2}]
+    response = client.post("/patterns", params=WINDOW, json={**PINNED_NEAR, "proximity": twice})
+
+    assert response.status_code == 400
+    assert "share the size" in response.json()["detail"]
+
+
+def test_a_percentage_where_a_fraction_was_wanted_is_refused(client):
+    """`wf=49`'s twin. Nothing downstream raises on it — it would just name every bar a near miss."""
+    response = client.post(
+        "/patterns",
+        params=WINDOW,
+        json={**PINNED_NEAR, "proximity": [{"points": 100.0, "trigger": 5.0}]},
+    )
+
+    assert response.status_code == 400
+    assert "fraction" in response.json()["detail"]
+
+
+def test_a_rung_claiming_every_leg_by_size_zero_is_refused(client):
+    response = client.post(
+        "/patterns",
+        params=WINDOW,
+        json={**PINNED_NEAR, "proximity": [{"points": 0.0, "trigger": 0.1}]},
+    )
+
+    assert response.status_code == 400
+    assert "above zero" in response.json()["detail"]

@@ -337,8 +337,8 @@ export interface TrendLine extends PatternPoint {
 }
 
 /**
- * One thing a pinned line did on one bar: the line was touched, broken through, or the breakout
- * before it was undone.
+ * One thing a pinned line did on one bar: the line was touched, missed narrowly, broken through, or
+ * the breakout before it was undone.
  *
  * The Series is sparse — most bars say nothing about most lines — and it is bar-major, so its
  * anchors never go backwards. One bar and one line make at most one crossing, and a crossing that
@@ -346,6 +346,13 @@ export interface TrendLine extends PatternPoint {
  * crossing, read the two kinds together. A bar repeats when several lines answer on it, and on one
  * bar for one line: a bar that opens exactly on the line touches it with the base of a wick and
  * crosses it with its close, so it carries a `touch` and a crossing both.
+ *
+ * A `close` is the near miss, and it is the one kind that depends on a rule this page sends: the
+ * bar stopped short of the line by less than the reach the proximity ladder granted its leg — see
+ * `utils/proximity.ts`. It is exclusive with the other three by construction rather than by rule,
+ * since a line near enough to be *missed* is outside the bar's range entirely, so no wick can hold
+ * it and no close can be on the far side of it. It is also the one kind that is not final: the leg
+ * behind the reach is measured whole, so a longer window can move it.
  *
  * `price` is the **line's** price, not the bar's: the OHLCV every Point carries is already the
  * bar's, and repeating one of its numbers here would say nothing.
@@ -355,7 +362,7 @@ export interface LineRelation extends PatternPoint {
   line: string
   /** The line's price — the level the bar met, not anything about the bar. */
   price: number
-  kind: 'touch' | 'breakout' | 'seam'
+  kind: 'touch' | 'close' | 'breakout' | 'seam'
   /** Which wick reached the line. Only on `touch`. */
   wick: 'high' | 'low' | null
   /**
@@ -365,6 +372,14 @@ export interface LineRelation extends PatternPoint {
   side: 'above' | 'below' | null
   /** The bar that broke out first, whole. Only on `seam`. */
   since: PatternPoint | null
+  /** How far the line sat from the bar's nearer extreme, in points. Only on `close`. */
+  gap: number | null
+  /**
+   * The span of the zigzag leg that set the reach, in points. Only on `close`, and carried so a
+   * reader can check the claim — `gap` against `leg` times the rung's trigger — without leaving
+   * the row.
+   */
+  leg: number | null
 }
 
 /**

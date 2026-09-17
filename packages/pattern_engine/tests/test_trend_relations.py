@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 from pattern_engine import BaseSeries, Candle, PatternEngine, SeriesIdentity
 from pattern_engine.patterns.line_relations import Line, PinnedLines, line_relations
+from pattern_engine.patterns.proximity import ProximityLevel, ProximityRule
 from pattern_engine.patterns.trend_relations import (
     NO_TRENDS,
     PinnedTrend,
@@ -76,6 +77,44 @@ def kinds(found: list) -> list[tuple[int, str, str | None, str | None]]:
         (round((point.time - OPEN).total_seconds() // 300), point.kind, point.wick, point.side)
         for point in found
     ]
+
+
+# --- the near miss ------------------------------------------------------------------------------
+
+
+def test_a_bar_that_stopped_short_of_a_sloped_line_is_a_close() -> None:
+    """The fourth kind, unchanged by the slope — which is this module's whole claim, once more.
+
+    The line runs from 90 at bar 0 to 92 at bar 1 and keeps climbing, so it is worth 94 on bar 2
+    and 96 on bar 3. Bar 2 reaches 92, two points short, inside the reach a twenty-point leg at a
+    tenth grants; bar 3 falls away and is eight short, outside it. The two anchor bars are skipped,
+    as they are for every kind.
+    """
+    bars = series(
+        (89.0, 90.0, 88.0, 89.5),
+        (91.0, 92.0, 90.0, 91.5),
+        (90.0, 92.0, 89.0, 91.0),
+        (85.0, 88.0, 84.0, 86.0),
+    )
+    found = trend_relations(
+        bars.points,
+        trends(trend("a", 0, 90.0, 1, 92.0)),
+        ProximityRule(name="proximidade", levels=(ProximityLevel(points=10.0, trigger=0.1),)),
+        [20.0, 20.0, 20.0, 20.0],
+    )
+
+    assert kinds(found) == [(2, "close", None, "below")]
+    assert (found[0].gap, found[0].leg) == (2.0, 20.0)
+
+
+def test_without_a_rule_a_sloped_line_answers_the_three_kinds_it_always_did() -> None:
+    bars = series(
+        (89.0, 90.0, 88.0, 89.5),
+        (91.0, 92.0, 90.0, 91.5),
+        (90.0, 92.0, 89.0, 91.0),
+        (85.0, 88.0, 84.0, 86.0),
+    )
+    assert trend_relations(bars.points, trends(trend("a", 0, 90.0, 1, 92.0))) == []
 
 
 # --- the arithmetic ---------------------------------------------------------------------------
@@ -275,7 +314,7 @@ def test_the_producer_key_does_not_name_the_lines() -> None:
         emits="5m",
     )
 
-    assert one.producer == "trend-relations(trends=pinned,reads=5m,emits=5m)"
+    assert one.producer == "trend-relations(trends=pinned,proximity=proximidade,legs=None,reads=5m,emits=5m)"
     assert other.producer == one.producer
 
 

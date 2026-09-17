@@ -67,7 +67,8 @@ from ..engine import BARS, INSTRUMENT
 from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..timeframes import Timeframe
-from .line_relations import LineRelation, PriceAt, relations_of
+from .line_relations import LineRelation, PriceAt, relations_of, spans_from
+from .proximity import NO_PROXIMITY, ProximityRule
 from .simple_leg import SCALE, integer
 
 
@@ -159,15 +160,22 @@ def resolver(trend: PinnedTrend, start: int, end: int) -> PriceAt:
 
 
 def trend_relations(
-    bars: Sequence[Candle], trends: PinnedTrends
+    bars: Sequence[Candle],
+    trends: PinnedTrends,
+    rule: ProximityRule = NO_PROXIMITY,
+    spans: Sequence[float | None] = (),
 ) -> list[LineRelation]:
-    """Every touch, breakout and seam in `bars`, for every trend line, in bar order.
+    """Every touch, close, breakout and seam in `bars`, for every trend line, in bar order.
 
     The lines resolved against this window, then handed to `relations_of`, which is where the rules
     are. The counterpart of `line_relations`, and the two differ in exactly this function.
 
     A trend is skipped entirely when the window holds no bar at either of its ends, or when both
     ends land on one bar — see the module docstring for why neither is recoverable.
+
+    `rule` and `spans` are handed straight through, unread here: the near-miss question is about a
+    bar and a price, and a sloped line has a price on every bar exactly as a level does. Which is
+    the whole argument of this module, applied once more to a fourth kind.
     """
     if not trends or not bars:
         return []
@@ -185,16 +193,18 @@ def trend_relations(
     if not anchored:
         return []
 
-    return relations_of(bars, anchored)
+    return relations_of(bars, anchored, rule, spans)
 
 
 class TrendRelationsPattern(Pattern):
     """`trend_relations`, run over the Candles of `emits` for the lines it was constructed with.
 
-    **No sources, and one parameter that is not a dial.** The shape `LineRelationsPattern` has, for
-    its reasons: it reads `ctx[BARS]` and nothing else, so it has no ordering constraint and can be
-    declared anywhere, and its `trends` come from outside the market — see the module docstring, and
-    `playbook_api.routers.patterns` for why the browser is allowed to send them.
+    **Two parameters that are not dials, and one optional source.** The shape
+    `LineRelationsPattern` has, for its reasons: its `trends` and its `proximity` rule both come
+    from outside the market — see the module docstring, and `playbook_api.routers.patterns` for why
+    the browser is allowed to send them — and `legs` is the ordering constraint that arrives with
+    the fourth kind. Given one, this Pattern reads that producer's key and must be declared after
+    it; given `None` it reads `ctx[BARS]` and nothing else, as it always did, and can sit anywhere.
 
     Deliberately not sourced from `TrendLinesPattern`, though that is where most of these lines are
     first drawn. What is pinned is a person's choice out of a fan of hundreds, plus the ones they
@@ -211,14 +221,24 @@ class TrendRelationsPattern(Pattern):
     name = "Trend relations"
 
     def __init__(
-        self, *, trends: PinnedTrends, reads: tuple[Timeframe, ...], emits: Timeframe
+        self,
+        *,
+        trends: PinnedTrends,
+        proximity: ProximityRule = NO_PROXIMITY,
+        legs: Pattern | None = None,
+        reads: tuple[Timeframe, ...],
+        emits: Timeframe,
     ) -> None:
         super().__init__(reads=reads, emits=emits)
         self.trends = trends
+        self.proximity = proximity
+        self.legs = legs
 
     def run(self, ctx: Ctx) -> BaseSeries[LineRelation]:
         bars = ctx[BARS][self.emits]
         return BaseSeries(
             SeriesIdentity(self.producer, ctx[INSTRUMENT], self.emits),
-            trend_relations(bars.points, self.trends),
+            trend_relations(
+                bars.points, self.trends, self.proximity, spans_from(ctx, bars.points, self.legs)
+            ),
         )

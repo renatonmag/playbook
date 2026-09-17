@@ -4,6 +4,7 @@ import { useDebounceFn } from '@vueuse/core'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
 import { producerName, type BarGap, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
+import { toProximityBody } from '~/utils/proximity'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import BarsOverlay from '~/components/BarsOverlay.vue'
@@ -13,6 +14,7 @@ import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
+import ProximityControls from '~/components/ProximityControls.vue'
 import PatternLog from '~/components/PatternLog.vue'
 import { Button } from '~/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
@@ -182,6 +184,24 @@ function pin(value: string) {
  * the numbers travel instead. See the module docstring on `/patterns`.
  */
 const { rule, update: updateRule, reset: resetRule } = useStoredRule()
+
+/**
+ * The proximity ladder, the second rule this page composes and the server runs.
+ *
+ * Beside the Forma rule and kept apart from it for the reason `useStoredProximity` states: they
+ * reach different Patterns, they travel by different routes — eight numbers on the query string,
+ * a list in the body — and an empty ladder is a real setting where an empty rule would not be.
+ * What they share is the argument that lets either travel at all: how near a bar came to a line
+ * is a fraction of the zigzag leg it sits in, and that leg is sliced in the engine out of a window
+ * of bars the browser holds only as Points. See the module docstring on `/patterns`.
+ */
+const {
+  levels,
+  add: addLevel,
+  update: updateLevel,
+  remove: removeLevel,
+  clear: clearLevels,
+} = useStoredProximity()
 
 // Reached directly rather than through `usePatterns`, which owns the automatic `GET`. `calculate`
 // below asks the same route with a body, and that is not a fetch a composable keyed by a window
@@ -832,6 +852,22 @@ const CONFIRMABLE = new Set(['bars'])
  * a spurious one offers an editor that changes nothing on the Series it sits under.
  */
 const RULED = new Set(['bars'])
+
+/**
+ * The Patterns the proximity ladder reaches, and so get the ladder editor under them.
+ *
+ * `RULED`'s counterpart, and it must match what `build_pipeline` hands `proximity` to for the same
+ * reasons — the failure is quiet in both directions.
+ *
+ * Where it does **not** match is worth stating, because it looks like an omission. The ladder
+ * reaches four Series: the two that ask about a line bar by bar, and the two that read those as
+ * stretches. Only the second pair is here, because only that pair has an entry in `OVERLAYS` —
+ * `line-relations` and `trend-relations` are read as rows in the Log and never drawn, so `listed`
+ * drops them from this column entirely and a set naming them would gate on a chip that is not
+ * there. One entry covers both instances of the pair: a level and a sloped line are asked the same
+ * fourth question, and the editor under either chip is the same rows.
+ */
+const NEAR = new Set(['line-respect'])
 
 function toggleConfirmedOnly(producer: string) {
   if (confirmedOnly.value.has(producer)) confirmedOnly.value.delete(producer)
@@ -1574,10 +1610,12 @@ const pinnedTrendLines = computed(() =>
  * `line-respect` answer left standing across those would be drawn over a span it was never computed
  * from. The replay cut needs no term of its own: it already moves `runWindow`.
  *
- * **The rule is deliberately absent.** It is a parameter of a run, not a reason to start one: a
- * threshold is edited a digit at a time, and re-asking between keystrokes would send a body per
- * digit. `calculate` reads `rule` when it runs, so the next pin or the next bar carries the new
- * numbers, and `Calcular` is the way to have them at once.
+ * **Neither rule is here, deliberately.** A rule is a parameter of a run, not a reason to start
+ * one: a threshold is edited a digit at a time, and re-asking between keystrokes would send a body
+ * per digit. `calculate` reads `rule` and `levels` when it runs, so the next pin or the next bar
+ * carries the new numbers, and `Calcular` is the way to have them at once. That holds twice over
+ * for the ladder, where adding a rung lands a row with a placeholder size in it that nobody means
+ * yet.
  */
 const calculateKey = computed(() => [
   pinnedLines.value.map(line => line.id).join(','),
@@ -1642,8 +1680,10 @@ let calculateRun = 0
  *
  * The same window and the same rule the automatic run uses, so the two answers are about one
  * pipeline over one span of bars. The rule is *read* here and does not appear in `calculateKey`,
- * which is a decision rather than an oversight — it is recorded there. See the module docstring on
- * `/patterns` for why the rule and the lines are the only two things this page may hand the server.
+ * which is a decision rather than an oversight — it is recorded there. The proximity ladder is
+ * read the same way and absent from that key for the same reason. See the module docstring on
+ * `/patterns` for why the two rules and the lines are the only things this page may hand the
+ * server.
  */
 async function calculate() {
   const lines = pinnedLines.value
@@ -1670,7 +1710,7 @@ async function calculate() {
       baseURL: apiBase,
       method: 'POST',
       query: { ...runWindow.value, ...(rule.value ? toPatternQuery(rule.value) : {}) },
-      body: { lines, trends },
+      body: { lines, trends, proximity: toProximityBody(levels.value) },
     })
     if (run !== calculateRun) return
     relations.value = response
@@ -2834,6 +2874,19 @@ function isVisible(overlay: { producer: string }) {
                   @update="updateRule"
                   @reset="resetRule"
                   @load="loadSaved"
+                />
+
+                <!-- The second rule this page composes, under the two Series that read it. Same
+                     condition as the one above and the same reason: an editor offered under a
+                     Pattern nobody is looking at spends a request on nothing. Inside the same
+                     `ClientOnly` because the stored ladder arrives after mount. -->
+                <ProximityControls
+                  v-if="NEAR.has(overlay.name) && shown.has(overlay.producer)"
+                  :levels="levels"
+                  @add="addLevel"
+                  @update="updateLevel"
+                  @remove="removeLevel"
+                  @clear="clearLevels"
                 />
               </ClientOnly>
             </div>

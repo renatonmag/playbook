@@ -15,9 +15,15 @@ The rules, and what each one deliberately does not say:
 
 - **Respect is the absence of a definitive breakout, not the presence of a touch.** A breakout is
   definitive when no later `seam` names it as `since` — that is, when nothing undid it. Everything
-  else a bar can do about a line leaves the line standing: a touch is a rejection, a seam is a
-  crossing taken back, and the breakout a seam undid was never a break at all. So all three extend
-  a run and only the definitive breakout ends one.
+  else a bar can do about a line leaves the line standing: a touch is a rejection, a `close` is a
+  rejection that stopped short, a seam is a crossing taken back, and the breakout a seam undid was
+  never a break at all. So all four extend a run and only the definitive breakout ends one.
+
+  **A `close` is in, deliberately.** A bar that ran to within the rule's reach and turned is the
+  same evidence a touch is, arriving a few points earlier, and nothing here re-asks how near it got
+  — that judgement was made upstream by the `ProximityRule` and is not made twice. What it costs is
+  worth stating: with a rule in force, stretches start earlier and run longer than the same window
+  answered before, so a group is only comparable with another computed under the same rule.
 
 - **A definitive breakout belongs to no group.** It is the bar that put price on the other side, so
   counting it into the run it ended would claim the line held on a bar that broke it, and counting
@@ -41,8 +47,8 @@ The rules, and what each one deliberately does not say:
   field answers is "which side is the line being held from now".
 
   This is one meaning of `side` across one Series, the same discipline `line_relations` keeps, and
-  it is why this is a second Pattern rather than a fourth `kind` there: that field means "where the
-  bar opened" on all three of its kinds, and this one cannot.
+  it is why this is a second Pattern rather than a fifth `kind` there: that field means "where the
+  bar opened" on all four of its kinds, and this one cannot.
 
 - **A run of one is a run.** A lone touch with nothing either side of it is a group of one bar. No
   minimum, and no dial for one: a threshold would be a claim about how much respect counts, which
@@ -106,7 +112,7 @@ class LineRespect(Candle):
     """One stretch over which one line held, anchored on the last bar of the stretch.
 
     Every field is total — there is one kind here, so nothing is `None` on some of them the way
-    three kinds forced on `LineRelation`.
+    four kinds forced on `LineRelation`.
     """
 
     #: The line's own id, unparsed. See `Line.id`.

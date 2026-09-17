@@ -246,7 +246,7 @@ async function copySelection() {
  * how long it is, and the alternative — the raw JSON of a dozen candles in one cell — is not a
  * reading of anything. The whole run still leaves through `Copiar JSON`, which is what that button
  * is for. `null` is a real answer on several of these fields — a `touch` has no `side`, a
- * `breakout` no `wick` — and reads as `—`.
+ * `breakout` no `wick`, and only a `close` carries a `gap` and a `leg` — and reads as `—`.
  */
 function cell(point: PatternPoint, key: string): string {
   const value = (point as unknown as Record<string, unknown>)[key]

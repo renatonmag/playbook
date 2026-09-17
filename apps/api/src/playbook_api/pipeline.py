@@ -18,14 +18,23 @@ one.
 What it takes as arguments is decided by one test, and not by convenience: a caller may hand in
 what the browser cannot evaluate for itself and what is not detector tuning. `depth`, `ahead`,
 `k`, `similarity` and `expansion` fail it and stay written below, because they are what someone
-tuning the *detector* comes looking for. Two things pass. The **Forma rule**, which the screen
+tuning the *detector* comes looking for. Three things pass. The **Forma rule**, which the screen
 can edit but only the engine can apply — see the module docstring on `routers/patterns.py`. And
 the **lines somebody drew** — the levels and the sloped ones alike — which are the stronger
 case of the two: a pinned line exists nowhere but in the browser holding it, so no argument about
 where it is better computed arises. A pinned trend line is not the weaker version of that argument
 it might look like. The fan this Pattern's cousin draws is hundreds of lines wide, and which two or
 three of them somebody kept, and where they dragged an end to, is exactly the thing no Series can
-say. Neither changes the shape of the pipeline, and that is the line being held.
+say.
+
+The third is the **proximity rule**, and it passes on the Forma rule's argument rather than on its
+precedent. How near a bar has to get to a line before the near miss is worth reporting is a
+fraction of the leg that bar sits in, and the leg is the zigzag's — a Series this server computes
+and the browser receives only as Points, without the window of bars behind it or the extremes it
+would have to re-derive. So the numbers travel and the arithmetic stays here, exactly as the Forma
+thresholds do.
+
+None of the three changes the shape of the pipeline, and that is the line being held.
 """
 
 from pattern_engine import FormaRule, Pattern, Timeframe
@@ -34,6 +43,7 @@ from pattern_engine.patterns import (
     DEFAULT_K,
     DEFAULT_SIMILARITY,
     NO_LINES,
+    NO_PROXIMITY,
     NO_TRENDS,
     AdvancingLegsPattern,
     BarGapPattern,
@@ -47,6 +57,7 @@ from pattern_engine.patterns import (
     NestedLegsPattern,
     PinnedLines,
     PinnedTrends,
+    ProximityRule,
     SimpleLegPattern,
     TrendLinesPattern,
     TrendRelationsPattern,
@@ -86,10 +97,11 @@ def build_pipeline(
     rule: FormaRule = RULE_K,
     lines: PinnedLines = NO_LINES,
     trends: PinnedTrends = NO_TRENDS,
+    proximity: ProximityRule = NO_PROXIMITY,
 ) -> tuple[Pattern, ...]:
-    """The Patterns this installation runs, in run order, reading `rule` and the lines where asked.
+    """The Patterns this installation runs, in run order, reading the rules and the lines where asked.
 
-    One Pattern reads it today — `bars` — and the argument is still one rule for the pipeline
+    One Pattern reads the Forma rule today — `bars` — and the argument is still one rule for the pipeline
     rather than one per Pattern. That is deliberate and outlives the current list: the reversal
     filters are the same three questions however they are asked, so a second Series that asks
     them differently gets the rule the first one got. Letting the browser tune two readings apart
@@ -100,6 +112,11 @@ def build_pipeline(
     derived, not written. Locals rather than module globals so that two calls never share a
     Pattern object: nothing today would notice, but the moment a second argument lands, a shared
     zigzag between the "old" and "new" pipelines is a bug nobody would look for.
+
+    The `proximity` rule goes to both relation Patterns and is one ladder for the pipeline, the same
+    trade `rule` makes and for a sharper version of the same reason: a level and a sloped line are
+    asked the same four questions, and letting the browser tune "how near is near" differently for
+    the two would make the one comparison somebody pins both kinds of line to draw meaningless.
     """
     zigzag = ZigZagPattern(depth=8, reads=("5m",), emits="5m")
     # Reads the same bars as the zigzag above, deliberately: the two are alternative answers to
@@ -110,6 +127,10 @@ def build_pipeline(
     # Bound to a local for the same reason the detectors above are: the grouper at the bottom
     # takes this slicer's *instance*, not its producer key.
     simple_legs = LegPattern(source=simple_leg, reads=("5m",), emits="5m")
+    # And the zigzag's own slicer, bound for the same reason the others are — the two relation
+    # Patterns at the bottom measure a near miss against the leg a bar sits in, and take this
+    # instance rather than its key.
+    legs = LegPattern(source=zigzag, reads=("5m",), emits="5m")
     # Bound for the same reason again: the filter at the very bottom takes this grouper's
     # instance, not its producer key.
     nested = NestedLegsPattern(source=leg_windows, legs=simple_legs, reads=("5m",), emits="5m")
@@ -120,11 +141,15 @@ def build_pipeline(
     )
     # And once more, for the one Pattern here that is told its geometry: the grouper at the very
     # bottom reads this Series' events, and takes this instance rather than its key.
-    relations = LineRelationsPattern(lines=lines, reads=("5m",), emits="5m")
+    relations = LineRelationsPattern(
+        lines=lines, proximity=proximity, legs=legs, reads=("5m",), emits="5m"
+    )
     # Its sloped twin, bound for the same reason: the second `line-respect` at the very bottom reads
     # this Series' events and takes this instance. Beside `relations` rather than near
     # `trend-lines`, because it is not downstream of the fan — see `TrendRelationsPattern`.
-    trend_relations = TrendRelationsPattern(trends=trends, reads=("5m",), emits="5m")
+    trend_relations = TrendRelationsPattern(
+        trends=trends, proximity=proximity, legs=legs, reads=("5m",), emits="5m"
+    )
 
     return (
         zigzag,
@@ -153,7 +178,7 @@ def build_pipeline(
         # One slicer per detector, so the comparison the two detectors exist for survives the
         # step from vertices to bars. Both must come after their source: declaration order is
         # run order, and a slicer ahead of its detector reads a key that is not in `ctx` yet.
-        LegPattern(source=zigzag, reads=("5m",), emits="5m"),
+        legs,
         simple_legs,
         # The same legs again, each carrying the five bars that follow its close. A record bar or
         # a reversal pair can land just *past* the turn, in the opening bars of the next leg,
@@ -218,10 +243,11 @@ def build_pipeline(
         # Then the two that answer about a person's question rather than about the market. The
         # first is the only Pattern here that is *told* where to look: every one above finds its
         # own levels, and this one is handed the lines a person pinned on the monitor and reports what
-        # the bars since have done about them — touched, broken through, or crossed and crossed
-        # back. It reads `ctx["bars"]` and nothing else, so like `bar-gap` it has no ordering
-        # constraint and sits here by meaning rather than by necessity: everything above answers
-        # about the market, and this answers about the market *and a person's question*.
+        # the bars since have done about them — touched, come near without touching, broken through,
+        # or crossed and crossed back. It sits here by meaning — everything above answers about the
+        # market, and this answers about the market *and a person's question* — and now by necessity
+        # too: the near-miss question is scaled by the leg a bar sits in, so it reads `legs` above
+        # and would raise on a key that is not in `ctx` yet if it were declared any earlier.
         #
         # With no lines it emits an empty Series rather than being left out of the tuple, so the
         # `ctx` key exists on every run and "nobody drew a line" is not indistinguishable from a

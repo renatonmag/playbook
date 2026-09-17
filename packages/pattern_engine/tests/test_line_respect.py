@@ -33,6 +33,7 @@ from pattern_engine.patterns.line_respect import (
     respected_side,
     undone_breakouts,
 )
+from pattern_engine.patterns.proximity import ProximityLevel, ProximityRule
 from pattern_engine.patterns.trend_relations import (
     PinnedTrend,
     PinnedTrends,
@@ -142,7 +143,7 @@ def relation(kind: str, side: str | None) -> LineRelation:
     """A bare Point, for the two readings that look at nothing but `kind` and `side`."""
     return LineRelation.anchored(
         bar(90.0, 105.0, 89.0, 95.0), line="a", price=LINE, kind=kind, wick=None, side=side,
-        since=None,
+        since=None, gap=None, leg=None,
     )
 
 
@@ -187,6 +188,46 @@ def test_the_undone_breakouts_are_the_bars_the_seams_name() -> None:
 def test_a_run_with_no_seams_has_nothing_undone() -> None:
     bars = series(*BROKEN).points
     assert undone_breakouts(line_relations(bars, lines(("a", 0)))) == set()
+
+
+# --- the fourth kind ------------------------------------------------------------------------------
+
+#: An anchor, a bar that stops four points short of the line, and a bar that touches it. Under no
+#: rule the first of those says nothing and the group is one bar; with a rule wide enough to name
+#: it, the same window is one group of two. The pair is the whole of what a `close` does here.
+APPROACHED = (
+    (80.0, 85.0, 79.0, 84.0),
+    (90.0, 96.0, 89.0, 92.0),
+    (90.0, 105.0, 89.0, 95.0),
+)
+
+#: Near is a tenth of the leg, and every bar of the fixture above sits in a leg of a hundred — so
+#: the reach is ten and a miss of four is inside it.
+NEAR = ProximityRule(name="proximidade", levels=(ProximityLevel(points=10.0, trigger=0.1),))
+
+
+def test_a_close_extends_the_stretch_it_falls_in() -> None:
+    """Respect is the absence of a definitive breakout, and a bar that stopped short is not one."""
+    bars = series(*APPROACHED).points
+    events = line_relations(bars, lines(("a", 0)), NEAR, [100.0] * 3)
+    found = line_respects(events, bars)
+
+    assert [(point.side, index(point.bars[0].time), index(point.time)) for point in found] == [
+        ("below", 1, 2)
+    ]
+
+
+def test_the_same_window_without_a_rule_is_the_shorter_stretch() -> None:
+    """The cost, stated as a test: a group is only comparable with one computed under one rule."""
+    assert runs(APPROACHED, ("a", 0)) == [("a", "below", 2, 2)]
+
+
+def test_a_close_says_which_side_it_held_from() -> None:
+    """`side` on a `close` is where the bar was, so it reads as the other kinds' does."""
+    bars = series(*APPROACHED).points
+    lone = line_respects(line_relations(bars[:2], lines(("a", 0)), NEAR, [100.0] * 2), bars[:2])
+
+    assert [point.side for point in lone] == ["below"]
 
 
 # --- the run ------------------------------------------------------------------------------------
@@ -296,7 +337,8 @@ def test_the_producer_key_names_its_source() -> None:
     pattern = LineRespectPattern(source=source, reads=("5m",), emits="5m")
 
     assert pattern.producer == (
-        "line-respect(source=<line-relations(lines=pinned,reads=5m,emits=5m)>,reads=5m,emits=5m)"
+        "line-respect(source=<line-relations(lines=pinned,proximity=proximidade,legs=None,"
+        "reads=5m,emits=5m)>,reads=5m,emits=5m)"
     )
 
 
@@ -366,7 +408,8 @@ def test_the_two_sources_are_two_series_with_two_names() -> None:
 
     assert over_level.producer != over_sloped.producer
     assert over_sloped.producer == (
-        "line-respect(source=<trend-relations(trends=pinned,reads=5m,emits=5m)>,reads=5m,emits=5m)"
+        "line-respect(source=<trend-relations(trends=pinned,proximity=proximidade,legs=None,"
+        "reads=5m,emits=5m)>,reads=5m,emits=5m)"
     )
     assert (over_level.name, over_sloped.name) == (
         "Respect · Line relations",

@@ -8,6 +8,10 @@ a breakout, which is what most of the assertions below are counting.
 Then the Pattern through a real engine, which is where the producer key is pinned: the key must not
 name the lines, and that is the one property of this Pattern nothing else would catch breaking.
 
+The fourth kind, `close`, is tested in the same two layers and with one extra thing to establish:
+that it is off unless a rule and a leg both arrive, and that it never lands on a bar one of the
+other three already answered about.
+
 The fixtures are built so that the *line price is always 100.0*. A price that moved with the case
 would make every assertion below carry an argument about where the line was, when the thing being
 tested is where the bar was. `flipped` mirrors a case around that price, so the bearish half of a
@@ -18,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from pattern_engine import BaseSeries, Candle, PatternEngine, SeriesIdentity
+from pattern_engine.patterns.leg_processor import Leg, LegPattern
 from pattern_engine.patterns.line_relations import (
     NO_LINES,
     Line,
@@ -25,10 +30,14 @@ from pattern_engine.patterns.line_relations import (
     LineRelationsPattern,
     PinnedLines,
     breaks_out,
+    leg_spans,
     line_relations,
+    nears,
     side_of,
     touches,
 )
+from pattern_engine.patterns.proximity import NO_PROXIMITY, ProximityLevel, ProximityRule
+from pattern_engine.patterns.zigzag import ZigZagPattern
 from pattern_engine.series import CANDLES
 
 OPEN = datetime(2026, 8, 12, 13, 0, tzinfo=UTC)
@@ -359,7 +368,9 @@ def test_the_producer_key_does_not_name_the_lines() -> None:
     one = LineRelationsPattern(lines=lines(("a", 0)), reads=("5m",), emits="5m")
     other = LineRelationsPattern(lines=lines(("z", 2), ("y", 3)), reads=("5m",), emits="5m")
 
-    assert one.producer == "line-relations(lines=pinned,reads=5m,emits=5m)"
+    assert one.producer == (
+        "line-relations(lines=pinned,proximity=proximidade,legs=None,reads=5m,emits=5m)"
+    )
     assert other.producer == one.producer
 
 
@@ -389,3 +400,175 @@ def test_the_fixtures_hold_the_crossings_the_tests_above_assume() -> None:
     bars = series(*SEAMED).points
     assert [breaks_out(candle, LINE) for candle in bars] == [None, "above", "below", None]
     assert [touches(candle, LINE) for candle in bars] == [None, None, None, None]
+
+
+# --- the near miss ----------------------------------------------------------------------------
+
+#: Near is a tenth of the leg, for every leg this file measures. One rung, because which rung gets
+#: picked is `test_proximity`'s question and the fixtures here would only restate it.
+NEAR = ProximityRule(name="proximidade", levels=(ProximityLevel(points=10.0, trigger=0.1),))
+
+
+def spans(*values: float | None) -> list[float | None]:
+    """A leg span per bar, written out — what `leg_spans` computes and these cases assume."""
+    return list(values)
+
+
+#: A bar that ran up to 96 and turned, under a line at 100. Four points short, so a leg of 50 (a
+#: reach of five) misses it and a leg of 100 (a reach of ten) does not. The bar before it is the
+#: line's own anchor and is skipped.
+STOPPED_SHORT = (
+    (80.0, 85.0, 79.0, 84.0),
+    (90.0, 96.0, 89.0, 92.0),
+)
+
+
+def test_a_bar_that_stopped_short_within_the_reach_is_a_close() -> None:
+    assert nears(bar(90.0, 96.0, 89.0, 92.0), LINE, 10.0) == ("below", 4.0)
+
+
+def test_a_bar_that_stopped_short_outside_the_reach_is_nothing() -> None:
+    assert nears(bar(90.0, 96.0, 89.0, 92.0), LINE, 3.0) is None
+
+
+def test_the_side_is_where_the_bar_was_and_the_bear_case_says_the_same() -> None:
+    """`side` means the side price came from, here as on the other three kinds."""
+    assert nears(bar(110.0, 111.0, 104.0, 108.0), LINE, 10.0) == ("above", 4.0)
+
+
+def test_a_bar_that_reached_the_line_is_not_a_near_miss() -> None:
+    """The complement of `touches`, and where the two meet: contact is contact, not a miss."""
+    assert nears(bar(90.0, 100.0, 89.0, 95.0), LINE, 10.0) is None
+    assert touches(bar(90.0, 100.0, 89.0, 95.0), LINE) == "high"
+
+
+def test_a_line_inside_the_bar_is_not_a_near_miss_however_small_the_gap() -> None:
+    """A body through the line is a breakout, and this function has nothing to add to that."""
+    assert nears(bar(95.0, 106.0, 94.0, 105.0), LINE, 10.0) is None
+    assert breaks_out(bar(95.0, 106.0, 94.0, 105.0), LINE) == "above"
+
+
+def test_a_close_is_reported_when_the_leg_grants_the_reach() -> None:
+    found = line_relations(series(*STOPPED_SHORT).points, lines(("a", 0)), NEAR, spans(100.0, 100.0))
+    assert kinds(found) == [(1, "close", None, "below")]
+    assert (found[0].gap, found[0].leg) == (4.0, 100.0)
+
+
+def test_the_same_bar_under_a_smaller_leg_says_nothing() -> None:
+    """The whole point of scaling: four points short of a thirty-point move is not a near miss."""
+    assert line_relations(series(*STOPPED_SHORT).points, lines(("a", 0)), NEAR, spans(30.0, 30.0)) == []
+
+
+def test_a_bar_no_leg_covers_says_nothing() -> None:
+    assert line_relations(series(*STOPPED_SHORT).points, lines(("a", 0)), NEAR, spans(None, None)) == []
+
+
+def test_without_a_rule_the_other_three_answer_exactly_as_they_did() -> None:
+    """The default, stated as a test: a caller that passes neither gets the old Series, Point for Point."""
+    bars, pinned = series(*SEAMED).points, lines(("a", 0))
+    assert line_relations(bars, pinned) == line_relations(bars, pinned, NO_PROXIMITY, spans(*[1e9] * 4))
+
+
+def test_a_close_never_lands_on_a_bar_another_kind_answered_about() -> None:
+    """Exclusive by construction — see the module docstring on `line_relations`.
+
+    A reach wide enough to name every bar in the window, so nothing but the construction itself can
+    be keeping the kinds apart. The two crossing bars stay crossings; the bar that did neither is
+    the only one free to be a near miss.
+    """
+    found = line_relations(series(*SEAMED).points, lines(("a", 0)), NEAR, spans(*[1e9] * 4))
+    closed = {point.time for point in found if point.kind == "close"}
+    other = {point.time for point in found if point.kind != "close"}
+
+    assert closed and other
+    assert not closed & other
+
+
+def test_only_a_close_carries_a_gap_and_a_leg() -> None:
+    found = line_relations(series(*STOPPED_SHORT).points, lines(("a", 0)), NEAR, spans(100.0, 100.0))
+    found += line_relations(series(*SEAMED).points, lines(("a", 0)))
+    assert [(point.kind, point.gap is None, point.leg is None) for point in found] == [
+        ("close", False, False),
+        ("breakout", True, True),
+        ("seam", True, True),
+    ]
+
+
+# --- the leg spans ----------------------------------------------------------------------------
+
+
+def leg(*indices: int) -> Leg:
+    """A leg over the bars of `STAIRS` at `indices`, anchored on the first of them."""
+    bars = tuple(series(*STAIRS).points[index] for index in indices)
+    return Leg.anchored(bars[0], bars=bars)
+
+
+#: Three bars climbing, so a leg over the first two spans less than one over all three. The shared
+#: bar is the middle one, which is what the boundary rule below is about.
+STAIRS = (
+    (10.0, 20.0, 10.0, 18.0),
+    (18.0, 40.0, 17.0, 38.0),
+    (38.0, 90.0, 37.0, 88.0),
+)
+
+
+def test_a_span_is_the_height_of_the_leg_and_not_the_distance_between_its_vertices() -> None:
+    """A wick that overshot the vertex counts: 40 minus 10, not 38 minus 10."""
+    assert leg_spans(series(*STAIRS).points, [leg(0, 1)]) == [30.0, 30.0, None]
+
+
+def test_a_boundary_bar_takes_the_span_of_the_leg_it_opens() -> None:
+    """Legs overlap by one bar, and the move in force from it is the new one."""
+    assert leg_spans(series(*STAIRS).points, [leg(0, 1), leg(1, 2)]) == [30.0, 73.0, 73.0]
+
+
+def test_a_window_with_no_legs_has_no_spans() -> None:
+    assert leg_spans(series(*STAIRS).points, []) == [None, None, None]
+
+
+# --- the near miss through the engine -----------------------------------------------------------
+
+#: A climb that runs to 96 and turns back down, under a line at 100. One leg over the whole window,
+#: 48 points tall, so the rung's tenth grants a reach of 4.8 — and the bar four points short is
+#: inside it while the one that fell away by seven is not.
+APPROACHED = (
+    (50.0, 55.0, 48.0, 54.0),
+    (54.0, 70.0, 53.0, 69.0),
+    (69.0, 96.0, 68.0, 92.0),
+    (92.0, 93.0, 80.0, 82.0),
+)
+
+
+
+def test_the_pattern_reads_its_leg_source_and_reports_near_misses() -> None:
+    """The ordering constraint the fourth kind brings, exercised: legs first, relations after."""
+    zigzag = ZigZagPattern(depth=1, reads=("5m",), emits="5m")
+    legs = LegPattern(source=zigzag, reads=("5m",), emits="5m")
+    pattern = LineRelationsPattern(
+        lines=lines(("a", 0)), proximity=NEAR, legs=legs, reads=("5m",), emits="5m"
+    )
+    engine = PatternEngine({"5m": series(*APPROACHED)}, (zigzag, legs, pattern))
+
+    found: BaseSeries[LineRelation] = engine.run()[pattern.producer]
+    assert [(point.kind, point.gap) for point in found.points] == [("close", 4.0)]
+
+
+def test_declared_before_its_legs_it_writes_nothing() -> None:
+    """A missing key is what the wrong order costs — the same reading `LineRespectPattern` gives."""
+    zigzag = ZigZagPattern(depth=1, reads=("5m",), emits="5m")
+    legs = LegPattern(source=zigzag, reads=("5m",), emits="5m")
+    pattern = LineRelationsPattern(
+        lines=lines(("a", 0)), proximity=NEAR, legs=legs, reads=("5m",), emits="5m"
+    )
+    engine = PatternEngine({"5m": series(*APPROACHED)}, (zigzag, pattern, legs))
+
+    assert pattern.producer not in engine.run()
+
+
+def test_a_pattern_with_legs_and_no_rule_reports_the_three_kinds_it_always_did() -> None:
+    zigzag = ZigZagPattern(depth=1, reads=("5m",), emits="5m")
+    legs = LegPattern(source=zigzag, reads=("5m",), emits="5m")
+    pattern = LineRelationsPattern(lines=lines(("a", 0)), legs=legs, reads=("5m",), emits="5m")
+    engine = PatternEngine({"5m": series(*APPROACHED)}, (zigzag, legs, pattern))
+
+    assert not engine.run()[pattern.producer]

@@ -27,9 +27,12 @@ from .line_relations import (
     Wick,
     breaks_out,
     constantly,
+    leg_spans,
     line_relations,
+    nears,
     relations_of,
     side_of,
+    spans_from,
     touches,
 )
 from .line_respect import (
@@ -40,6 +43,7 @@ from .line_respect import (
     undone_breakouts,
 )
 from .nested_legs import NestedLegs, NestedLegsPattern, nested_legs
+from .proximity import NO_PROXIMITY, ProximityLevel, ProximityRule, reach
 # Re-exported from here rather than from `leg_reversals`, where they used to live: they are the
 # arithmetic two Patterns share, and the names a pipeline imports must not move because of it.
 from .reversal_filters import (
@@ -102,6 +106,7 @@ __all__ = [
     "LineRespectPattern",
     "MarkType",
     "NO_LINES",
+    "NO_PROXIMITY",
     "NO_TRENDS",
     "NestedLegs",
     "NestedLegsPattern",
@@ -111,6 +116,8 @@ __all__ = [
     "PinnedTrend",
     "PinnedTrends",
     "PriceAt",
+    "ProximityLevel",
+    "ProximityRule",
     "RelationKind",
     "Side",
     "SimpleLegPattern",
@@ -135,18 +142,22 @@ __all__ = [
     "general_direction",
     "implied_body_min",
     "leg_ends",
+    "leg_spans",
     "line_relations",
     "line_respects",
     "marked_bars",
+    "nears",
     "nested_legs",
     "nests",
     "position_of",
     "price_at",
+    "reach",
     "relations_of",
     "resolver",
     "respected_side",
     "reverses",
     "side_of",
+    "spans_from",
     "split_leg_windows",
     "split_legs",
     "touches",
