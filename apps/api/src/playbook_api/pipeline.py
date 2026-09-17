@@ -51,6 +51,7 @@ from pattern_engine.patterns import (
     GeneralDirectionPattern,
     LegExtremesPattern,
     LegPattern,
+    LegReachPattern,
     LegWindowPattern,
     LineRelationsPattern,
     LineRespectPattern,
@@ -58,6 +59,7 @@ from pattern_engine.patterns import (
     PinnedLines,
     PinnedTrends,
     ProximityRule,
+    RetracementPattern,
     SimpleLegPattern,
     TrendLinesPattern,
     TrendRelationsPattern,
@@ -123,6 +125,11 @@ def build_pipeline(
     # "where did this leg end", and running them on one window is what lets the monitor show the
     # difference. Expect this one to mark several times more often — it has no smoothing.
     simple_leg = SimpleLegPattern(reads=("5m",), emits="5m")
+    # Each detector's pivots repriced at the extremes their legs actually reached. Bound to
+    # locals because the two retracements below take the instance, not the key — and one per
+    # detector rather than one shared, since a reach belongs to the legs it was cut from.
+    zigzag_reach = LegReachPattern(source=zigzag, reads=("5m",), emits="5m")
+    simple_reach = LegReachPattern(source=simple_leg, reads=("5m",), emits="5m")
     leg_windows = LegWindowPattern(source=zigzag, ahead=5, reads=("5m",), emits="5m")
     # Bound to a local for the same reason the detectors above are: the grouper at the bottom
     # takes this slicer's *instance*, not its producer key.
@@ -154,6 +161,37 @@ def build_pipeline(
     return (
         zigzag,
         simple_leg,
+        # The most elementary thing a pivot Series says once there are two legs in it: how much of
+        # the move before it each leg gave back. It sits here, above `general-direction`, because
+        # that one is introduced below as the first opinion that *outlives* a leg and this one does
+        # not — it is one leg measured against what came before it, and nothing more.
+        #
+        # Both instances together, unlike the two `leg-extremes` and the two `line-respect`, which
+        # had to split: those pairs' sources sit far apart in this tuple, and each instance has to
+        # follow its own. Here both detectors are the two entries above, so the only ordering
+        # constraint is already satisfied for both.
+        #
+        # Two single-source instances and no third that reads both, and that is not a convenience:
+        # it is where "simple legs are measured against simple legs and the zigzag against the
+        # zigzag" is enforced. A Pattern taking both Series could mix them and nothing downstream
+        # would be able to tell that it had.
+        #
+        # Neither reads its detector directly, and that is the whole of what `leg-reach` is doing
+        # in this tuple. A detector's pivot is not its leg's extreme — `simple-leg` prices a mark
+        # on the *marked* bar, which can sit several bars past the turn, and the zigzag elects a
+        # vertex only among bars that made a rolling-window extreme. A fraction taken between four
+        # such prices is short by whatever each detector left on the table, which on the simple
+        # legs is most of them. The reach Patterns above run through the bars and hand over one
+        # Point per pivot, in the same order, priced where the leg really got to.
+        #
+        # Not bound to locals, unlike the reaches and the slicers around them — nothing downstream
+        # takes these instances, which is the same reason `GeneralDirectionPattern` below is not
+        # bound either. No dials: the loaded window is the whole of the lookback, and the fraction
+        # has no threshold to tune.
+        zigzag_reach,
+        simple_reach,
+        RetracementPattern(source=zigzag_reach, reads=("5m",), emits="5m"),
+        RetracementPattern(source=simple_reach, reads=("5m",), emits="5m"),
         # The first opinion that outlives a leg: the market's general lean, read off the simple
         # legs' pivots and guarded by the zigzag's. It reads the two Series above, never the
         # bars, so it must sit after both — declaration order is run order.

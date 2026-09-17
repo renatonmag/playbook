@@ -14,6 +14,7 @@ import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
+import RetracementOverlay from '~/components/RetracementOverlay.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
 import ProximityControls from '~/components/ProximityControls.vue'
 import PatternLog from '~/components/PatternLog.vue'
@@ -83,6 +84,12 @@ const LOG_MIN_PX = 160
  * the extreme on the side *away* from the line it reports, which is the one surprising thing about
  * it and is argued in `PLACEMENT`. It is also the first entry fed by the manual run rather than the
  * automatic one — see `MANUAL`.
+ *
+ * The ninth, `retracement`, comes back to markers — and is the first drawing on this chart that is
+ * **text**. That is why it is a marker and not a fifth primitive: `SeriesMarker.text` already puts a
+ * short string clear of a bar, and going through the shared plugin is what stacks the two
+ * retracement Series when both put a number on one candle. It is also the first entry that draws
+ * nothing by default, answering the cursor instead — see `labelsAlways`.
  */
 const OVERLAYS: Record<string, Component> = {
   'zig-zag': ZigZagOverlay,
@@ -95,6 +102,7 @@ const OVERLAYS: Record<string, Component> = {
   'general-direction': GeneralDirectionOverlay,
   'trend-lines': TrendLinesOverlay,
   'line-respect': LineRespectOverlay,
+  'retracement': RetracementOverlay,
 }
 
 /**
@@ -738,6 +746,27 @@ function toggleSide(producer: string, side: string) {
   const key = sideKey(producer, side)
   if (hiddenSides.value.has(key)) hiddenSides.value.delete(key)
   else hiddenSides.value.add(key)
+}
+
+/**
+ * Producers whose `Sempre visível` switch is on: the retracement Series that draw every leg's
+ * number rather than only the leg under the cursor.
+ *
+ * **The exception is stored**, the fifth time on this page, and here the default is the interesting
+ * half: off means the chart answers the cursor and is otherwise unmarked. That is not timidity
+ * about a new overlay — this Pattern emits a Point per leg, and the simple-leg Series marks a leg
+ * roughly every three bars, so a five-day window drawn in full is a wall of percentages with no
+ * reading in it. Hovering asks about one candle, which is the question a retracement answers.
+ *
+ * Not in `focusMode` despite looking like it: that switch changes what a *click* means, which is
+ * why it is saved and why it is somebody's decision to turn on. This one only decides how much of
+ * a Series is drawn, and a click on the chart means exactly what it always did.
+ */
+const labelsAlways = ref(new Set<string>())
+
+function toggleLabelsAlways(producer: string) {
+  if (labelsAlways.value.has(producer)) labelsAlways.value.delete(producer)
+  else labelsAlways.value.add(producer)
 }
 
 /**
@@ -2046,6 +2075,13 @@ function extraProps(overlay: { producer: string, name: string }) {
           mark: respectMark(overlay.producer),
         }
       : {},
+    // The only switch this Pattern has, and it decides how much of the Series is drawn rather than
+    // what any of it means: off, the overlay draws the leg under the cursor and nothing else. The
+    // hover itself is the overlay's own — a bar time off the crosshair, with no page state behind
+    // it, because nothing else on this page is asking the same question. See `labelsAlways`.
+    ...overlay.name === 'retracement'
+      ? { always: labelsAlways.value.has(overlay.producer) }
+      : {},
     // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
     // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and
     // two Series minting one id would have each pinning the other's levels.
@@ -2691,6 +2727,44 @@ function isVisible(overlay: { producer: string }) {
                 >
                   Passe o mouse por um candle para destacar as linhas que terminam nele; clique
                   para fixar.
+                </p>
+              </div>
+
+              <!-- The only control this Pattern has. Off — the default — the chart is unmarked and
+                   the cursor is what asks: the leg closing on the candle under the mouse shows its
+                   number and nothing else does. On, every measurable leg carries one.
+
+                   The default is off because this Pattern answers about *every* leg, and the
+                   simple-leg Series marks one roughly every three bars: a five-day window drawn in
+                   full is a wall of percentages, which is not a reading. The zigzag Series is
+                   several times sparser and is the one worth leaving on.
+
+                   No `Destacar por ponto` beside it, and the difference is worth naming: that
+                   switch makes a *click* on the chart mean something new, so it is saved and it is
+                   somebody's decision. This one changes how much of a Series is drawn and nothing
+                   else, so it lives and dies with the session. -->
+              <div
+                v-if="overlay.name === 'retracement' && shown.has(overlay.producer)"
+                class="mt-1"
+              >
+                <button
+                  class="rounded border px-2 py-0.5 text-xs"
+                  :class="labelsAlways.has(overlay.producer)
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-500'"
+                  @click="toggleLabelsAlways(overlay.producer)"
+                >
+                  Sempre visível
+                </button>
+
+                <!-- Only while the switch is off, and needed for the same reason the trend-lines
+                     hint is: with it off the `Ligar` above draws nothing at all, and a Series that
+                     answers only the cursor has no way of saying so by itself. -->
+                <p
+                  v-if="!labelsAlways.has(overlay.producer)"
+                  class="mt-0.5 text-xs text-gray-400"
+                >
+                  Passe o mouse por um candle para ver o recuo da perna que fecha nele.
                 </p>
               </div>
 

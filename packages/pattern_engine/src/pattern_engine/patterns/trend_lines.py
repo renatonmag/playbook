@@ -34,7 +34,9 @@ Four rules carry the whole thing:
   bar that actually made the high is one of the candles that *blocks* it. So each mark is first
   rewritten as the bar its leg reached: the highest `high` of the leg for a top, the lowest `low`
   for a bottom, over the leg's bars — the span from the previous mark to this one, inclusive,
-  which is `split_legs`' own definition of a leg.
+  which is `split_legs`' own definition of a leg. That scan is no longer written here: it is
+  `leg_reach.leg_reaches`, which a second Pattern needed whole, and `leg_ends` below is what is
+  left of this module's use of it.
 
 The output is a fan: one Point per surviving pair, anchored on the **first** of the two — where a
 drawing wants to start, the reason `bar_gap` anchors on the first bar of its triple. The far
@@ -89,8 +91,7 @@ from ..engine import BARS, INSTRUMENT
 from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..timeframes import Timeframe
-from .leg_extremes import extreme_points
-from .leg_processor import bar_positions, position_of
+from .leg_reach import leg_reaches
 from .simple_leg import LegMark, integer
 
 
@@ -170,54 +171,38 @@ class LineEnd(Pivot):
     provisional: bool
 
 
-def leg_ends(
-    bars: Sequence[Candle], marks: Sequence[LegMark]
-) -> list[tuple[LineEnd, int]]:
+def leg_ends(bars: Sequence[Candle], marks: Sequence[LegMark]) -> list[tuple[LineEnd, int]]:
     """Each mark rewritten as the bar its leg reached, with that bar's position in `bars`.
 
-    A mark's leg is the span from the **previous mark to it, inclusive** — `split_legs`' own
-    definition, boundary bar shared and all — and the first mark takes the window head, the same
-    fold `split_legs` does. The extreme over that span is the endpoint: the highest `high` for a
-    top, the lowest `low` for a bottom.
+    The scan itself is `leg_reaches`, which is where the rule and all of its costs are written: a
+    mark's leg is the span from the previous mark to it inclusive, the reach is the extreme over it
+    on the mark's own side, and the first mark takes the window head. It was extracted out of here
+    once a second Pattern needed the same answer, and moving it rather than copying it is what
+    keeps the lines and that Pattern from quietly disagreeing about where a leg got to.
 
-    The extreme itself comes from `extreme_points`, which is where the tie rule (the earliest bar
-    to reach a level keeps it) and the direction table are already written and tested. It answers
-    all three of a leg's levels and only `reach`, the first, is wanted here; the two discarded
-    passes are over a slice a few bars long, which is cheaper than a second strict scan living
-    here and drifting from that one.
+    What stays here is the only thing the two callers do differently: **`provisional` comes from
+    the mark itself**, not from the mark's position in the Series. A line is provisional because
+    the leg behind one of its ends is still running, which is what `SimpleLegPattern` flags, and
+    coarsening that to "the last one" would taint a settled line and clear a running one.
 
     Positions come back alongside because everything downstream is index work — the interpolation
     in `clear` and the "is there anything in between" guard — and looking a bar up twice by `time`
     would be the same dictionary hit written in two places.
 
-    Raises `ValueError` through `position_of` for a mark that sits on no bar of `bars` — the
-    mismatched-Timeframe guard, shared rather than rewritten.
+    Raises `ValueError` through `leg_reaches` for a mark that sits on no bar of `bars`.
     """
-    positions = bar_positions(bars)
-
-    ends: list[tuple[LineEnd, int]] = []
-    opened = 0
-
-    for mark in marks:
-        at = position_of(mark, positions)
-        leg = bars[opened : at + 1]
-        # `reach` — how far the leg went — read on the leg's own side: a top mark closes a leg
-        # that ran up, a bottom mark one that ran down.
-        reach = extreme_points(leg, "bullish" if mark.direction == "high" else "bearish")[0]
-        ends.append(
-            (
-                LineEnd.anchored(
-                    leg[reach.at],
-                    price=reach.price,
-                    direction=mark.direction,
-                    provisional=mark.provisional,
-                ),
-                opened + reach.at,
-            )
+    return [
+        (
+            LineEnd.anchored(
+                bars[at],
+                price=price,
+                direction=mark.direction,
+                provisional=mark.provisional,
+            ),
+            at,
         )
-        opened = at
-
-    return ends
+        for mark, (at, price) in zip(marks, leg_reaches(bars, marks))
+    ]
 
 
 def trend_lines(

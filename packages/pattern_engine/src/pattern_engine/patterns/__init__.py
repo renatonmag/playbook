@@ -12,6 +12,7 @@ from .leg_extremes import (
     extreme_points,
 )
 from .leg_processor import Leg, LegPattern, bar_positions, position_of, split_legs
+from .leg_reach import LegReach, LegReachPattern, SidedPivot, leg_reaches
 from .leg_reversals import LegBar, LegReversals, LegReversalsPattern, marked_bars
 from .leg_window import LegWindow, LegWindowPattern, split_leg_windows
 from .line_relations import (
@@ -44,6 +45,7 @@ from .line_respect import (
 )
 from .nested_legs import NestedLegs, NestedLegsPattern, nested_legs
 from .proximity import NO_PROXIMITY, ProximityLevel, ProximityRule, reach
+from .retracement import RetracedMove, Retracement, RetracementPattern, retracements
 # Re-exported from here rather than from `leg_reversals`, where they used to live: they are the
 # arithmetic two Patterns share, and the names a pipeline imports must not move because of it.
 from .reversal_filters import (
@@ -94,6 +96,8 @@ __all__ = [
     "LegMark",
     "LegPattern",
     "LegPoint",
+    "LegReach",
+    "LegReachPattern",
     "LegReversals",
     "LegReversalsPattern",
     "LegWindow",
@@ -119,7 +123,11 @@ __all__ = [
     "ProximityLevel",
     "ProximityRule",
     "RelationKind",
+    "RetracedMove",
+    "Retracement",
+    "RetracementPattern",
     "Side",
+    "SidedPivot",
     "SimpleLegPattern",
     "TrendLine",
     "TrendLinesPattern",
@@ -142,6 +150,7 @@ __all__ = [
     "general_direction",
     "implied_body_min",
     "leg_ends",
+    "leg_reaches",
     "leg_spans",
     "line_relations",
     "line_respects",
@@ -155,6 +164,7 @@ __all__ = [
     "relations_of",
     "resolver",
     "respected_side",
+    "retracements",
     "reverses",
     "side_of",
     "spans_from",
