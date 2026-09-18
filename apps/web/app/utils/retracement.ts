@@ -52,10 +52,13 @@ export function retracementMarkers(
     markers.push({
       time: point.time as UTCTimestamp,
       position: point.direction === 'high' ? 'aboveBar' as const : 'belowBar' as const,
-      // A dot, not an arrow: the glyph is an anchor tying the text to its pivot, and an arrow
-      // would claim a side the number is not about. The `bars` and `general-direction` overlays
-      // own the two shapes that do mean something.
+      // Text and nothing else. The number *is* the reading, and a glyph beside it competes with
+      // the two shapes on this chart that do mean something — the `bars` and `general-direction`
+      // overlays'. `size: 0` is how the library is told to skip the glyph: its renderer draws the
+      // text first and then returns out of the shape at size zero. `shape` survives only because
+      // the marker type demands a value; nothing reads it here.
       shape: 'circle' as const,
+      size: 0,
       color,
       text: retracementLabel(point.measured.ratio),
     })
