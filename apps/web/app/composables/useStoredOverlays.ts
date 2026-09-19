@@ -37,15 +37,22 @@ const KEY = 'playbook:monitor:overlays'
  * by the producers taking part, so it survives here for nothing; and like `focusMode` it only comes
  * back on the `Restaurar` click, so no reload quietly ties two Series together.
  *
+ * `labelsAlways` is the one that is not a decision about a Series at all but about how much of one
+ * is drawn — the retracement switch that puts a number on every leg instead of only the leg under
+ * the cursor. It is stored anyway, for `focusMode`'s reason rather than against it: it is an
+ * exception somebody chose against an off default, and it is keyed like all the rest. Coming back
+ * only on the `Restaurar` click is what makes that safe — a window that opens does so unmarked,
+ * never as a wall of percentages inherited from last week.
+ *
  * Every one of them is a `Set<string>` of producer keys — which is what makes one composable
- * enough for eight pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
+ * enough for nine pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
  * `hiddenStates`) deliberately are not: those are keyed `producer:value` and store the *exception*,
  * so a stale entry from an older window is a checkbox silently off rather than a Series simply not
  * found. They stay in memory.
  */
-type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'hideLinked' | 'confirmedOnly' | 'focusMode'
+type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'hideLinked' | 'confirmedOnly' | 'focusMode' | 'labelsAlways'
 
-const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'hideLinked', 'confirmedOnly', 'focusMode']
+const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'hideLinked', 'confirmedOnly', 'focusMode', 'labelsAlways']
 
 /** Total, like `parseRule`: anything that is not an array of strings reads as an empty set. */
 function readList(value: unknown): string[] {
@@ -66,7 +73,7 @@ export function useStoredOverlays(sets: Record<Stored, Ref<Set<string>>>) {
     saved.value = localStorage.getItem(KEY) !== null
   })
 
-  // Client-only, and without `immediate`: a page that has just opened holds eight empty sets, and
+  // Client-only, and without `immediate`: a page that has just opened holds nine empty sets, and
   // writing those would erase the snapshot the button exists to restore. The first real toggle is
   // the first write, which is the cost this composable's docblock names.
   if (import.meta.client) {

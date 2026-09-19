@@ -758,9 +758,12 @@ function toggleSide(producer: string, side: string) {
  * roughly every three bars, so a five-day window drawn in full is a wall of percentages with no
  * reading in it. Hovering asks about one candle, which is the question a retracement answers.
  *
- * Not in `focusMode` despite looking like it: that switch changes what a *click* means, which is
- * why it is saved and why it is somebody's decision to turn on. This one only decides how much of
- * a Series is drawn, and a click on the chart means exactly what it always did.
+ * Not in `focusMode` despite looking like it: that switch changes what a *click* means, and this
+ * one only decides how much of a Series is drawn — a click on the chart means exactly what it
+ * always did. What the two share is the part that decides storage: turning this on is somebody's
+ * decision about a Series, keyed by producer like every other one, so it goes into the saved layout
+ * with them. It comes back on the `Restaurar` click and nowhere else, which is what keeps a window
+ * that opens unmarked rather than covered in numbers nobody asked for today.
  */
 const labelsAlways = ref(new Set<string>())
 
@@ -1541,16 +1544,26 @@ function removeSelected() {
 }
 
 /**
- * The eight sets above, remembered between visits — everything about the sidebar that is keyed by
+ * The nine sets above, remembered between visits — everything about the sidebar that is keyed by
  * producer and nothing that is not. See `useStoredOverlays` for why the write is automatic and the
  * read is the `Restaurar` item in the menu beside the heading.
  *
- * Here rather than beside `shown`, because it needs all eight and `moves` is the last of them.
+ * Here rather than beside `shown`, because it needs all nine and `moves` is the last of them.
  */
-const layout = useStoredOverlays({ shown, open, pinned, moves, autoHide, hideLinked, confirmedOnly, focusMode })
+const layout = useStoredOverlays({
+  shown,
+  open,
+  pinned,
+  moves,
+  autoHide,
+  hideLinked,
+  confirmedOnly,
+  focusMode,
+  labelsAlways,
+})
 
 /**
- * `Ctrl+Z` over the two of those eight that are a selection rather than a preference. See
+ * `Ctrl+Z` over the two of those nine that are a selection rather than a preference. See
  * `useSelectionHistory` for why it is those two, and why it watches them instead of being called
  * from `togglePin` and the three functions beside it.
  */
@@ -2740,9 +2753,9 @@ function isVisible(overlay: { producer: string }) {
                    several times sparser and is the one worth leaving on.
 
                    No `Destacar por ponto` beside it, and the difference is worth naming: that
-                   switch makes a *click* on the chart mean something new, so it is saved and it is
-                   somebody's decision. This one changes how much of a Series is drawn and nothing
-                   else, so it lives and dies with the session. -->
+                   switch makes a *click* on the chart mean something new, while this one changes
+                   how much of a Series is drawn and nothing else. Both are saved for the same
+                   reason even so — somebody chose them — and both come back only on `Restaurar`. -->
               <div
                 v-if="overlay.name === 'retracement' && shown.has(overlay.producer)"
                 class="mt-1"
