@@ -1,14 +1,19 @@
 import type { SeriesMarker, Time, UTCTimestamp } from 'lightweight-charts'
 import type { BarMark } from '~/types/pattern'
 
+/** The readings this overlay draws. `smallest-bar` is read in the Log and nowhere else, yet. */
+type DrawnMark = Exclude<BarMark['type'], 'smallest-bar'>
+
 /**
  * The dot colours, by filter.
  *
  * Kept next to `barMarkers` because a marker's colour *is* which filter marked its bar, and the
- * mapping is one fact per key. Typed on `BarMark['type']` so adding a fifth reading to the Pattern
- * fails the build here rather than drawing an undefined colour.
+ * mapping is one fact per key. Typed on the mark types so adding a reading to the Pattern fails
+ * the build here rather than drawing an undefined colour — which is why `smallest-bar` is excluded
+ * by name rather than left out: excluding it is the decision "this one is not drawn", written
+ * where the build can hold it, and giving it an entry is the whole of what drawing it later takes.
  */
-export const BAR_HUES: Record<BarMark['type'], string> = {
+export const BAR_HUES: Record<DrawnMark, string> = {
   // Sky, amber and pink for the three turn candidates — three hues that stay apart on a chart of
   // green and red bodies, and far enough from each other that the filter a dot came from is
   // readable without a key.
@@ -104,6 +109,10 @@ export function barMarkers(
   const seen = new Map<string, SeriesMarker<Time>>()
 
   for (const mark of points) {
+    // A reading with no hue is a reading this overlay does not draw — see `DrawnMark`. Skipped
+    // rather than drawn in a default colour, because a dot nobody chose a colour for is a dot
+    // whose meaning the chart cannot tell you.
+    if (!(mark.type in BAR_HUES)) continue
     // A directionless mark is not filtered by a direction filter. Turning both checkboxes off
     // still leaves the inside bars, which is the honest reading of what the checkboxes ask.
     if (mark.direction !== null && !directions.includes(mark.direction)) continue
@@ -121,7 +130,7 @@ export function barMarkers(
       // 24px: a circle's diameter is `ceiledOdd(max(shapeHeight * size, 12) * 0.8)`, so 11px is
       // the floor whatever the multiplier, and the monitor's fitted zoom already sits on it.
       size: 0.5,
-      color: BAR_HUES[mark.type],
+      color: BAR_HUES[mark.type as DrawnMark],
     })
   }
 

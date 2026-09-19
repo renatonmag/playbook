@@ -7,8 +7,8 @@ The rules are identical in the two — they are statements about *bars* — and 
 `leg_reversals` would have made the leg-agnostic Pattern import the leg one to borrow arithmetic
 that was never about legs.
 
-The fourth is asked by `BarsPattern` alone. It lives here anyway, because what this module is is
-the one place bar arithmetic is written — not "the filters `leg_reversals` happens to need".
+The last two are asked by `BarsPattern` alone. They live here anyway, because what this module is
+is the one place bar arithmetic is written — not "the filters `leg_reversals` happens to need".
 
 - **The two-bar reversal** — `reverses`. Two adjacent Candles, each with a body dominating its own
   shadows, in opposite colours, of comparable size, and large for the moment they happened in.
@@ -20,6 +20,9 @@ the one place bar arithmetic is written — not "the filters `leg_reversals` hap
   bar above the previous high, a bear bar below the previous low. Not a reversal filter at all —
   it marks a bar that *continued*, not one that might turn — which is why only `BarsPattern`, whose
   business is every reading of every bar, asks it.
+- **The smallest of the last n** — `smallest`. One Candle that covered no more ground than any of
+  the bars it can see behind it. Not a reversal filter either, and not a continuation one: it is a
+  claim about compression, which is a thing that happens before a move without saying which way.
 
 **Everything reads the global history, never a slice.** Every function that needs context takes
 the whole bar array and an index rather than the Candles it will look at, because `expands`
@@ -286,3 +289,48 @@ def clears(bars: Sequence[Candle], i: int, direction: Direction, timeframe: Time
     if direction == "bullish":
         return current.close > current.open and current.close > previous.high
     return current.close < current.open and current.close < previous.low
+
+
+def smallest(bars: Sequence[Candle], i: int, window: int, timeframe: Timeframe) -> bool:
+    """Whether `bars[i]` covered no more ground than any of the `window - 1` bars before it.
+
+    Amplitude, so this is the same measurement `expands` reads and the opposite question asked of
+    it: that one wants a bar large for the moment it happened in, this one wants the smallest one
+    in sight. Keeping both on `amplitude` is deliberate — a bar with a long rejection wick covered
+    that ground, whichever of the two is asking.
+
+    The window is walked backwards through `adjacent`, exactly as `average_amplitude` walks it, so
+    it stops at a session boundary rather than ranking this morning's bars against yesterday's
+    afternoon. A short window is used as-is, for the reason stated there: rejecting it would throw
+    away the opening of every session, and smallest of four is still an answer.
+
+    Where it differs from `average_amplitude` is the empty window. The first bar of a session is
+    the smallest of nothing, and a bar with nothing behind it is answered `False` — the alternative
+    marks every session open, which is a fact about the boundary and not about the bar. `window <=
+    1` is `False` for the same reason: "smallest of itself" compares nothing.
+
+    The comparison is **not** strict, so every bar tying for the minimum is marked. The cost is
+    worth stating: a flat stretch of identical bars marks all of them, and the reader of a run of
+    these is looking at a range rather than at one quiet bar.
+
+    Reads `high` and `low` and nothing else, so — like `nests` and `clears`, unlike the two
+    shape-reading filters — it has an answer for a Candle `shape_of` returns `None` for. A bar that
+    traded at a single price has an amplitude of zero and is the smallest of anything.
+    """
+    if window <= 1 or i <= 0:
+        return False
+
+    floor: float | None = None
+
+    j = i - 1
+    while j >= 0 and (i - j) < window:
+        if not adjacent(bars[j], bars[j + 1], timeframe):
+            break
+        covered = amplitude(bars[j])
+        floor = covered if floor is None else min(floor, covered)
+        j -= 1
+
+    if floor is None:
+        return False
+
+    return amplitude(bars[i]) <= floor

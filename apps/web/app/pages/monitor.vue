@@ -125,6 +125,19 @@ const OVERLAYS: Record<string, Component> = {
  */
 const MANUAL = new Set(['line-relations', 'line-respect', 'trend-relations'])
 
+/**
+ * The smallest-bar window's declared value and its bounds, repeating `DEFAULT_SMALLEST` and
+ * `MAX_SMALLEST` in `routers/patterns.py`.
+ *
+ * Repeated rather than fetched, and worth saying why: the route answers 422 outside these, so what
+ * they buy here is an input that cannot ask for a refusal, not a second authority on the number. A
+ * drift makes the field refuse something the server would have taken, which is the harmless
+ * direction — the reverse is caught by the route.
+ */
+const DEFAULT_SMALLEST = 10
+const MIN_SMALLEST = 2
+const MAX_SMALLEST = 200
+
 /** Enough hues to tell overlapping Series apart; reused cyclically beyond that. */
 const COLORS = ['#2563eb', '#c026d3', '#ea580c', '#0d9488']
 
@@ -360,13 +373,31 @@ const runWindow = computed(() => replay.runWindow.value ?? liveWindow.value)
  */
 const patternsKey = computed(() => (replay.cut.value === null ? windowKey.value : `replay:${replay.cut.value}`))
 
+/**
+ * How far back `bars`' `smallest-bar` reading looks — the second thing this page may hand the
+ * server, and the only one that is a single number.
+ *
+ * Local rather than in the URL and not persisted, like `shown`: it is a dial somebody turns while
+ * reading the Log, not a view worth linking to. `DEFAULT_SMALLEST` repeats the server's own
+ * default so the first render asks for the declared pipeline and not for an equal rebuild of it —
+ * the route tests the value, not just the rule.
+ */
+const smallest = ref(DEFAULT_SMALLEST)
+
+function updateSmallest(value: number) {
+  // Guarded here as well as by the input's own `min`/`max`, because a typed number reaches
+  // `change` whatever the attributes say, and the route answers 422 rather than clamping.
+  if (!Number.isFinite(value)) return
+  smallest.value = Math.min(MAX_SMALLEST, Math.max(MIN_SMALLEST, Math.round(value)))
+}
+
 const {
   data: patterns,
   error: patternsError,
   // Named, unlike on `/candles`, because a rule edit now starts a pipeline run: without this the
   // sidebar shows the previous rule's counts with nothing saying they are about to change.
   pending: patternsPending,
-} = usePatterns(runWindow, patternsKey, rule)
+} = usePatterns(runWindow, patternsKey, rule, smallest)
 
 /**
  * What the last `Calcular` answered, and what it is doing.
@@ -894,6 +925,16 @@ const CONFIRMABLE = new Set(['bars'])
  * a spurious one offers an editor that changes nothing on the Series it sits under.
  */
 const RULED = new Set(['bars'])
+
+/**
+ * The Patterns the smallest-bar window reaches, and so get the field for it under them.
+ *
+ * `RULED`'s second counterpart, with the same warning: it must match what `build_pipeline` hands
+ * the window to, and the failure is quiet in both directions.
+ *
+ * The control it gates is the odd one out on this column and deliberately so — see the template.
+ */
+const SIZED = new Set(['bars'])
 
 /**
  * The Patterns the proximity ladder reaches, and so get the ladder editor under them.
@@ -1821,7 +1862,7 @@ async function calculate() {
     const response = await $fetch<PatternResponse>('/patterns', {
       baseURL: apiBase,
       method: 'POST',
-      query: { ...runWindow.value, ...(rule.value ? toPatternQuery(rule.value) : {}) },
+      query: { ...runWindow.value, ...(rule.value ? toPatternQuery(rule.value) : {}), sn: String(smallest.value) },
       body: { lines, trends, proximity: toProximityBody(levels.value) },
     })
     if (run !== calculateRun) return
@@ -2407,10 +2448,11 @@ function isVisible(overlay: { producer: string }) {
                    full height beside it: the Log is about what the chart is showing, not about the
                    page — and the chart, not the sidebar, is what gives up the space.
 
-                   What it holds is the Series that are read rather than drawn, fed from `relations`
-                   and not from `patterns`. Line relations is about the lines a person pinned, and
-                   only the manual run carries them, so the automatic response has nothing to say
-                   here — see `calculate` above.
+                   What it holds is the Series that are read rather than drawn, and it is fed from
+                   *both* runs. Line relations is about the lines a person pinned, which only the
+                   manual run carries; `bars` comes from the automatic one, which re-runs on every
+                   closed bar. The panel's own picker is where the two meet, exactly as the sidebar
+                   above is where the two overlay lists meet — see `calculate`, and `MANUAL`.
 
                    The title row is the whole hit area, and clicking it is the same fold that dragging
                    past `LOG_MIN_PX` performs: both end up in `isCollapsed`, so the chevron cannot
@@ -2434,7 +2476,12 @@ function isVisible(overlay: { producer: string }) {
                   Log
                 </button>
                 <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-3">
-                  <PatternLog :response="relations" :pending="calculating" :error="calculateError" />
+                  <PatternLog
+                    :auto="patterns"
+                    :response="relations"
+                    :pending="patternsPending || calculating"
+                    :error="calculateError ?? (patternsError ? String(patternsError) : null)"
+                  />
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
@@ -3046,6 +3093,31 @@ function isVisible(overlay: { producer: string }) {
                    Inside `ClientOnly` because the stored rule arrives after mount: the server
                    renders `PIPELINE_RULE` and the client may replace it, which is a hydration
                    mismatch anywhere it is rendered on both. Same guard as the timepicker above. -->
+              <!-- The one control here that is *not* gated on `Ligar`, and the reason is worth
+                   stating: every other one under a chip filters what is drawn, so hiding it with
+                   nothing drawn hides nothing. This one changes the run itself, and the reading it
+                   tunes — `smallest-bar` — is read in the Log and never drawn, so gating it on the
+                   chart would hide the only control for a Series you can only read.
+
+                   `:value` and `@change`, never `v-model`, for the reason `FormaRuleControls`
+                   gives at length: a committed value is a full pipeline run on the server, and
+                   `change` — blur or Enter — is the debounce. -->
+              <label
+                v-if="SIZED.has(overlay.name)"
+                class="mt-1.5 flex items-center justify-between gap-2 text-xs text-gray-500"
+              >
+                <span>menor de <code class="font-mono">n</code></span>
+                <input
+                  type="number"
+                  :min="MIN_SMALLEST"
+                  :max="MAX_SMALLEST"
+                  step="1"
+                  class="w-20 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                  :value="smallest"
+                  @change="updateSmallest(Number(($event.target as HTMLInputElement).value))"
+                >
+              </label>
+
               <ClientOnly>
                 <FormaRuleControls
                   v-if="RULED.has(overlay.name) && shown.has(overlay.producer)"

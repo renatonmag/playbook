@@ -31,6 +31,10 @@ Which means each filter answers the direction question its own way:
   two readings demand opposite colours. It is the odd one out in what the direction *means* — the
   other three mark a bar that might turn the move, this one marks a bar that carried it, closing
   clear of the range before it. A `bullish` small overlap is a bull bar, not a candidate bottom.
+- **`smallest-bar`** carries `None`, for the reason `inside-bar` does: it reads amplitude, which
+  has no colour, so it makes no claim about a side. Anything filtering by direction keeps these the
+  way it keeps inside bars — the monitor's bull/bear checkboxes do not reach them, and turning both
+  off still leaves them.
 
 What it costs, stated rather than hidden:
 
@@ -56,18 +60,41 @@ from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..shape import Direction, FormaRule, marks, shape_of
 from ..timeframes import Timeframe
-from .reversal_filters import MarkType, clears, nests, reverses
+from .reversal_filters import MarkType, clears, nests, reverses, smallest
 
 #: Both turns, in the order the marks are emitted in. A tuple rather than the two names written
 #: out at each of the three loops that walk them, so the emitted order is stated once.
 BOTH: tuple[Direction, ...] = ("bullish", "bearish")
 
-#: The readings this Pattern can emit — the three reversal filters plus the one only it asks.
+#: The readings this Pattern can emit — the three reversal filters plus the two only it asks.
 #:
 #: Its own alias rather than a wider `MarkType`, because `MarkType` is what a *leg* can be marked
-#: with and `LegReversalsPattern` cannot produce a `small-overlap`. Widening it there would put a
-#: value in `LegBar['type']`, on the wire and in the web app's types, that no leg ever carries.
-BarMarkType = MarkType | Literal["small-overlap"]
+#: with and `LegReversalsPattern` cannot produce a `small-overlap` or a `smallest-bar`. Widening it
+#: there would put values in `LegBar['type']`, on the wire and in the web app's types, that no leg
+#: ever carries.
+BarMarkType = MarkType | Literal["small-overlap", "smallest-bar"]
+
+
+@dataclass(frozen=True, slots=True)
+class SmallestWindow:
+    """How many bars back the smallest-bar reading looks, wrapped so it can be a Pattern parameter.
+
+    A bare `int` would work everywhere except the one place that matters, and it is the place
+    `PinnedLines` and `ProximityRule` were both written for: `Pattern.producer` renders every
+    parameter, so the number would land in the `ctx` key and move it on every edit. This dial is
+    editable from the monitor — see `routers/patterns.py` — which is what makes that a live cost
+    rather than a hypothetical: the chip, its checkbox and the rule editor under it are all keyed
+    by the producer, and each would reset as the number was typed.
+
+    `__str__` answering a constant is what stops it, and it buys the same cost those two pay, in
+    the same words: the response does not say which window ran, and a client that caches has to
+    fold the number into its own key.
+    """
+
+    bars: int
+
+    def __str__(self) -> str:
+        return "window"
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,8 +113,8 @@ class BarMark(Candle):
 
     type: BarMarkType
     #: The turn this mark is a candidate for — **not** a leg's move, which is the inversion
-    #: `LegReversals.direction` carries. `None` for `inside-bar`, which has no body to have a
-    #: colour and so makes no directional claim at all.
+    #: `LegReversals.direction` carries. `None` for `inside-bar` and `smallest-bar`, which read
+    #: extremes and no body at all and so make no directional claim.
     direction: Direction | None
 
 
@@ -101,7 +128,10 @@ class BarsPattern(Pattern):
 
     `k`, `similarity` and `expansion` stay constructor parameters rather than module constants for
     the reason the pipeline states: they are the dials someone tuning the detector comes looking
-    for. `rule` is the one the browser can edit — see `routers/patterns.py`.
+    for. `rule` and `smallest` are the two the browser can edit — see `routers/patterns.py`. The
+    second one left the pipeline site where the other three stayed because the reading it tunes is
+    read as rows in the Log and judged by changing the number, which is a thing done while looking
+    at the screen rather than while editing the pipeline.
     """
 
     name = "Bars"
@@ -113,6 +143,7 @@ class BarsPattern(Pattern):
         k: float,
         similarity: float,
         expansion: float,
+        smallest: SmallestWindow,
         reads: tuple[Timeframe, ...],
         emits: Timeframe,
     ) -> None:
@@ -121,14 +152,15 @@ class BarsPattern(Pattern):
         self.k = k
         self.similarity = similarity
         self.expansion = expansion
+        self.smallest = smallest
 
     def run(self, ctx: Ctx) -> BaseSeries[BarMark]:
         """One Point per finding, in bar order, grouped by the bar they are about.
 
-        The per-bar emission order is fixed — inside bar, then the small overlap, then the pair,
-        then the rule, each of the last three in `BOTH` — so the Series is sorted by `time` without
-        a sort, and a bar's marks arrive together. Anything reading them in pairs relies on that
-        grouping.
+        The per-bar emission order is fixed — inside bar, then the smallest-of-n, then the small
+        overlap, then the pair, then the rule, the last three in `BOTH` — so the Series is sorted
+        by `time` without a sort, and a bar's marks arrive together. Anything reading them in pairs
+        relies on that grouping.
         """
         bars: BaseSeries[Candle] = ctx[BARS][self.emits]
 
@@ -144,6 +176,11 @@ class BarsPattern(Pattern):
             # below it has something to say about a bar that traded at a single price.
             if nests(history, i, self.emits):
                 points.append(BarMark.anchored(bar, type="inside-bar", direction=None))
+
+            # Above the shape guard for the reason the two around it are: amplitude is `high - low`,
+            # so a bar that traded at a single price has one, and it is the smallest there is.
+            if smallest(history, i, self.smallest.bars, self.emits):
+                points.append(BarMark.anchored(bar, type="smallest-bar", direction=None))
 
             for direction in BOTH:
                 # Above the shape guard for the same reason, and it needs no dedupe: a bull reading

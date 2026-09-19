@@ -146,17 +146,20 @@ export interface BarMark extends PatternPoint {
    * rather than one per pair. `inside-bar` means the previous bar already covered this one's
    * range, both extremes included. `small-overlap` means the bar closed clear of the range of the
    * bar before it: a bull bar above the previous high, a bear bar below the previous low.
+   * `smallest-bar` means the bar covered no more ground than any of the `n` before it, `n` being
+   * the one dial the monitor sets per run beside the rule — a compression reading rather than a
+   * turn candidate, and the only one of the five not drawn on the chart today.
    *
-   * The four are not exclusive: `inside-bar` reads only the extremes, so it lands on bars the
+   * The five are not exclusive: `inside-bar` reads only the extremes, so it lands on bars the
    * others also marked, and the Series then holds one Point per reading.
    */
-  type: 'two-bar' | 'reversal-bar' | 'inside-bar' | 'small-overlap'
+  type: 'two-bar' | 'reversal-bar' | 'inside-bar' | 'small-overlap' | 'smallest-bar'
   /**
    * The turn this mark is a candidate for — a `bearish` mark is a candidate top.
    *
    * Read it outright rather than inverting anything: the mark says which turn it is a candidate
-   * for, not which way the move around it ran. `null` on an `inside-bar`, which reads only the
-   * extremes and makes no directional claim at all.
+   * for, not which way the move around it ran. `null` on an `inside-bar` and on a `smallest-bar`,
+   * which read only the extremes and make no directional claim at all.
    *
    * `small-overlap` is the exception to the sentence above: there the direction is the bar's own
    * colour, so it marks a move that *continued* rather than one that might turn. Read alongside

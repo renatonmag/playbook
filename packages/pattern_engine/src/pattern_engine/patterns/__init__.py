@@ -2,7 +2,7 @@
 
 from .advancing_legs import AdvancingLeg, AdvancingLegsPattern, advancing_legs, trim_tail
 from .bar_gap import BarGap, BarGapPattern, bar_gaps
-from .bars import BarMark, BarsPattern
+from .bars import BarMark, BarsPattern, SmallestWindow
 from .general_direction import GeneralDirection, GeneralDirectionPattern, general_direction
 from .leg_extremes import (
     ExtremeType,
@@ -61,6 +61,7 @@ from .reversal_filters import (
     implied_body_min,
     nests,
     reverses,
+    smallest,
 )
 from .simple_leg import LegMark, PbMark, SimpleLegPattern
 from .trend_lines import LineEnd, TrendLine, TrendLinesPattern, clear, leg_ends, trend_lines
@@ -129,6 +130,7 @@ __all__ = [
     "Side",
     "SidedPivot",
     "SimpleLegPattern",
+    "SmallestWindow",
     "TrendLine",
     "TrendLinesPattern",
     "TrendRelationsPattern",
@@ -167,6 +169,7 @@ __all__ = [
     "retracements",
     "reverses",
     "side_of",
+    "smallest",
     "spans_from",
     "split_leg_windows",
     "split_legs",

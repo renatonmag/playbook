@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 
 from pattern_engine import BaseSeries, Candle, FormaRule, SeriesIdentity
 from pattern_engine.engine import BARS, INSTRUMENT
-from pattern_engine.patterns.bars import BarMark, BarsPattern
+from pattern_engine.patterns.bars import BarMark, BarsPattern, SmallestWindow
 from pattern_engine.patterns.reversal_filters import (
     DEFAULT_EXPANSION,
     DEFAULT_K,
@@ -93,6 +93,21 @@ BEAR_OVER = (114.0, 116.0, 106.0, 108.0)
 #: Bullish, closing *exactly* on `FILLER`'s high. The strictness case.
 TOUCHES = (100.0, 108.0, 98.0, 106.0)
 
+# The smallest-bar fixtures are the one group that does *not* share an amplitude, because the
+# amplitude is the whole of what the filter reads. Every other bar above covers ten points, which
+# would make each of them the smallest of the last anything under a `<=` comparison — so these are
+# named for the ground they cover and used only by the tests that mean it.
+
+#: Amplitude 20. The wide one.
+WIDE = (100.0, 120.0, 100.0, 110.0)
+#: Amplitude 16.
+MIDDLING = (100.0, 116.0, 100.0, 108.0)
+#: Amplitude 12.
+NARROW = (100.0, 112.0, 100.0, 106.0)
+#: Amplitude 8 — smaller than `NARROW`, which is how a test says "far enough back to change the
+#: answer" without changing anything else about the bar.
+TINY = (100.0, 108.0, 100.0, 104.0)
+
 
 def series(
     *specs: tuple[float, float, float, float], start: datetime = OPEN
@@ -119,6 +134,14 @@ def series(
     )
 
 
+#: The smallest-bar reading turned off, which is what a window of one means — see `smallest`.
+#:
+#: The default here rather than a real window, so a test about one of the other four filters is not
+#: quietly padded by a fifth mark on every bar. Almost every fixture above covers ten points, so
+#: with the reading on and ties marked, most of them would be the smallest of the last anything.
+NO_SMALLEST = SmallestWindow(bars=1)
+
+
 def run(
     bars: BaseSeries[Candle],
     *,
@@ -126,6 +149,7 @@ def run(
     k: float = DEFAULT_K,
     similarity: float = DEFAULT_SIMILARITY,
     expansion: float = DEFAULT_EXPANSION,
+    smallest: SmallestWindow = NO_SMALLEST,
 ) -> BaseSeries[BarMark]:
     """Run the Pattern over `bars` alone.
 
@@ -133,7 +157,13 @@ def run(
     to build a zigzag Series and a window Series by hand before it can call anything.
     """
     pattern = BarsPattern(
-        rule=rule, k=k, similarity=similarity, expansion=expansion, reads=("5m",), emits="5m"
+        rule=rule,
+        k=k,
+        similarity=similarity,
+        expansion=expansion,
+        smallest=smallest,
+        reads=("5m",),
+        emits="5m",
     )
     return pattern.run({BARS: {"5m": bars}, INSTRUMENT: "WIN@N"})
 
@@ -330,18 +360,95 @@ def test_bars_nothing_marks_produce_no_points_at_all():
     assert list(run(series(FILLER, RISEN, HIGHER)).points) == []
 
 
-def test_the_producer_key_names_every_dial():
-    pattern = BarsPattern(
+def keyed(*, smallest: SmallestWindow) -> BarsPattern:
+    """A Pattern built for its key alone — the dials at their declared values but for `smallest`."""
+    return BarsPattern(
         rule=RULE_K,
         k=DEFAULT_K,
         similarity=DEFAULT_SIMILARITY,
         expansion=DEFAULT_EXPANSION,
+        smallest=smallest,
         reads=("5m",),
         emits="5m",
     )
 
+
+def test_the_producer_key_names_every_dial():
+    pattern = keyed(smallest=SmallestWindow(bars=10))
+
     assert pattern.producer == (
-        "bars(rule=K,k=1.0,similarity=0.65,expansion=0.9,reads=5m,emits=5m)"
+        "bars(rule=K,k=1.0,similarity=0.65,expansion=0.9,smallest=window,reads=5m,emits=5m)"
     )
     # And it does not collide with the key the Candles themselves live under, which is bare.
     assert pattern.producer != BARS
+
+
+def test_the_key_does_not_move_when_the_smallest_window_does():
+    # The whole reason `SmallestWindow` exists rather than a bare `int`. The browser edits this
+    # number, and every control on the monitor is keyed by the producer — a key that moved would
+    # reset the chip as the number was typed. The cost is in the wrapper's docstring: the response
+    # does not say which window ran.
+    assert keyed(smallest=SmallestWindow(bars=10)).producer == (
+        keyed(smallest=SmallestWindow(bars=200)).producer
+    )
+
+
+def test_a_bar_smaller_than_the_window_behind_it_is_marked_and_the_others_are_not():
+    bars = series(TINY, WIDE, MIDDLING, NARROW)
+    marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
+
+    # Only the last one. `WIDE` is bigger than the `TINY` behind it, `MIDDLING` bigger than both
+    # bars it can see, and `NARROW` smaller than the two in its window — which are `MIDDLING` and
+    # `WIDE`, and pointedly not the `TINY` that a longer window would reach.
+    assert marks == [(3, "smallest-bar", None)]
+
+
+def test_the_window_is_what_decides_it():
+    # The same four bars, asked about one bar further back: `TINY` is now in `NARROW`'s window and
+    # is smaller, so the mark the test above asserts is gone. Nothing else changed.
+    bars = series(TINY, WIDE, MIDDLING, NARROW)
+
+    assert listed(bars, run(bars, smallest=SmallestWindow(bars=4)), "smallest-bar") == []
+
+
+def test_bars_tying_for_the_smallest_are_all_marked():
+    bars = series(WIDE, NARROW, NARROW)
+    marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
+
+    # `<=`, so a tie is a mark. The cost `smallest` states: a flat stretch marks every bar of
+    # itself, and a run of these is a range rather than one quiet bar.
+    assert marks == [(1, "smallest-bar", None), (2, "smallest-bar", None)]
+
+
+def test_the_first_bar_of_the_history_is_the_smallest_of_nothing():
+    # No bar behind it, so there is no window to be smallest of. Answered `False` rather than
+    # `True`, which is the choice `smallest` argues: the alternative marks every session open.
+    bars = series(TINY, WIDE)
+
+    # And the bar after it is wider than it, so the whole history marks nothing.
+    assert listed(bars, run(bars, smallest=SmallestWindow(bars=5)), "smallest-bar") == []
+
+
+def test_the_window_does_not_reach_across_a_session_boundary():
+    # One bar apart to the second, and still not neighbours — the same fixture shape the small
+    # overlap's boundary test uses. Yesterday held a smaller bar; this morning cannot see it, and
+    # the first bar of the session has nothing behind it at all.
+    across = series(TINY, MIDDLING, start=datetime(2026, 8, 12, 23, 50, tzinfo=UTC))
+    after = series(WIDE, NARROW, start=datetime(2026, 8, 13, 0, 0, tzinfo=UTC))
+    whole = BaseSeries(SeriesIdentity(CANDLES, "WIN@N", "5m"), [*across.points, *after.points])
+
+    marks = listed(whole, run(whole, smallest=SmallestWindow(bars=10)), "smallest-bar")
+
+    # Bar 1 covers more ground than the `TINY` behind it. Bar 2 opens the new session and so is
+    # smallest of nothing. Bar 3 sees bar 2 and stops there: 12 under 20 is a mark, reached without
+    # yesterday's 8, which a window ignoring the boundary would have denied it.
+    assert marks == [(3, "smallest-bar", None)]
+
+
+def test_a_bar_with_no_amplitude_is_the_smallest_there_is():
+    bars = series(WIDE, NARROW, FLAT)
+    marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
+
+    # `shape_of` returns None for it and both shape-reading filters skip it, but this one reads
+    # `high` and `low` and a bar that traded at a single price covered no ground at all.
+    assert marks == [(1, "smallest-bar", None), (2, "smallest-bar", None)]

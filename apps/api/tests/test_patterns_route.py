@@ -348,7 +348,52 @@ def test_bars_reports_both_turns(client):
         "reversal-bar",
         "inside-bar",
         "small-overlap",
+        "smallest-bar",
     }
+
+
+def test_the_smallest_bar_window_is_read_and_the_key_stays_put(client):
+    """`sn` reaches the engine, and the producer key is the same whatever it says.
+
+    The second half is the point of `SmallestWindow` and is worth asserting on the wire, where
+    the monitor reads it: every control under the `bars` chip is keyed by the producer, so a key
+    that moved with the number would reset the chip as somebody typed in the field.
+    """
+    declared = client.get("/patterns", params=WINDOW).json()
+    wide = client.get("/patterns", params={**WINDOW, "sn": 50}).json()
+
+    assert BARS in wide["series"]
+    assert wide["series"].keys() == declared["series"].keys()
+
+
+def test_every_bar_of_a_flat_wave_ties_for_smallest(client):
+    """The tie cost, asserted where it shows: `wave()` gives every bar the same amplitude.
+
+    `smallest` compares with `<=`, so on a history of identical bars every one of them is the
+    smallest of the last anything — every one, that is, but the first, which has nothing behind it
+    to be smaller than. A reading of a range rather than of a quiet bar, exactly as the filter's
+    docstring says.
+    """
+    body = client.get("/patterns", params={**WINDOW, "sn": 5}).json()
+    marked = {
+        point["time"] for point in body["series"][BARS]["points"] if point["type"] == "smallest-bar"
+    }
+
+    # `wave()` writes sixty bars and the newest is withheld as the forming one, so fifty-nine were
+    # read — and fifty-eight of them have something behind them to be no bigger than.
+    assert len(marked) == 58
+    assert int(OPEN.timestamp()) not in marked
+
+
+@pytest.mark.parametrize("window", [1, 0, 201])
+def test_an_out_of_range_smallest_window_is_refused(client, window):
+    """422, not 400 — one parameter's range is FastAPI's business, as `limit`'s is.
+
+    A window of one compares nothing and would be a reading that is silently always false, which
+    is the same failure `rule_query` refuses out-of-range thresholds for: nothing downstream
+    raises on it, it simply marks nothing.
+    """
+    assert client.get("/patterns", params={**WINDOW, "sn": window}).status_code == 422
 
 
 def test_a_series_the_rule_does_not_reach_is_unmoved_by_one(client):

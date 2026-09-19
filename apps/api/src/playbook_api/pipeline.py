@@ -61,6 +61,7 @@ from pattern_engine.patterns import (
     ProximityRule,
     RetracementPattern,
     SimpleLegPattern,
+    SmallestWindow,
     TrendLinesPattern,
     TrendRelationsPattern,
     ZigZagPattern,
@@ -95,8 +96,21 @@ RULE_K = FormaRule(
 )
 
 
+#: How far back the smallest-bar reading looks by default.
+#:
+#: Ten, which is `AVERAGE_WINDOW`'s number and deliberately not `AVERAGE_WINDOW` itself: both carry
+#: a sense of "recently" and they are different questions — that one is a mean the pair filter
+#: compares against, this one is a window a bar is ranked inside. Tying them would make a change to
+#: either read as a change to both.
+#:
+#: It is also `build_pipeline`'s default, and the number the route falls back to — see
+#: `routers/patterns.py`.
+DEFAULT_SMALLEST = SmallestWindow(bars=10)
+
+
 def build_pipeline(
     rule: FormaRule = RULE_K,
+    smallest: SmallestWindow = DEFAULT_SMALLEST,
     lines: PinnedLines = NO_LINES,
     trends: PinnedTrends = NO_TRENDS,
     proximity: ProximityRule = NO_PROXIMITY,
@@ -232,13 +246,14 @@ def build_pipeline(
         # It reads the bars alone, so it has no ordering constraint and could sit anywhere below
         # the detectors. `k`, `similarity` and `expansion` are the dials that stay here, at the
         # pipeline site, for the same reason `ahead` and `depth` are: they are what someone
-        # tuning the detector will come looking for. `rule` is the one that left, because the
-        # screen can edit it and only the engine can evaluate it.
+        # tuning the detector will come looking for. `rule` and `smallest` are the two that left,
+        # because the screen can edit them and only the engine can evaluate them.
         BarsPattern(
             rule=rule,
             k=DEFAULT_K,
             similarity=DEFAULT_SIMILARITY,
             expansion=DEFAULT_EXPANSION,
+            smallest=smallest,
             reads=("5m",),
             emits="5m",
         ),

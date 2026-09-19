@@ -97,6 +97,27 @@ is absent from the `GET` costs nothing and is worth saying so plainly — withou
 Series it could move are empty, so a `GET` carrying one would be a parameter that provably changes
 no byte of the response.
 
+**The fourth exception is how far back `smallest-bar` looks**, and it is the Forma rule's argument
+again rather than a fourth kind of thing. `bars` marks a Candle that covered no more ground than
+any of the `n` before it, and the browser *could* count amplitudes — it holds the window's Points
+and every one of them carries its own `high` and `low`. What it does not hold is the history behind
+the window. `smallest` walks backwards through the global bar array and stops at a session
+boundary, so a bar near the start of the window is ranked against the bars before it and not
+against the bars the browser happens to have been sent. Re-deriving it there would judge the
+opening of every window against a truncated past — the verdict-changing slice `reversal_filters`
+refuses in its own docstring, arrived at from the other end.
+
+It rides on the **query string** and not in the body, which needs one sentence rather than an
+argument: it is a single bounded number, so the case that sent the proximity ladder to a body never
+reaches it. One bounded scalar is also why it is declared inline here instead of in a module of its
+own beside `rule_query` — FastAPI's 422 is the whole of its validation, exactly as `limit`'s is.
+
+The same two guards contain it. **It does not change the shape of the pipeline**: `bars` is in the
+tuple on every run and emits this reading whatever the number. **And the producer key does not
+move** — `SmallestWindow.__str__` answers a constant, as `FormaRule.__str__` and
+`PinnedLines.__str__` do, so the key is identical whatever window ran, at the same cost stated
+again: the response does not say which number produced it.
+
 `symbol` and `timeframe` remain absent for the original reason: the pipeline names the Instrument
 and each Pattern declares the Timeframes it reads. The caller chooses the window, and now the rules
 the browser cannot evaluate for itself.
@@ -111,11 +132,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pattern_engine import FormaRule, Pattern, PatternEngine
+from pattern_engine.patterns import SmallestWindow
 from sqlmodel import Session
 
 from ..db import get_session
 from ..lines_body import LinesIn, to_lines, to_proximity, to_trends
-from ..pipeline import PIPELINE, SYMBOL, build_pipeline, timeframes
+from ..pipeline import DEFAULT_SMALLEST, PIPELINE, SYMBOL, build_pipeline, timeframes
 from ..rule_query import rule_override
 from ..schemas.pattern import PatternsOut, SeriesOut
 from ..store.candles import CandleWindowTooLarge, as_series, load_closed_candles
@@ -125,6 +147,25 @@ router = APIRouter()
 
 #: Matches `/candles`, so a window the chart can draw is a window the pipeline can run on.
 DEFAULT_LIMIT = 1000
+
+#: The widest smallest-bar window a caller may ask for. A ceiling on the request rather than on the
+#: arithmetic, which has no upper bound worth naming: past a couple of hundred bars the reading
+#: stops being about a moment and becomes a claim about the session, and a number far above that is
+#: a typo rather than a question. Two is the floor for the reason `smallest` gives — a window of one
+#: compares nothing.
+MAX_SMALLEST = 200
+
+#: The window `smallest-bar` is measured over, on both verbs. Written once because it is one
+#: parameter meaning one thing, and the two handlers already share every other query they take.
+SmallestQuery = Annotated[
+    int,
+    Query(
+        alias="sn",
+        ge=2,
+        le=MAX_SMALLEST,
+        description="How many bars `smallest-bar` ranks a Candle inside",
+    ),
+]
 
 
 def _run(
@@ -208,15 +249,25 @@ def read_patterns(
     start: Annotated[datetime, Query(alias="from", description="Window start, ISO-8601 with offset")],
     end: Annotated[datetime, Query(alias="to", description="Window end, ISO-8601 with offset")],
     limit: Annotated[int, Query(gt=0, description="Ceiling, not a page size")] = DEFAULT_LIMIT,
+    smallest: SmallestQuery = DEFAULT_SMALLEST.bars,
 ) -> PatternsOut:
     """Run every declared Pattern over the window and return the Series they produced.
 
-    Without an override this runs `PIPELINE` itself rather than rebuilding an equal tuple, so
+    With **neither** override this runs `PIPELINE` itself rather than rebuilding an equal tuple, so
     "no rule parameters" and "as before" are the same statement and not two that have to agree.
+    Both have to be absent for that to hold, which is why the test below is on the value and not
+    just on the rule: `sn=10` asks for the declared window by name, and rebuilding the tuple to
+    answer it would be equal to `PIPELINE` and not be it.
     `line-relations` is in that tuple with no lines, and answers an empty Series — the shape of
     the response is the same whichever verb asked.
     """
-    pipeline = PIPELINE if rule is None else build_pipeline(rule)
+    window = SmallestWindow(bars=smallest)
+    if rule is None:
+        # The absent rule is left to `build_pipeline`'s own default rather than named again here,
+        # so `RULE_K` stays written once — the same reason the `POST` below gives.
+        pipeline = PIPELINE if window == DEFAULT_SMALLEST else build_pipeline(smallest=window)
+    else:
+        pipeline = build_pipeline(rule=rule, smallest=window)
 
     return _run(session, pipeline, start, end, limit)
 
@@ -229,6 +280,7 @@ def run_patterns(
     start: Annotated[datetime, Query(alias="from", description="Window start, ISO-8601 with offset")],
     end: Annotated[datetime, Query(alias="to", description="Window end, ISO-8601 with offset")],
     limit: Annotated[int, Query(gt=0, description="Ceiling, not a page size")] = DEFAULT_LIMIT,
+    smallest: SmallestQuery = DEFAULT_SMALLEST.bars,
 ) -> PatternsOut:
     """The same run, for a caller holding lines the server has no way to know about.
 
@@ -247,10 +299,20 @@ def run_patterns(
     `build_pipeline`'s own default rather than named again here, so `RULE_K` stays written once.
     """
     lines, trends, proximity = to_lines(body), to_trends(body), to_proximity(body)
+    # Every argument by keyword, deliberately: `build_pipeline` now takes the smallest-bar window
+    # second, and a positional call here would hand it the lines without a word from anything.
     pipeline = (
-        build_pipeline(lines=lines, trends=trends, proximity=proximity)
+        build_pipeline(
+            smallest=SmallestWindow(bars=smallest), lines=lines, trends=trends, proximity=proximity
+        )
         if rule is None
-        else build_pipeline(rule, lines, trends, proximity)
+        else build_pipeline(
+            rule=rule,
+            smallest=SmallestWindow(bars=smallest),
+            lines=lines,
+            trends=trends,
+            proximity=proximity,
+        )
     )
 
     return _run(session, pipeline, start, end, limit)

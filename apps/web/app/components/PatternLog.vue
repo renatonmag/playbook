@@ -7,10 +7,16 @@
  * neither appears nowhere, which is the normal state of one whose page work has not been done —
  * `line-relations` was exactly that until this component existed.
  *
- * Deliberately fed the **manual** run's response and not `usePatterns`' automatic one. Line
- * relations is about the lines a person pinned, and a `GET` carries no lines, so the only run that
- * can answer it is the `POST` behind `Calcular`. The panel therefore has a real "nothing yet"
- * state, and that is honest rather than a gap: before the click there is no question to answer.
+ * Fed **both** runs, which is a change from when it was written and the reason is the same one it
+ * was written with. Line relations is about the lines a person pinned, and a `GET` carries no
+ * lines, so the only run that can answer it is the `POST` behind `Calcular` — those entries still
+ * appear only after a click, and the panel keeps a real "nothing yet" state for them. `bars` is
+ * the other case: it is in the declared pipeline and answers on every closed bar, so waiting for a
+ * `Calcular` that has nothing to do with it would be a gap rather than an honesty.
+ *
+ * They arrive as two props rather than one merged response because they are two answers about one
+ * window and cannot share a `useFetch` key — the same split `autoOverlays` and `manualOverlays`
+ * keep in `pages/monitor.vue`, meeting here in the picker instead of in the sidebar.
  *
  * The column defs are built from the Points' own keys, not from a column list per Pattern. Every
  * Point on the wire is a flat record of numbers and strings plus, at most, a nested bar — so one
@@ -45,6 +51,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table'
 
 const props = defineProps<{
+  /** The automatic pipeline run, which re-runs on every closed bar. */
+  auto: PatternResponse | null
   /** The last manual pipeline run, or `null` while nobody has asked for one. */
   response: PatternResponse | null
   pending: boolean
@@ -61,7 +69,7 @@ const props = defineProps<{
  * drawn — they are the same rows about different lines. The filter is on the name and the entries
  * are on the key, so admitting one admits both and they stay two things to pick between.
  */
-const LOGGED = new Set(['line-relations', 'line-respect', 'trend-relations'])
+const LOGGED = new Set(['bars', 'line-relations', 'line-respect', 'trend-relations'])
 
 /** Pulled to the front, so a row says which bar it is before it says anything else. */
 const BASE_COLUMNS = ['time']
@@ -101,8 +109,8 @@ const COLUMN_RENAMES: Record<string, { header: string, key: string }> = {
  */
 const features = tableFeatures({ rowSelectionFeature })
 
-const entries = computed(() =>
-  Object.entries(props.response?.series ?? {})
+function logged(response: PatternResponse | null) {
+  return Object.entries(response?.series ?? {})
     .filter(([producer]) => LOGGED.has(producerName(producer)))
     .map(([producer, series]) => ({
       producer,
@@ -110,12 +118,27 @@ const entries = computed(() =>
       // row's tooltip, the same split the sidebar's picker makes.
       label: series.name,
       points: series.points,
-    })),
-)
+    }))
+}
 
 /**
- * The producer on screen. `null` only while there is nothing to pick, which is the pre-`Calcular`
- * state — the watch below never leaves a selection pointing at a Series the response dropped.
+ * Both runs' logged Series, the automatic one first.
+ *
+ * A producer answered by both is taken from the automatic run and not listed twice. That is not a
+ * theoretical case: the manual `POST` runs the *whole* pipeline, so `bars` comes back on it too,
+ * and the two answers are about the same window under the same key. First wins, so the entry a
+ * reader has been looking at does not jump position the moment somebody presses `Calcular`.
+ */
+const entries = computed(() => {
+  const automatic = logged(props.auto)
+  const seen = new Set(automatic.map(entry => entry.producer))
+  return [...automatic, ...logged(props.response).filter(entry => !seen.has(entry.producer))]
+})
+
+/**
+ * The producer on screen. `null` only while there is nothing to pick, which is now only the state
+ * before the first response arrives — the watch below never leaves a selection pointing at a
+ * Series a response dropped.
  */
 const selected = ref<string | null>(null)
 
@@ -184,8 +207,12 @@ const tableState = computed(() => ({ rowSelection: rowSelection.value }))
  *
  * Its own watch, not folded into the one above: that one exists to repair the picker, and a clear
  * fired from it would tie two unrelated jobs to one condition.
+ *
+ * Both responses, since either one is a new array under the producer on screen. The automatic one
+ * lands on every closed bar, so ticks on a `bars` Series are short-lived by design — an index into
+ * an array that has been replaced means nothing, and keeping the boxes ticked would say otherwise.
  */
-watch([selected, () => props.response], () => {
+watch([selected, () => props.auto, () => props.response], () => {
   rowSelection.value = {}
 })
 
@@ -275,17 +302,20 @@ function pick(value: unknown) {
 </script>
 
 <template>
-  <p v-if="pending" class="p-6 text-center text-sm text-gray-500">
+  <!-- Only while there is nothing to read. The automatic run re-fetches on every closed bar, and a
+       panel that blanked for each of those would flash empty under a reader's eyes every five
+       minutes — the rows on screen are still the answer about the window until the new ones land. -->
+  <p v-if="pending && !entries.length" class="p-6 text-center text-sm text-gray-500">
     Calculando…
   </p>
 
-  <div v-else-if="error" class="p-6 text-center text-sm">
+  <div v-else-if="error && !entries.length" class="p-6 text-center text-sm">
     <p class="text-red-600">Não foi possível calcular.</p>
     <p class="mt-1 font-mono text-xs text-gray-500">{{ error }}</p>
   </div>
 
   <p v-else-if="!entries.length" class="p-6 text-center text-sm text-gray-500">
-    Nenhum cálculo ainda — fixe uma linha no gráfico.
+    Nenhuma série para ler ainda.
   </p>
 
   <div v-else>
@@ -307,8 +337,10 @@ function pick(value: unknown) {
       </SelectContent>
     </Select>
 
+    <!-- One reading for an empty Series, whichever it is: a Pattern that found nothing found
+         nothing, and naming the pinned lines here would misdescribe every other entry. -->
     <p v-if="!points.length" class="p-6 text-center text-sm text-gray-500">
-      Nenhuma relação encontrada para as linhas marcadas.
+      Nenhum ponto nesta série.
     </p>
 
     <template v-else>

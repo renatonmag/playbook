@@ -10,22 +10,29 @@ import { ruleKey, toPatternQuery, type Rule } from '~/utils/rule'
  * omission: the pipeline is declared in code on the server, and it names the instrument while
  * each Pattern declares the timeframes it reads.
  *
- * The one thing a caller may compose is `rule` — the Forma rule `bars` applies. It is
- * optional, and omitting it is not the same as passing the pipeline's own numbers: with no rule
- * parameters at all the route runs the very tuple a tick worker would import. Everything else
- * about the pipeline — which Patterns, in what order, at what tuning — stays declared on the
- * server. See the module docstring on `/patterns` for why this single exception exists.
+ * Two things a caller may compose. `rule` is the Forma rule `bars` applies, and `smallest` the
+ * window that Pattern's `smallest-bar` reading ranks a Candle inside. Both are optional, and
+ * omitting them is not the same as passing the pipeline's own numbers: with no parameters at all
+ * the route runs the very tuple a tick worker would import. Everything else about the pipeline —
+ * which Patterns, in what order, at what tuning — stays declared on the server. See the module
+ * docstring on `/patterns` for why these exceptions exist and what contains them.
  */
 export function usePatterns(
   window: MaybeRefOrGetter<Window>,
   windowKey: MaybeRefOrGetter<string>,
   rule?: MaybeRefOrGetter<Rule | null>,
+  smallest?: MaybeRefOrGetter<number | null>,
 ) {
   const { public: { apiBase } } = useRuntimeConfig()
 
   const query = computed(() => {
     const chosen = toValue(rule) ?? null
-    return { ...toValue(window), ...(chosen ? toPatternQuery(chosen) : {}) }
+    const window_ = toValue(smallest) ?? null
+    return {
+      ...toValue(window),
+      ...(chosen ? toPatternQuery(chosen) : {}),
+      ...(window_ === null ? {} : { sn: String(window_) }),
+    }
   })
 
   return useFetch<PatternResponse>('/patterns', {
@@ -40,9 +47,19 @@ export function usePatterns(
     // same producer key whatever rule ran — the override is always named `K` — so a window alone
     // no longer names a response. Keyed by window only, Nuxt would hand back the previous rule's
     // marks and the chart would sit still while the numbers changed.
+    //
+    // The smallest-bar window is in here for exactly that reason and not a second one:
+    // `SmallestWindow.__str__` answers a constant on the server, so its key does not move either,
+    // and the Log would sit still while the number changed.
     key: computed(() => {
       const chosen = toValue(rule) ?? null
-      return `patterns:${toValue(windowKey)}:${chosen ? ruleKey(chosen) : 'declarada'}`
+      const window_ = toValue(smallest) ?? null
+      return [
+        'patterns',
+        toValue(windowKey),
+        chosen ? ruleKey(chosen) : 'declarada',
+        window_ === null ? 'declarada' : String(window_),
+      ].join(':')
     }),
     default: () => ({ series: {}, failed: [] }),
   })
