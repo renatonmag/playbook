@@ -879,6 +879,10 @@ const confirmedOnly = ref(new Set<string>())
  * What "confirmed" means stays each util's own business: `barMarkers` reads the mark's own
  * direction, and a Series reporting the *move* a mark sits at rather than the turn it is a
  * candidate for would have to invert that. Nothing here decides it.
+ *
+ * Membership also decides who is handed `nextBarByTime` at all, and that happens whether or not the
+ * switch is on: `bars` reads the same map to place an inside bar's dot, which is not a filter and
+ * not this set's business. The two travel together because they are the same bar.
  */
 const CONFIRMABLE = new Set(['bars'])
 
@@ -2042,10 +2046,14 @@ function rememberSplit(sizes: number[]) {
 function extraProps(overlay: { producer: string, name: string }) {
   return {
     ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
-    // The confirmation filter: a mark survives only if the next bar broke the way it predicted.
-    // `null` off, which is the drawing the chart had before this switch.
-    ...CONFIRMABLE.has(overlay.name) && confirmedOnly.value.has(overlay.producer)
-      ? { nextByTime: nextBarByTime.value }
+    // The next bar, and the confirmation filter that reads it. The map goes over whether or not
+    // the switch is on, because the overlay reads it for a second thing the switch has no say in —
+    // which side an inside bar's dot sits on. `confirmedOnly` alone is the filter.
+    ...CONFIRMABLE.has(overlay.name)
+      ? {
+          nextByTime: nextBarByTime.value,
+          confirmedOnly: confirmedOnly.value.has(overlay.producer),
+        }
       : {},
     // The second filter axis, and `bar-gap`'s alone — see `STATES`.
     ...overlay.name === 'bar-gap' ? { states: statesFor(overlay.producer) } : {},

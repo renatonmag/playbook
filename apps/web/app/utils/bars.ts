@@ -49,23 +49,47 @@ function confirmed(mark: BarMark, next: { high: number, low: number } | undefine
 }
 
 /**
+ * Which side of the bar a mark's dot sits on.
+ *
+ * A mark with a direction is placed by it and by nothing else: a bear-turn candidate marks a top
+ * and sits above the bar. A `small-overlap` follows the same rule off the same field, which puts a
+ * bear one *above* its bar even though nothing about it is a top. Read that placement as "which
+ * side of the price this mark's direction points at", not as "a candidate turn"; the hue says which
+ * claim is being made.
+ *
+ * An inside bar has no direction of its own, so the bar **after** it decides: the dot goes to the
+ * side that bar did not break, leaving the way out of the range clear rather than sitting in it. A
+ * break of the low alone is the only case that lifts the dot above — a break of the high alone
+ * leaves it below, and so do the two cases where nothing was resolved: no next bar at all (the
+ * newest bar in the window, or the live edge before the following one has opened), and a next bar
+ * that took out both ends. Below is the unresolved reading as well as the broke-the-high one, which
+ * is worth knowing when reading a dot: below says "not taken downward yet", not "taken upward".
+ *
+ * Strict comparisons, the same word `confirmed` uses above: an equal low is not a break.
+ */
+function side(
+  mark: BarMark,
+  next: { high: number, low: number } | undefined,
+): 'aboveBar' | 'belowBar' {
+  if (mark.direction === 'bearish') return 'aboveBar'
+  if (mark.direction !== null || !next) return 'belowBar'
+  const brokeLow = next.low < mark.low
+  const brokeHigh = next.high > mark.high
+  return brokeLow && !brokeHigh ? 'aboveBar' : 'belowBar'
+}
+
+/**
  * The dots the `bars` overlay draws, one per mark, hued by which filter made it.
  *
- * `directions` is the sidebar's bull/bear filter and `nextByTime`, when non-null, the confirmation
- * filter — both here rather than in the overlay for the reason `gapBoxes` and `extremeSegments`
- * are: the sidebar reasons about the same marks, and reading them off a second traversal would be
- * two places deciding what a mark is.
+ * `directions` is the sidebar's bull/bear filter, and `confirmedOnly` the confirmation filter —
+ * both here rather than in the overlay for the reason `gapBoxes` and `extremeSegments` are: the
+ * sidebar reasons about the same marks, and reading them off a second traversal would be two places
+ * deciding what a mark is.
  *
- * The side a dot sits on is read off the mark's own direction: a bear-turn candidate marks a top
- * and sits above the bar. An `inside-bar` has no side to be on and is drawn below, arbitrarily
- * and consistently — the hue is
- * what identifies it, and putting a directionless mark on the direction-free side would just be a
- * third convention to remember.
- *
- * A `small-overlap` follows the same rule off the same field, which puts a bear one *above* its
- * bar even though nothing about it is a top. Read the placement as "which side of the price this
- * mark's direction points at", not as "a candidate turn": one rule for the side, and the hue says
- * which claim is being made.
+ * `nextByTime` is not a filter. It is the bar after each mark, and it is read for two independent
+ * things: whether a directional mark survives `confirmedOnly`, and which side an inside bar's dot
+ * sits on. The second happens whether or not the filter is on, which is why the map arrives
+ * unconditionally and a separate boolean carries the switch — see `side`.
  *
  * Deduped by `time`, `type` and side even though this Pattern visits each bar once and cannot
  * collide: the chart wants times strictly ascending, the sort is needed regardless, and a map that
@@ -75,6 +99,7 @@ export function barMarkers(
   points: BarMark[],
   directions: Turn[],
   nextByTime: ReadonlyMap<number, { high: number, low: number }> | null,
+  confirmedOnly: boolean,
 ): SeriesMarker<Time>[] {
   const seen = new Map<string, SeriesMarker<Time>>()
 
@@ -82,9 +107,11 @@ export function barMarkers(
     // A directionless mark is not filtered by a direction filter. Turning both checkboxes off
     // still leaves the inside bars, which is the honest reading of what the checkboxes ask.
     if (mark.direction !== null && !directions.includes(mark.direction)) continue
-    if (nextByTime && !confirmed(mark, nextByTime.get(mark.time))) continue
 
-    const position = mark.direction === 'bearish' ? 'aboveBar' as const : 'belowBar' as const
+    const next = nextByTime?.get(mark.time)
+    if (confirmedOnly && !confirmed(mark, next)) continue
+
+    const position = side(mark, next)
 
     seen.set(`${mark.time}:${mark.type}:${position}`, {
       time: mark.time as UTCTimestamp,
