@@ -3,6 +3,11 @@
 from .advancing_legs import AdvancingLeg, AdvancingLegsPattern, advancing_legs, trim_tail
 from .bar_gap import BarGap, BarGapPattern, bar_gaps
 from .bars import BarMark, BarsPattern, SmallestWindow
+from .consecutive_direction import (
+    ConsecutiveDirection,
+    ConsecutiveDirectionPattern,
+    consecutive_direction,
+)
 from .general_direction import GeneralDirection, GeneralDirectionPattern, general_direction
 from .leg_extremes import (
     ExtremeType,
@@ -86,6 +91,8 @@ __all__ = [
     "BarGapPattern",
     "BarMark",
     "BarsPattern",
+    "ConsecutiveDirection",
+    "ConsecutiveDirectionPattern",
     "DEFAULT_EXPANSION",
     "DEFAULT_K",
     "DEFAULT_SIMILARITY",
@@ -147,6 +154,7 @@ __all__ = [
     "bar_positions",
     "breaks_out",
     "clear",
+    "consecutive_direction",
     "constantly",
     "dominates",
     "engulfs",

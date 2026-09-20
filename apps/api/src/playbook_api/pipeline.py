@@ -48,6 +48,7 @@ from pattern_engine.patterns import (
     AdvancingLegsPattern,
     BarGapPattern,
     BarsPattern,
+    ConsecutiveDirectionPattern,
     GeneralDirectionPattern,
     LegExtremesPattern,
     LegPattern,
@@ -227,6 +228,16 @@ def build_pipeline(
         # It is here because it answers about the raw bars, like the two detectors above it, and
         # everything below reads a Series rather than the bars.
         BarGapPattern(reads=("5m",), emits="5m"),
+        # And the other thing three adjacent bars can say, on the same terms: three closes the
+        # same way. It answers `general-direction`'s question — which way is this leaning — off
+        # nothing but the bodies in front of it, which is why it sits here beside the other
+        # bars-only Pattern rather than beside the one it argues with. No source, so no ordering
+        # constraint: it reads `ctx["bars"]` and could be declared anywhere in this tuple.
+        #
+        # No dials either. `SPAN` is three because the rule is the three-bar rule, and a run is
+        # reported once, when it reaches three — see the module docstring, which states what that
+        # costs: a run of thirty is indistinguishable here from an exact triple.
+        ConsecutiveDirectionPattern(reads=("5m",), emits="5m"),
         # One slicer per detector, so the comparison the two detectors exist for survives the
         # step from vertices to bars. Both must come after their source: declaration order is
         # run order, and a slicer ahead of its detector reads a key that is not in `ctx` yet.

@@ -12,6 +12,7 @@ import BarsOverlay from '~/components/BarsOverlay.vue'
 import LegExtremesOverlay from '~/components/LegExtremesOverlay.vue'
 import BarGapOverlay from '~/components/BarGapOverlay.vue'
 import GeneralDirectionOverlay from '~/components/GeneralDirectionOverlay.vue'
+import ConsecutiveDirectionOverlay from '~/components/ConsecutiveDirectionOverlay.vue'
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
 import RetracementOverlay from '~/components/RetracementOverlay.vue'
@@ -100,6 +101,10 @@ const OVERLAYS: Record<string, Component> = {
   // Markers-only again, like `bars`, but drawn in the palette colour: a turn of the general
   // direction carries no per-type hue to protect, only a side.
   'general-direction': GeneralDirectionOverlay,
+  // The same two shapes again — arrows on bars, a badge in the corner — for the reading taken off
+  // the bodies rather than off the pivots. Beside its cousin because the pair is meant to be read
+  // as a pair; see the overlay, which places its badge against that one's.
+  'consecutive-direction': ConsecutiveDirectionOverlay,
   'trend-lines': TrendLinesOverlay,
   'line-respect': LineRespectOverlay,
   'retracement': RetracementOverlay,

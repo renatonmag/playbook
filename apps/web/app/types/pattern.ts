@@ -96,6 +96,20 @@ export interface GeneralDirection extends PatternPoint {
 }
 
 /**
+ * The bar on which three consecutive same-side bars completed — the bar-local counterpart to
+ * `GeneralDirection`, and deliberately nothing like it under the hood.
+ *
+ * One Point per run, on the **third** bar, and never a second one however long the run goes on:
+ * a run of thirty reads exactly like an exact triple here. `close === open` is neither side and
+ * breaks the run rather than extending it. No `price`, unlike the Series above: this one is
+ * anchored on a bar and not on a mark, and there is no price three bodies close at.
+ */
+export interface ConsecutiveDirection extends PatternPoint {
+  /** Which way the three bars ran. Never absent — a bar with no side cannot complete a run. */
+  direction: 'bullish' | 'bearish'
+}
+
+/**
  * One leg, where it turned, and the bars that followed it.
  *
  * `bars[0]` is the opening Pivot and `end` indexes the closing one, both inclusive, so the
