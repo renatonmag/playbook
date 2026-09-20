@@ -5,11 +5,11 @@ things it does have nothing to do with the filters and everything to do with the
 inside a `LegWindow` are ever looked at, and each leg is filtered for the single direction it is a
 candidate for — the opposite of its own move.
 
-Neither is a property of the arithmetic. `reverses`, `nests` and `marks` are claims about bars,
-and this Pattern puts them to every bar, for **both** turns. What comes out is a flat Series of
-marks: one Point per finding, anchored on the bar it is about. With no window to index into there
-is nothing for a `LegBar.at` to mean, so the two-level shape of `LegReversals` — a leg holding a
-`found` list — buys nothing here and is not repeated.
+Neither is a property of the arithmetic. `reverses`, `nests`, `engulfs` and `marks` are claims
+about bars, and this Pattern puts them to every bar, for **both** turns. What comes out is a flat
+Series of marks: one Point per finding, anchored on the bar it is about. With no window to index
+into there is nothing for a `LegBar.at` to mean, so the two-level shape of `LegReversals` — a leg
+holding a `found` list — buys nothing here and is not repeated.
 
 **The direction on a mark is the turn it is a candidate for, and nothing else.** This is the one
 place a reader coming from `LegReversals` will trip: that Point's `direction` is the *leg's own
@@ -28,9 +28,15 @@ Which means each filter answers the direction question its own way:
   claim about a direction and is not going to be given one. Anything filtering by direction has
   to decide what to do with these; the monitor keeps them whatever the checkboxes say.
 - **`small-overlap`** carries the colour of the bar itself, and exactly one direction can hold: the
-  two readings demand opposite colours. It is the odd one out in what the direction *means* — the
-  other three mark a bar that might turn the move, this one marks a bar that carried it, closing
-  clear of the range before it. A `bullish` small overlap is a bull bar, not a candidate bottom.
+  two readings demand opposite colours. It is one of the two odd ones out in what the direction
+  *means* — the reversal readings mark a bar that might turn the move, this one marks a bar that
+  carried it, closing clear of the range before it. A `bullish` small overlap is a bull bar, not a
+  candidate bottom.
+- **`outside-bar`** carries the bar's own lean, and is the second reading to mean the direction
+  that way: a `bullish` outside bar is a bull bar. The relation itself is about extremes and holds
+  whatever the body does, so the mark is emitted regardless and `leans` has to answer for every
+  bar that carries one — the colour where there is a body, and otherwise which side of the bar's
+  own midpoint the close sits. `None` only for a flat body closing exactly on it.
 - **`smallest-bar`** carries `None`, for the reason `inside-bar` does: it reads amplitude, which
   has no colour, so it makes no claim about a side. Anything filtering by direction keeps these the
   way it keeps inside bars — the monitor's bull/bear checkboxes do not reach them, and turning both
@@ -46,6 +52,10 @@ What it costs, stated rather than hidden:
 - Bars carrying nothing emit nothing, so a gap in the Series is "no filter marked these", not
   "these were not looked at" — the history is walked whole.
 
+`inside-bar` and `outside-bar` are asked of the same pair and can never both answer yes: the
+first is non-strict and the second strict, so a pair tying on one extreme is inside and not
+outside. See `nests` and `engulfs`, which each state their half of it.
+
 The producer key reads `bars(rule=K,k=1.0,...)`. It cannot collide with `engine.BARS`, the key
 the Candles themselves live under: that one is the bare string `bars`, and a producer key always
 carries its `(params)`.
@@ -60,19 +70,19 @@ from ..pattern import Ctx, Pattern
 from ..series import BaseSeries, SeriesIdentity
 from ..shape import Direction, FormaRule, marks, shape_of
 from ..timeframes import Timeframe
-from .reversal_filters import MarkType, clears, nests, reverses, smallest
+from .reversal_filters import MarkType, clears, engulfs, leans, nests, reverses, smallest
 
 #: Both turns, in the order the marks are emitted in. A tuple rather than the two names written
 #: out at each of the three loops that walk them, so the emitted order is stated once.
 BOTH: tuple[Direction, ...] = ("bullish", "bearish")
 
-#: The readings this Pattern can emit — the three reversal filters plus the two only it asks.
+#: The readings this Pattern can emit — the three reversal filters plus the three only it asks.
 #:
 #: Its own alias rather than a wider `MarkType`, because `MarkType` is what a *leg* can be marked
-#: with and `LegReversalsPattern` cannot produce a `small-overlap` or a `smallest-bar`. Widening it
-#: there would put values in `LegBar['type']`, on the wire and in the web app's types, that no leg
-#: ever carries.
-BarMarkType = MarkType | Literal["small-overlap", "smallest-bar"]
+#: with and `LegReversalsPattern` cannot produce a `small-overlap`, a `smallest-bar` or an
+#: `outside-bar`. Widening it there would put values in `LegBar['type']`, on the wire and in the
+#: web app's types, that no leg ever carries.
+BarMarkType = MarkType | Literal["small-overlap", "smallest-bar", "outside-bar"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +124,8 @@ class BarMark(Candle):
     type: BarMarkType
     #: The turn this mark is a candidate for — **not** a leg's move, which is the inversion
     #: `LegReversals.direction` carries. `None` for `inside-bar` and `smallest-bar`, which read
-    #: extremes and no body at all and so make no directional claim.
+    #: extremes and no body at all and so make no directional claim, and for the one `outside-bar`
+    #: that has no lean to report: a flat body closing exactly on its own midpoint. See `leans`.
     direction: Direction | None
 
 
@@ -157,8 +168,9 @@ class BarsPattern(Pattern):
     def run(self, ctx: Ctx) -> BaseSeries[BarMark]:
         """One Point per finding, in bar order, grouped by the bar they are about.
 
-        The per-bar emission order is fixed — inside bar, then the smallest-of-n, then the small
-        overlap, then the pair, then the rule, the last three in `BOTH` — so the Series is sorted
+        The per-bar emission order is fixed — inside bar, then outside bar, then the smallest-of-n,
+        then the small overlap, then the pair, then the rule, the last three in `BOTH` — so the
+        Series is sorted
         by `time` without a sort, and a bar's marks arrive together. Anything reading them in pairs
         relies on that grouping.
         """
@@ -176,6 +188,13 @@ class BarsPattern(Pattern):
             # below it has something to say about a bar that traded at a single price.
             if nests(history, i, self.emits):
                 points.append(BarMark.anchored(bar, type="inside-bar", direction=None))
+
+            # Beside its mirror, and above the shape guard for the same reason: `engulfs` reads
+            # the two extremes and `leans` reads the body outright, neither through a `Shape`.
+            # The direction here is the bar's own lean, not a turn it is a candidate for — the
+            # `small-overlap` exception, said again because this is the second reading to take it.
+            if engulfs(history, i, self.emits):
+                points.append(BarMark.anchored(bar, type="outside-bar", direction=leans(bar)))
 
             # Above the shape guard for the reason the two around it are: amplitude is `high - low`,
             # so a bar that traded at a single price has one, and it is the smallest there is.

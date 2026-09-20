@@ -3,7 +3,9 @@
 The arithmetic itself is tested in `test_leg_reversals.py`, where it was written and where a leg
 gives a direction something to mean. What is tested here is only what changes when the leg is
 taken away: that both turns are asked of every bar, that each mark says which turn it is for, and
-that the one filter with no direction to give says so rather than borrowing one.
+that the filters with no turn to name say so rather than borrowing one — `inside-bar` and
+`smallest-bar` by carrying nothing, `small-overlap` and `outside-bar` by carrying the bar's own
+lean instead.
 
 The fixtures are restated rather than imported from that module. They are the same bars, but the
 comments on them are not the same comments — there, one is read for the side its leg is a
@@ -93,6 +95,31 @@ BEAR_OVER = (114.0, 116.0, 106.0, 108.0)
 #: Bullish, closing *exactly* on `FILLER`'s high. The strictness case.
 TOUCHES = (100.0, 108.0, 98.0, 106.0)
 
+# The outside-bar fixtures all cover `FILLER` — over its 106 and under its 96 — and differ only in
+# what their bodies do, which is the whole of what the direction on the mark reads. None of them
+# closes clear of `FILLER`'s range, so nothing here is a small overlap by accident; `OUTSIDE_CLEAR`
+# is the one that deliberately is.
+
+#: Bullish, 108 over `FILLER`'s high and 94 under its low. The plain outside bar.
+OUTSIDE_UP = (99.0, 108.0, 94.0, 105.0)
+#: The mirror: the same range, closing bearish.
+OUTSIDE_DOWN = (105.0, 108.0, 94.0, 99.0)
+#: The same range with no body at all, closing three over its own midpoint of 101. `leans` has no
+#: colour to read and falls back to where in the bar the close sits.
+OUTSIDE_FLAT_HIGH = (104.0, 108.0, 94.0, 104.0)
+#: The mirror of that: flat, three under the midpoint.
+OUTSIDE_FLAT_LOW = (98.0, 108.0, 94.0, 98.0)
+#: Flat *on* the midpoint. The one outside bar with no lean to report.
+OUTSIDE_FLAT_MID = (101.0, 108.0, 94.0, 101.0)
+#: Over `FILLER`'s high and not under its low — 97 against its 96. Covered more ground than the
+#: bar before it without covering it.
+ONE_SIDE = (99.0, 108.0, 97.0, 105.0)
+#: `FILLER`'s high exactly, its low comfortably inside. Neither strictness case is a break, and
+#: this one is contained instead.
+TIED = (99.0, 106.0, 97.0, 103.0)
+#: Outside `FILLER` and closing four points over its high — the bar that carries two readings.
+OUTSIDE_CLEAR = (95.0, 112.0, 94.0, 110.0)
+
 # The smallest-bar fixtures are the one group that does *not* share an amplitude, because the
 # amplitude is the whole of what the filter reads. Every other bar above covers ten points, which
 # would make each of them the smallest of the last anything under a `<=` comparison — so these are
@@ -177,8 +204,8 @@ def listed(
     which is exactly what having no window to index into means. The tests still want to say "the
     third bar", so the lookup lives here instead of in the Point.
 
-    `type` narrows to one filter, because the three are a union over the same bars and each test is
-    about one of them. `inside-bar` in particular fires on any repeated fixture bar — a bar with
+    `type` narrows to one filter, because the readings are a union over the same bars and each test
+    is about one of them. `inside-bar` in particular fires on any repeated fixture bar — a bar with
     the same extremes as the one before it *is* inside it — and padding a fixture with copies of
     `FILLER` would otherwise make every test an inside-bar test.
     """
@@ -268,6 +295,78 @@ def test_one_bar_carries_a_containment_mark_and_a_shape_mark_at_once():
     # Two findings about one bar, in the module's declared per-bar order: containment first, then
     # the rule. Nothing downstream may key a mark on `time` alone.
     assert marks == [(2, "inside-bar", None), (2, "reversal-bar", "bullish")]
+
+
+def test_an_outside_bar_carries_the_bar_s_own_lean():
+    # Bull first, bear second, in one history — the same "both turns in one Series" claim the pair
+    # filter makes, except here the direction is not a turn at all. A `bullish` outside bar is a
+    # bull bar that swallowed its predecessor, not a candidate bottom.
+    bars = series(FILLER, OUTSIDE_UP, FILLER, OUTSIDE_DOWN)
+    marks = listed(bars, run(bars), "outside-bar")
+
+    assert marks == [(1, "outside-bar", "bullish"), (3, "outside-bar", "bearish")]
+
+
+def test_a_bar_breaking_only_one_extreme_is_not_an_outside_bar():
+    # Above the high and not under the low. It covered more ground than the bar before it and
+    # still did not cover *it*, which is the whole of what the reading claims.
+    bars = series(FILLER, ONE_SIDE)
+
+    assert listed(bars, run(bars), "outside-bar") == []
+
+
+def test_an_equal_extreme_is_a_containment_and_never_a_break():
+    """Where the two conventions meet: the same pair, asked both ways, answers once.
+
+    `nests` is not strict and `engulfs` is, so a bar tying on one extreme is inside its predecessor
+    and has broken nothing. The flip is what keeps the mirror readings from both marking one bar.
+    """
+    bars = series(FILLER, TIED)
+    marks = listed(bars, run(bars))
+
+    assert marks == [(1, "inside-bar", None)]
+
+
+def test_a_flat_body_is_read_from_the_middle_of_its_own_range():
+    # No body to take a colour from, and the mark is emitted anyway — the relation is about
+    # extremes. Where the close sits in the bar's own range is what is left to read, and the two
+    # fixtures differ in nothing else.
+    above = series(FILLER, OUTSIDE_FLAT_HIGH)
+    below = series(FILLER, OUTSIDE_FLAT_LOW)
+
+    assert listed(above, run(above), "outside-bar") == [(1, "outside-bar", "bullish")]
+    assert listed(below, run(below), "outside-bar") == [(1, "outside-bar", "bearish")]
+
+
+def test_a_flat_body_closing_exactly_at_the_middle_leans_nowhere():
+    # The one outside bar with no direction to give. `None` here means "no lean", which is not the
+    # `None` an inside bar carries — that one makes no directional claim at all.
+    bars = series(FILLER, OUTSIDE_FLAT_MID)
+
+    assert listed(bars, run(bars), "outside-bar") == [(1, "outside-bar", None)]
+
+
+def test_an_outside_bar_does_not_reach_across_a_session_boundary():
+    # One interval apart to the second, and still not neighbours. Yesterday's last bar is not the
+    # bar this one swallowed — the same guard containment and overlap both keep.
+    across = series(FILLER, start=datetime(2026, 8, 12, 23, 55, tzinfo=UTC))
+    after = series(OUTSIDE_UP, start=datetime(2026, 8, 13, 0, 0, tzinfo=UTC))
+    whole = BaseSeries(SeriesIdentity(CANDLES, "WIN@N", "5m"), [*across.points, *after.points])
+
+    assert listed(whole, run(whole), "outside-bar") == []
+
+
+def test_one_bar_carries_an_outside_mark_and_an_overlap_mark_at_once():
+    bars = series(BULL, FILLER, OUTSIDE_CLEAR)
+    marks = listed(bars, run(bars))
+
+    # It swallowed the bar before it *and* closed clear above it, so both readings hold — in the
+    # module's declared per-bar order, the outside bar ahead of the small overlap. Both say
+    # `bullish`, and both mean the bar's own colour rather than a turn.
+    assert marks == [
+        (2, "outside-bar", "bullish"),
+        (2, "small-overlap", "bullish"),
+    ]
 
 
 def test_a_bull_bar_closing_over_the_previous_high_is_a_small_overlap():

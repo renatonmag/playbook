@@ -349,6 +349,7 @@ def test_bars_reports_both_turns(client):
         "inside-bar",
         "small-overlap",
         "smallest-bar",
+        "outside-bar",
     }
 
 

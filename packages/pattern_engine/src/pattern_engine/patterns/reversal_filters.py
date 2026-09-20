@@ -1,14 +1,14 @@
 """The reversal filters themselves — the arithmetic, with no leg and no Series in sight.
 
-Four claims a bar can carry, extracted here because two Patterns now ask them different
+Five claims a bar can carry, extracted here because two Patterns now ask them different
 questions: `LegReversalsPattern` asks them of the bars of one leg, filtered for the one turn that
 leg is a candidate for, and `BarsPattern` asks them of every bar in the history, for both turns.
 The rules are identical in the two — they are statements about *bars* — and leaving them in
 `leg_reversals` would have made the leg-agnostic Pattern import the leg one to borrow arithmetic
 that was never about legs.
 
-The last two are asked by `BarsPattern` alone. They live here anyway, because what this module is
-is the one place bar arithmetic is written — not "the filters `leg_reversals` happens to need".
+The last three are asked by `BarsPattern` alone. They live here anyway, because what this module
+is is the one place bar arithmetic is written — not "the filters `leg_reversals` happens to need".
 
 - **The two-bar reversal** — `reverses`. Two adjacent Candles, each with a body dominating its own
   shadows, in opposite colours, of comparable size, and large for the moment they happened in.
@@ -16,6 +16,9 @@ is the one place bar arithmetic is written — not "the filters `leg_reversals` 
 - **The Forma rule** — not here: it is `marks` in `shape.py`, which needs no history at all.
 - **The inside bar** — `nests`. One Candle whose range its predecessor already covered, both
   extremes included.
+- **The outside bar** — `engulfs`. The same relation read the other way: one Candle that covered
+  its predecessor's range, both extremes strictly broken. The flipped strictness is what keeps it
+  and `nests` from ever both answering yes about one pair — see either docstring.
 - **The small overlap** — `clears`. One Candle that closed clear of its predecessor's range: a bull
   bar above the previous high, a bear bar below the previous low. Not a reversal filter at all —
   it marks a bar that *continued*, not one that might turn — which is why only `BarsPattern`, whose
@@ -35,6 +38,10 @@ average — a different verdict from the bench, for no reason but the slicing. T
 nothing to read on one. `nests` does: it reads `high` and `low`, and a bar that traded at one
 price sits inside whatever preceded it, truthfully. Callers must keep that ordering — see
 `marked_bars` and `BarsPattern.run`, which both mark the inside bar above the shape guard.
+
+`leans` is the odd one out here: not a claim about a bar at all, but the answer to "which way
+did it lean" that `engulfs` needs and cannot get from a `Shape`. It sits beside the filters
+because it is bar arithmetic, and this is where bar arithmetic is written.
 
 The arithmetic here exists twice, once in TypeScript, with nothing comparing them. The defence is
 `/verify` next to `/two-bar-reversal`, read by a person.
@@ -250,6 +257,72 @@ def nests(bars: Sequence[Candle], i: int, timeframe: Timeframe) -> bool:
         return False
 
     return previous.high >= current.high and previous.low <= current.low
+
+
+def engulfs(bars: Sequence[Candle], i: int, timeframe: Timeframe) -> bool:
+    """Whether `bars[i]` is an outside bar — its range covering the bar before it.
+
+    `nests` read the other way round: there the predecessor covers this bar, here this bar covers
+    the predecessor. Same two numbers, same silence about colour — an outside bar is a fact about
+    extremes, and what its body then says is `leans`' question, asked separately by the caller.
+
+    The comparisons are **strict**, the opposite convention to `nests`, and the flip is the whole
+    reason the two can be asked of the same pair without ever both answering yes. There, an equal
+    high is a high that was not exceeded, which is containment; here the claim *is* that the high
+    was exceeded, and a bar sharing one extreme exceeded nothing. So a pair that ties on one end is
+    inside, not outside, and a pair that ties on both is inside twice over. This is the convention
+    `SimpleLegPattern._engulfs` already uses for the same relation.
+
+    Takes the array and an index rather than two Candles, matching `nests`, because the pair has to
+    be found in the history to be checked for adjacency at all.
+    """
+    if i <= 0:
+        return False
+
+    previous, current = bars[i - 1], bars[i]
+
+    # Yesterday's last bar is not "the bar before" this one in any sense that makes covering it
+    # mean something. Same guard `nests` keeps, and for the same reason: the overnight gap would
+    # hand the reading a good share of every session's first bars.
+    if not adjacent(previous, current, timeframe):
+        return False
+
+    return current.high > previous.high and current.low < previous.low
+
+
+def leans(candle: Candle) -> Direction | None:
+    """Which way the Candle leaned — its body's colour, or where in its range it closed.
+
+    The colour first: a close above the open is bull, below it is bear. That is the whole of the
+    question for all but a handful of bars, and it is `Shape.bear` read as a `Direction`.
+
+    The fallback is what this function exists for. `clears` can afford to mark a bodyless bar for
+    neither turn, because the claim it makes *is* about the colour. `engulfs` cannot: the bar
+    covered its predecessor whatever its body did, so the mark is emitted regardless and something
+    has to be said about its direction. A bar that opened and closed at one price still leaned
+    somewhere — it spent the bar being pushed one way and gave it all back, or it did not — and
+    where the close sits in the bar's own range is the next best claim available. Above the
+    midpoint is bull, below it is bear.
+
+    `None` is left for the one bar that has no lean either: a flat body closing exactly on its own
+    midpoint. A Candle with no amplitude at all lands there by identity, which is right — and it
+    cannot be an outside bar anyway, since covering a range strictly takes one.
+
+    Deliberately not a `Shape` method. `shape_of` answers `None` for a zero-amplitude Candle and
+    has no fallback to offer, and putting the midpoint rule on `Shape` would make every reader of
+    `bear` wonder which of the two they were getting.
+    """
+    if candle.close > candle.open:
+        return "bullish"
+    if candle.close < candle.open:
+        return "bearish"
+
+    midpoint = (candle.high + candle.low) / 2
+    if candle.close > midpoint:
+        return "bullish"
+    if candle.close < midpoint:
+        return "bearish"
+    return None
 
 
 def clears(bars: Sequence[Candle], i: int, direction: Direction, timeframe: Timeframe) -> bool:
