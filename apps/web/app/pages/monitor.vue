@@ -2,9 +2,10 @@
 import type { Component } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
-import { producerName, type BarGap, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
+import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import { toProximityBody } from '~/utils/proximity'
+import { reading } from '~/utils/reading'
 import type { Ruler } from '~/utils/ruler'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
@@ -480,6 +481,26 @@ function listed(response: PatternResponse | null, keep: (name: string) => boolea
     // After the `map`, so the palette is still handed out in the response's order: a Series keeps
     // its colour whether or not an undrawable one came before it.
     .filter(overlay => overlay.component)
+}
+
+/**
+ * One Series' Points out of a response, by the producer's class part.
+ *
+ * `listed()` above cannot serve this, and the reason is worth keeping: it drops every producer
+ * with no entry in `OVERLAYS`, which is the right rule for a list of things to draw and the wrong
+ * one for a read. `leg-breaks` draws nothing by design — it is a Log Series — so it is exactly the
+ * kind of Pattern that never appears there and is still worth reading.
+ *
+ * The first match wins. Two Series of one class at different parameters would make that a
+ * coin-toss; nothing in `pipeline.py` declares a second `bars` or a second `leg-breaks`, and the
+ * day one does this needs the full producer key rather than a better tie-break.
+ *
+ * The caller names the Point type, as with `listed`: a response holds every Pattern's shape and
+ * only the reader knows which one this producer emits.
+ */
+function seriesPoints<TPoint extends PatternPoint>(response: PatternResponse | null, name: string): TPoint[] {
+  const found = Object.entries(response?.series ?? {}).find(([producer]) => producerName(producer) === name)
+  return (found?.[1].points ?? []) as TPoint[]
 }
 
 /** Everything the automatic `GET` answered, less the Series only a body can fill. See `MANUAL`. */
@@ -2084,6 +2105,62 @@ const lastBarLabel = computed(() => {
 })
 
 /**
+ * That same bar as a **time**, which is what a Point can be matched against.
+ *
+ * `lastBarLabel`'s rule and not a second one — the run reached the bar before the feed's newest,
+ * because `/patterns` withholds the one still being rewritten. It arrives at it the other way
+ * round, though, and deliberately: by *position* in the history rather than by subtracting a bar
+ * length. A label only has to read right; a key has to exist. Bar times are not evenly spaced — a
+ * weekend, an overnight and a session's close all sit between two adjacent bars (`useReplay.step`
+ * makes the same argument) — so `time - SECONDS` names a bar that is often not there, and a
+ * lookup on it silently finds nothing.
+ *
+ * Read through the replay's view, so a cut moves it. Standing on the feed's newest bar — live, or
+ * a replay cut there — means the run ended one behind it; an older cut already ends on a closed
+ * bar, since the route's bounds are inclusive and nothing newer than the cut was asked for.
+ *
+ * The cost, stated: a window whose `to` is in the past has no forming bar at its edge, and this
+ * still steps back one. `lastBarLabel` makes exactly that claim already, and the monitor is a
+ * live surface — the case to get right is the one at the live edge.
+ */
+const lastClosedTime = computed<number | null>(() => {
+  const shown = replay.shown.value
+  const last = shown.at(-1)
+  if (!last) return null
+  return last.time === mergedBars.value.at(-1)?.time ? shown.at(-2)?.time ?? null : last.time
+})
+
+/**
+ * The leg the panel talks about: the newest `leg-breaks` Point, whatever bar it sits on.
+ *
+ * Not the Point at `lastClosedTime`, and that is the one thing to understand about this pair.
+ * `leg-breaks` anchors on the bar where a leg *reached* its extreme, so a Point at the newest bar
+ * is the exception rather than the rule — matching on time would leave this blank nearly always.
+ * The last Point is the leg the market is in: while one is forming it is flagged `provisional`,
+ * and it is the same leg either way.
+ */
+const currentLeg = computed<LegBreak | null>(() =>
+  seriesPoints<LegBreak>(patterns.value, 'leg-breaks').at(-1) ?? null,
+)
+
+/**
+ * And every reading `bars` made on the bar that just closed.
+ *
+ * A filter rather than a lookup, because `time` does not name one mark: the filters are a union
+ * and the Forma rule can match a bar for both turns, so several marks share a bar and all of them
+ * are true of it. Emission order is kept — it is the Pattern's own, and it is what puts the
+ * range readings before the turn candidates in the sentence.
+ */
+const currentMarks = computed<BarMark[]>(() => {
+  const at = lastClosedTime.value
+  if (at === null) return []
+  return seriesPoints<BarMark>(patterns.value, 'bars').filter(mark => mark.time === at)
+})
+
+/** The sentence itself. `null` when neither half has anything to say — see `utils/reading`. */
+const currentReading = computed(() => reading(currentLeg.value, currentMarks.value))
+
+/**
  * The splitter between the chart and the Log, in the pixels its two constants are written in.
  *
  * `reka-ui` lays panels out in percentages, so every height here has to be divided by the box the
@@ -3490,7 +3567,10 @@ function isVisible(overlay: { producer: string }) {
         @resize="(width: number, height: number) => panel.remember({ width, height })"
         @toggle="panel.remember({ collapsed: !panel.state.collapsed })"
       >
-        <p class="text-sm text-gray-500">Nada aqui ainda.</p>
+        <!-- The leg in progress and the bar that just closed, in one sentence. A panel with
+             nothing to say keeps its placeholder rather than showing a sentence of gaps. -->
+        <p v-if="currentReading" class="text-sm leading-relaxed text-gray-700">{{ currentReading }}</p>
+        <p v-else class="text-sm text-gray-500">Nada aqui ainda.</p>
       </FloatingPanel>
     </ClientOnly>
   </main>

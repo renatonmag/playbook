@@ -67,6 +67,19 @@ export const BAR_MARK_LABELS: Record<MarkType, string> = {
 export type Turn = Exclude<BarMark['direction'], null>
 
 /**
+ * How a mark's direction is named in prose. UI copy, so Portuguese.
+ *
+ * Here rather than beside the one sentence that reads it, for `BAR_MARK_LABELS`' reason: the word
+ * a direction is called is a fact about these marks, and it is already written out by hand in
+ * `AdvancingLegsVerify`. Typed on `Turn`, so the directionless marks cannot be looked up in it at
+ * all — their absence is the point, not an omission.
+ */
+export const TURN_LABELS: Record<Turn, string> = {
+  bullish: 'alta',
+  bearish: 'baixa',
+}
+
+/**
  * Whether a mark's next bar confirmed the turn the mark is a candidate for.
  *
  * Read off the mark's own direction, which is the turn it is a candidate for: a `bullish` mark is
