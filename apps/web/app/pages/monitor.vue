@@ -1547,6 +1547,18 @@ const replayX = ref<number | null>(null)
 const replayY = ref<number | null>(null)
 
 /**
+ * The floating panel's box, and the one piece of chart furniture that outlives the session.
+ *
+ * Stored when the two bars above are not, because it is a different kind of thing: they come up
+ * with a selection or a replay and go with it, so a position kept from last week would be a
+ * position nobody chose for the state they came back to. The panel is always there — it is the
+ * reader's own corner of the page, and asking them to re-arrange it on every visit is the kind of
+ * small tax that makes a surface feel unfinished. The reasoning about the record is in the
+ * composable; what belongs here is why this one is written down and those two are not.
+ */
+const panel = useStoredPanel()
+
+/**
  * What the chart draws: the fetched window as it came, or the replay's truncation of the history.
  *
  * Not `mergedBars` in both cases, and that is the whole of why this is a computed rather than one
@@ -3458,6 +3470,29 @@ function isVisible(overlay: { producer: string }) {
         </div>
       </aside>
     </div>
+
+    <!-- Outside the chart column, and outside the splitter with it: this is framed by the viewport
+         rather than by the chart's box, which is what separates it from the two bars that float
+         inside the pane. `ClientOnly` because it teleports to `body`, and there is no `body` to
+         teleport into while the page is being rendered on the server.
+
+         Held back until the stored box has been looked for, so it appears where the reader left it
+         instead of appearing at the default corner and then jumping to theirs. -->
+    <ClientOnly>
+      <FloatingPanel
+        v-if="panel.ready.value"
+        :x="panel.state.x"
+        :y="panel.state.y"
+        :width="panel.state.width"
+        :height="panel.state.height"
+        :collapsed="panel.state.collapsed"
+        @move="(x: number, y: number) => panel.remember({ x, y })"
+        @resize="(width: number, height: number) => panel.remember({ width, height })"
+        @toggle="panel.remember({ collapsed: !panel.state.collapsed })"
+      >
+        <p class="text-sm text-gray-500">Nada aqui ainda.</p>
+      </FloatingPanel>
+    </ClientOnly>
   </main>
 </template>
 
