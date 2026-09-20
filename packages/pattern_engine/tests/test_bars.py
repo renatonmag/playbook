@@ -492,14 +492,16 @@ def test_the_key_does_not_move_when_the_smallest_window_does():
     )
 
 
-def test_a_bar_smaller_than_the_window_behind_it_is_marked_and_the_others_are_not():
-    bars = series(TINY, WIDE, MIDDLING, NARROW)
-    marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
-
-    # Only the last one. `WIDE` is bigger than the `TINY` behind it, `MIDDLING` bigger than both
-    # bars it can see, and `NARROW` smaller than the two in its window — which are `MIDDLING` and
-    # `WIDE`, and pointedly not the `TINY` that a longer window would reach.
-    assert marks == [(3, "smallest-bar", None)]
+# Commented out with the `smallest-bar` reading itself, in `BarsPattern.run`: the guard is
+# still there in the source and so is this, and the two come back together.
+# def test_a_bar_smaller_than_the_window_behind_it_is_marked_and_the_others_are_not():
+#     bars = series(TINY, WIDE, MIDDLING, NARROW)
+#     marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
+#
+#     # Only the last one. `WIDE` is bigger than the `TINY` behind it, `MIDDLING` bigger than both
+#     # bars it can see, and `NARROW` smaller than the two in its window — which are `MIDDLING` and
+#     # `WIDE`, and pointedly not the `TINY` that a longer window would reach.
+#     assert marks == [(3, "smallest-bar", None)]
 
 
 def test_the_window_is_what_decides_it():
@@ -510,13 +512,15 @@ def test_the_window_is_what_decides_it():
     assert listed(bars, run(bars, smallest=SmallestWindow(bars=4)), "smallest-bar") == []
 
 
-def test_bars_tying_for_the_smallest_are_all_marked():
-    bars = series(WIDE, NARROW, NARROW)
-    marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
-
-    # `<=`, so a tie is a mark. The cost `smallest` states: a flat stretch marks every bar of
-    # itself, and a run of these is a range rather than one quiet bar.
-    assert marks == [(1, "smallest-bar", None), (2, "smallest-bar", None)]
+# Commented out with the `smallest-bar` reading itself, in `BarsPattern.run`: the guard is
+# still there in the source and so is this, and the two come back together.
+# def test_bars_tying_for_the_smallest_are_all_marked():
+#     bars = series(WIDE, NARROW, NARROW)
+#     marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
+#
+#     # `<=`, so a tie is a mark. The cost `smallest` states: a flat stretch marks every bar of
+#     # itself, and a run of these is a range rather than one quiet bar.
+#     assert marks == [(1, "smallest-bar", None), (2, "smallest-bar", None)]
 
 
 def test_the_first_bar_of_the_history_is_the_smallest_of_nothing():
@@ -528,26 +532,31 @@ def test_the_first_bar_of_the_history_is_the_smallest_of_nothing():
     assert listed(bars, run(bars, smallest=SmallestWindow(bars=5)), "smallest-bar") == []
 
 
-def test_the_window_does_not_reach_across_a_session_boundary():
-    # One bar apart to the second, and still not neighbours — the same fixture shape the small
-    # overlap's boundary test uses. Yesterday held a smaller bar; this morning cannot see it, and
-    # the first bar of the session has nothing behind it at all.
-    across = series(TINY, MIDDLING, start=datetime(2026, 8, 12, 23, 50, tzinfo=UTC))
-    after = series(WIDE, NARROW, start=datetime(2026, 8, 13, 0, 0, tzinfo=UTC))
-    whole = BaseSeries(SeriesIdentity(CANDLES, "WIN@N", "5m"), [*across.points, *after.points])
+# Commented out with the `smallest-bar` reading itself, in `BarsPattern.run`: the guard is
+# still there in the source and so is this, and the two come back together.
+# def test_the_window_does_not_reach_across_a_session_boundary():
+#     # One bar apart to the second, and still not neighbours — the same fixture shape the small
+#     # overlap's boundary test uses. Yesterday held a smaller bar; this morning cannot see it, and
+#     # the first bar of the session has nothing behind it at all.
+#     across = series(TINY, MIDDLING, start=datetime(2026, 8, 12, 23, 50, tzinfo=UTC))
+#     after = series(WIDE, NARROW, start=datetime(2026, 8, 13, 0, 0, tzinfo=UTC))
+#     whole = BaseSeries(SeriesIdentity(CANDLES, "WIN@N", "5m"), [*across.points, *after.points])
+#
+#     marks = listed(whole, run(whole, smallest=SmallestWindow(bars=10)), "smallest-bar")
+#
+#     # Bar 1 covers more ground than the `TINY` behind it. Bar 2 opens the new session and so is
+#     # smallest of nothing. Bar 3 sees bar 2 and stops there: 12 under 20 is a mark, reached without
+#     # yesterday's 8, which a window ignoring the boundary would have denied it.
+#     assert marks == [(3, "smallest-bar", None)]
 
-    marks = listed(whole, run(whole, smallest=SmallestWindow(bars=10)), "smallest-bar")
 
-    # Bar 1 covers more ground than the `TINY` behind it. Bar 2 opens the new session and so is
-    # smallest of nothing. Bar 3 sees bar 2 and stops there: 12 under 20 is a mark, reached without
-    # yesterday's 8, which a window ignoring the boundary would have denied it.
-    assert marks == [(3, "smallest-bar", None)]
+# Commented out with the `smallest-bar` reading itself, in `BarsPattern.run`: the guard is
+# still there in the source and so is this, and the two come back together.
+# def test_a_bar_with_no_amplitude_is_the_smallest_there_is():
+#     bars = series(WIDE, NARROW, FLAT)
+#     marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
+#
+#     # `shape_of` returns None for it and both shape-reading filters skip it, but this one reads
+#     # `high` and `low` and a bar that traded at a single price covered no ground at all.
+#     assert marks == [(1, "smallest-bar", None), (2, "smallest-bar", None)]
 
-
-def test_a_bar_with_no_amplitude_is_the_smallest_there_is():
-    bars = series(WIDE, NARROW, FLAT)
-    marks = listed(bars, run(bars, smallest=SmallestWindow(bars=3)), "smallest-bar")
-
-    # `shape_of` returns None for it and both shape-reading filters skip it, but this one reads
-    # `high` and `low` and a bar that traded at a single price covered no ground at all.
-    assert marks == [(1, "smallest-bar", None), (2, "smallest-bar", None)]

@@ -198,8 +198,8 @@ class BarsPattern(Pattern):
 
             # Above the shape guard for the reason the two around it are: amplitude is `high - low`,
             # so a bar that traded at a single price has one, and it is the smallest there is.
-            if smallest(history, i, self.smallest.bars, self.emits):
-                points.append(BarMark.anchored(bar, type="smallest-bar", direction=None))
+            # if smallest(history, i, self.smallest.bars, self.emits):
+            #     points.append(BarMark.anchored(bar, type="smallest-bar", direction=None))
 
             for direction in BOTH:
                 # Above the shape guard for the same reason, and it needs no dedupe: a bull reading

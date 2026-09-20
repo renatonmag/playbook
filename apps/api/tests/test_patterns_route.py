@@ -367,23 +367,25 @@ def test_the_smallest_bar_window_is_read_and_the_key_stays_put(client):
     assert wide["series"].keys() == declared["series"].keys()
 
 
-def test_every_bar_of_a_flat_wave_ties_for_smallest(client):
-    """The tie cost, asserted where it shows: `wave()` gives every bar the same amplitude.
-
-    `smallest` compares with `<=`, so on a history of identical bars every one of them is the
-    smallest of the last anything — every one, that is, but the first, which has nothing behind it
-    to be smaller than. A reading of a range rather than of a quiet bar, exactly as the filter's
-    docstring says.
-    """
-    body = client.get("/patterns", params={**WINDOW, "sn": 5}).json()
-    marked = {
-        point["time"] for point in body["series"][BARS]["points"] if point["type"] == "smallest-bar"
-    }
-
-    # `wave()` writes sixty bars and the newest is withheld as the forming one, so fifty-nine were
-    # read — and fifty-eight of them have something behind them to be no bigger than.
-    assert len(marked) == 58
-    assert int(OPEN.timestamp()) not in marked
+# Commented out with the `smallest-bar` reading itself, in `BarsPattern.run`: the guard is
+# still there in the source and so is this, and the two come back together.
+# def test_every_bar_of_a_flat_wave_ties_for_smallest(client):
+#     """The tie cost, asserted where it shows: `wave()` gives every bar the same amplitude.
+#
+#     `smallest` compares with `<=`, so on a history of identical bars every one of them is the
+#     smallest of the last anything — every one, that is, but the first, which has nothing behind it
+#     to be smaller than. A reading of a range rather than of a quiet bar, exactly as the filter's
+#     docstring says.
+#     """
+#     body = client.get("/patterns", params={**WINDOW, "sn": 5}).json()
+#     marked = {
+#         point["time"] for point in body["series"][BARS]["points"] if point["type"] == "smallest-bar"
+#     }
+#
+#     # `wave()` writes sixty bars and the newest is withheld as the forming one, so fifty-nine were
+#     # read — and fifty-eight of them have something behind them to be no bigger than.
+#     assert len(marked) == 58
+#     assert int(OPEN.timestamp()) not in marked
 
 
 @pytest.mark.parametrize("window", [1, 0, 201])
