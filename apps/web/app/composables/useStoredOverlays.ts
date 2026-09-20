@@ -44,15 +44,19 @@ const KEY = 'playbook:monitor:overlays'
  * only on the `Restaurar` click is what makes that safe — a window that opens does so unmarked,
  * never as a wall of percentages inherited from last week.
  *
- * Every one of them is a `Set<string>` of producer keys — which is what makes one composable
- * enough for nine pieces of state, and what the filter axes (`hiddenDirections`, `hiddenSides`,
- * `hiddenStates`) deliberately are not: those are keyed `producer:value` and store the *exception*,
- * so a stale entry from an older window is a checkbox silently off rather than a Series simply not
- * found. They stay in memory.
+ * Nine of them are a `Set<string>` of producer keys — which is what makes one composable enough
+ * for ten pieces of state. `hiddenMarkTypes` is the tenth and the one that is not: it is keyed
+ * `producer:type` and stores the *exception*, so a stale entry from an older window reads as a
+ * checkbox silently off rather than as a Series simply not found. It is stored anyway, because a
+ * reading somebody switched off is a decision like any other here and not a thing worth re-entering
+ * every visit, and because that cost is bounded to exactly what it sounds like — one reading hidden
+ * on one Series, and only ever after the `Restaurar` click. The other filter axes
+ * (`hiddenDirections`, `hiddenSides`, `hiddenStates`) are keyed the same way and stay in memory:
+ * they are the contrast that says what this one trades, not a rule this one breaks.
  */
-type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'hideLinked' | 'confirmedOnly' | 'focusMode' | 'labelsAlways'
+type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'hideLinked' | 'confirmedOnly' | 'focusMode' | 'labelsAlways' | 'hiddenMarkTypes'
 
-const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'hideLinked', 'confirmedOnly', 'focusMode', 'labelsAlways']
+const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'hideLinked', 'confirmedOnly', 'focusMode', 'labelsAlways', 'hiddenMarkTypes']
 
 /** Total, like `parseRule`: anything that is not an array of strings reads as an empty set. */
 function readList(value: unknown): string[] {
@@ -73,7 +77,7 @@ export function useStoredOverlays(sets: Record<Stored, Ref<Set<string>>>) {
     saved.value = localStorage.getItem(KEY) !== null
   })
 
-  // Client-only, and without `immediate`: a page that has just opened holds nine empty sets, and
+  // Client-only, and without `immediate`: a page that has just opened holds ten empty sets, and
   // writing those would erase the snapshot the button exists to restore. The first real toggle is
   // the first write, which is the cost this composable's docblock names.
   if (import.meta.client) {

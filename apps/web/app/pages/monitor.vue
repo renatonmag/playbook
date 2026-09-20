@@ -909,8 +909,9 @@ const TYPED = new Set(['bars'])
  *
  * The exception once more, as with `hiddenDirections` and `hiddenStates` and inverted the same
  * way: a Series you chose to show arrives with all six of its readings drawn, and unchecking one
- * is the deliberate act worth storing. Not in `useStoredOverlays` for the same reason those two
- * are not — see the note there about what that hook is for.
+ * is the deliberate act worth storing. Unlike those two it *is* in `useStoredOverlays` — the only
+ * set there not keyed by producer alone, and the one place that hook takes the stale-key risk its
+ * docblock describes. See the note there for what that buys and what it costs.
  */
 const hiddenMarkTypes = ref(new Set<string>())
 
@@ -1627,11 +1628,12 @@ function removeSelected() {
 }
 
 /**
- * The nine sets above, remembered between visits — everything about the sidebar that is keyed by
- * producer and nothing that is not. See `useStoredOverlays` for why the write is automatic and the
- * read is the `Restaurar` item in the menu beside the heading.
+ * The ten sets above, remembered between visits — everything about the sidebar that is keyed by
+ * producer, plus the per-reading checkboxes, which are keyed by producer *and* reading. See
+ * `useStoredOverlays` for why the write is automatic, why the read is the `Restaurar` item in the
+ * menu beside the heading, and why that last one is in despite its key.
  *
- * Here rather than beside `shown`, because it needs all nine and `moves` is the last of them.
+ * Here rather than beside `shown`, because it needs all ten and `moves` is the last of them.
  */
 const layout = useStoredOverlays({
   shown,
@@ -1643,10 +1645,11 @@ const layout = useStoredOverlays({
   confirmedOnly,
   focusMode,
   labelsAlways,
+  hiddenMarkTypes,
 })
 
 /**
- * `Ctrl+Z` over the two of those nine that are a selection rather than a preference. See
+ * `Ctrl+Z` over the two of those ten that are a selection rather than a preference. See
  * `useSelectionHistory` for why it is those two, and why it watches them instead of being called
  * from `togglePin` and the three functions beside it.
  */
