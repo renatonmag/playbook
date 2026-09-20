@@ -891,6 +891,44 @@ function toggleDirection(producer: string, direction: Direction) {
 }
 
 /**
+ * The Patterns whose Points carry a reading — a *which filter marked this bar* — and so get a
+ * checkbox per reading under them.
+ *
+ * A set for the reason `DIRECTIONAL` is one, and one entry is not an argument against it: the
+ * condition is asked in two places, the props spread and the row, and every set on this page that
+ * was once written out at each site fell out of step the moment a second Pattern qualified.
+ *
+ * What the readings *are* is not this page's business. `BAR_MARK_TYPES` is the list, in the order
+ * the row lists them, and it lives beside the hues in `utils/bars` because a reading's colour, its
+ * name and its place in the row are one fact — see there.
+ */
+const TYPED = new Set(['bars'])
+
+/**
+ * Readings the per-reading checkboxes have turned *off*, keyed by producer and reading.
+ *
+ * The exception once more, as with `hiddenDirections` and `hiddenStates` and inverted the same
+ * way: a Series you chose to show arrives with all six of its readings drawn, and unchecking one
+ * is the deliberate act worth storing. Not in `useStoredOverlays` for the same reason those two
+ * are not — see the note there about what that hook is for.
+ */
+const hiddenMarkTypes = ref(new Set<string>())
+
+function markTypeKey(producer: string, type: MarkType) {
+  return `${producer}:${type}`
+}
+
+function typesFor(producer: string): MarkType[] {
+  return BAR_MARK_TYPES.filter(type => !hiddenMarkTypes.value.has(markTypeKey(producer, type)))
+}
+
+function toggleMarkType(producer: string, type: MarkType) {
+  const key = markTypeKey(producer, type)
+  if (hiddenMarkTypes.value.has(key)) hiddenMarkTypes.value.delete(key)
+  else hiddenMarkTypes.value.add(key)
+}
+
+/**
  * Producers whose marks should be trimmed to those the *next* bar confirmed.
  *
  * Stored as the exception the fifth time on this page: a Series you turned on is a Series you want
@@ -2086,6 +2124,9 @@ function rememberSplit(sizes: number[]) {
  */
 function extraProps(overlay: { producer: string, name: string }) {
   return {
+    // The coarsest of this Series' three filters — it drops a whole reading, where the two below
+    // cut across every reading at once. See `TYPED`.
+    ...TYPED.has(overlay.name) ? { types: typesFor(overlay.producer) } : {},
     ...DIRECTIONAL.has(overlay.name) ? { directions: directionsFor(overlay.producer) } : {},
     // The next bar, and the confirmation filter that reads it. The map goes over whether or not
     // the switch is on, because the overlay reads it for a second thing the switch has no say in —
@@ -2688,6 +2729,40 @@ function isVisible(overlay: { producer: string }) {
                 </button>
               </div>
 
+              <!-- The six readings this Pattern makes, one checkbox each — and the colour key it
+                   never had, folded into the same row. The two are one control on purpose: the
+                   dots are told apart by hue alone, so a key was already owed, and a row of
+                   checkboxes that did not carry the hues would sit right beside it saying the same
+                   six words twice.
+
+                   A third question again, not the bull/bear one folded wider: that row asks which
+                   way a mark points, this one asks which filter made it. Two of the six point
+                   nowhere at all and are drawn whatever the row above is set to — turning those
+                   off is only possible here. -->
+              <div
+                v-if="TYPED.has(overlay.name) && shown.has(overlay.producer)"
+                class="mt-1 flex flex-wrap gap-x-3 gap-y-1"
+              >
+                <label
+                  v-for="type in BAR_MARK_TYPES"
+                  :key="type"
+                  class="flex items-center gap-1 text-xs text-gray-500"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="!hiddenMarkTypes.has(`${overlay.producer}:${type}`)"
+                    @change="toggleMarkType(overlay.producer, type)"
+                  >
+                  <!-- Round, because the thing it stands for is a dot — the way `bar-gap`'s swatch
+                       is a filled square for a filled band and `leg-extremes`' is a line. -->
+                  <span
+                    class="inline-block h-2 w-2 rounded-full"
+                    :style="{ backgroundColor: BAR_HUES[type] }"
+                  />
+                  {{ BAR_MARK_LABELS[type] }}
+                </label>
+              </div>
+
               <!-- `bar-gap`'s second axis. Same shape as the row above and deliberately not folded
                    into it: bull/bear is a property of the move that made the gap, open/closed is a
                    property of everything that happened since, and one row of four checkboxes would
@@ -2855,8 +2930,9 @@ function isVisible(overlay: { producer: string }) {
 
               <!-- The three levels are told apart by colour alone, and the dot on the chip above is
                    the *Series'* palette colour, which this overlay ignores. Without a key
-                   the picture cannot be read at all. `bars` colours its dots the same way and has
-                   no key either; that is left as it is rather than quietly widened here. -->
+                   the picture cannot be read at all. `bars` colours its dots the same way and now
+                   has its own key, carried by the checkbox row above; this one stays a key alone,
+                   because a leg's three levels are not a thing anybody asked to filter. -->
               <div
                 v-if="overlay.name === 'leg-extremes' && shown.has(overlay.producer)"
                 class="mt-1 flex flex-wrap gap-x-3 gap-y-1"
@@ -3093,17 +3169,18 @@ function isVisible(overlay: { producer: string }) {
                    Inside `ClientOnly` because the stored rule arrives after mount: the server
                    renders `PIPELINE_RULE` and the client may replace it, which is a hydration
                    mismatch anywhere it is rendered on both. Same guard as the timepicker above. -->
-              <!-- The one control here that is *not* gated on `Ligar`, and the reason is worth
-                   stating: every other one under a chip filters what is drawn, so hiding it with
-                   nothing drawn hides nothing. This one changes the run itself, and the reading it
-                   tunes — `smallest-bar` — is read in the Log and never drawn, so gating it on the
-                   chart would hide the only control for a Series you can only read.
+              <!-- Gated on `Ligar` like the rest of the block, which it once was not: the
+                   exception existed because the reading it tunes — `smallest-bar` — was read in
+                   the Log and never drawn, so hiding the field with the chart off would have hidden
+                   the only control for a Series you could only read. It is drawn now, with a
+                   checkbox of its own above, and the exception has nothing left to protect.
 
-                   `:value` and `@change`, never `v-model`, for the reason `FormaRuleControls`
-                   gives at length: a committed value is a full pipeline run on the server, and
-                   `change` — blur or Enter — is the debounce. -->
+                   It is still the one control here that changes the *run* rather than what is
+                   drawn from it. `:value` and `@change`, never `v-model`, for the reason
+                   `FormaRuleControls` gives at length: a committed value is a full pipeline run on
+                   the server, and `change` — blur or Enter — is the debounce. -->
               <label
-                v-if="SIZED.has(overlay.name)"
+                v-if="SIZED.has(overlay.name) && shown.has(overlay.producer)"
                 class="mt-1.5 flex items-center justify-between gap-2 text-xs text-gray-500"
               >
                 <span>menor de <code class="font-mono">n</code></span>

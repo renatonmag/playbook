@@ -148,12 +148,15 @@ export interface BarMark extends PatternPoint {
    * bar before it: a bull bar above the previous high, a bear bar below the previous low.
    * `smallest-bar` means the bar covered no more ground than any of the `n` before it, `n` being
    * the one dial the monitor sets per run beside the rule — a compression reading rather than a
-   * turn candidate, and the only one of the five not drawn on the chart today.
+   * turn candidate. `outside-bar` is `inside-bar` read the other way: this bar covered the
+   * previous one's range, both extremes strictly broken.
    *
-   * The five are not exclusive: `inside-bar` reads only the extremes, so it lands on bars the
-   * others also marked, and the Series then holds one Point per reading.
+   * The six are not exclusive: `inside-bar` reads only the extremes, so it lands on bars the
+   * others also marked, and the Series then holds one Point per reading. The one pair that cannot
+   * co-occur is `inside-bar` and `outside-bar` — the containment test is inclusive of equal
+   * extremes and the covering test is strict, so a bar tying on one end is inside, not outside.
    */
-  type: 'two-bar' | 'reversal-bar' | 'inside-bar' | 'small-overlap' | 'smallest-bar'
+  type: 'two-bar' | 'reversal-bar' | 'inside-bar' | 'small-overlap' | 'smallest-bar' | 'outside-bar'
   /**
    * The turn this mark is a candidate for — a `bearish` mark is a candidate top.
    *
@@ -161,9 +164,15 @@ export interface BarMark extends PatternPoint {
    * for, not which way the move around it ran. `null` on an `inside-bar` and on a `smallest-bar`,
    * which read only the extremes and make no directional claim at all.
    *
-   * `small-overlap` is the exception to the sentence above: there the direction is the bar's own
-   * colour, so it marks a move that *continued* rather than one that might turn. Read alongside
-   * the others it sits on the opposite side of the bar from a candidate for the same turn.
+   * `small-overlap` and `outside-bar` are the exceptions to the sentence above: on both the
+   * direction is the bar's own lean, so a `bullish` one is a bull bar rather than a candidate
+   * bottom. Read alongside the others they sit on the opposite side of the bar from a candidate
+   * for the same turn.
+   *
+   * An `outside-bar` is emitted whatever its body does — the relation is about extremes — so its
+   * lean falls back to which side of the bar's own midpoint the close sits on when there is no
+   * body to read. `null` there means "no lean", not "no directional claim": it is the one bar
+   * that closed flat exactly at its own middle.
    */
   direction: 'bullish' | 'bearish' | null
 }
