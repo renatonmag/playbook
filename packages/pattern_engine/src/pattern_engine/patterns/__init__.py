@@ -9,6 +9,7 @@ from .consecutive_direction import (
     consecutive_direction,
 )
 from .general_direction import GeneralDirection, GeneralDirectionPattern, general_direction
+from .leg_breaks import LegBreak, LegBreaksPattern, taken_levels
 from .leg_extremes import (
     ExtremeType,
     LegExtremes,
@@ -101,6 +102,8 @@ __all__ = [
     "GeneralDirectionPattern",
     "Leg",
     "LegBar",
+    "LegBreak",
+    "LegBreaksPattern",
     "LegExtremes",
     "LegExtremesPattern",
     "LegMark",
@@ -185,6 +188,7 @@ __all__ = [
     "spans_from",
     "split_leg_windows",
     "split_legs",
+    "taken_levels",
     "touches",
     "trend_lines",
     "trend_relations",

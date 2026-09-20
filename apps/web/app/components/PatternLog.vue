@@ -46,7 +46,7 @@ import {
   type RowSelectionState,
 } from '@tanstack/vue-table'
 import { producerName, type PatternPoint, type PatternResponse } from '~/types/pattern'
-import { barMoment } from '~/utils/bar-time'
+import { barBrief, barMoment } from '~/utils/bar-time'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table'
 
@@ -69,7 +69,7 @@ const props = defineProps<{
  * drawn — they are the same rows about different lines. The filter is on the name and the entries
  * are on the key, so admitting one admits both and they stay two things to pick between.
  */
-const LOGGED = new Set(['bars', 'line-relations', 'line-respect', 'trend-relations'])
+const LOGGED = new Set(['bars', 'leg-breaks', 'line-relations', 'line-respect', 'trend-relations'])
 
 /** Pulled to the front, so a row says which bar it is before it says anything else. */
 const BASE_COLUMNS = ['time']
@@ -97,6 +97,37 @@ const HIDDEN_COLUMNS = new Set(['open', 'high', 'low', 'close', 'volume'])
  */
 const COLUMN_RENAMES: Record<string, { header: string, key: string }> = {
   line: { header: 'line id', key: 'lineId' },
+}
+
+/**
+ * The fields the general formatter below misreads, and how they are read instead.
+ *
+ * A second exception beside `COLUMN_RENAMES`, and it should stay as small as that one. The rule the
+ * formatter follows — a number is `String(value)` — is right for every price and every count the
+ * engine emits, and wrong for exactly two things:
+ *
+ * - `ratio` is a fraction, and a fraction arrives as `0.6180339887`. Rounded here rather than in
+ *   the engine, which measures and does not format. Keyed by the field and deliberately not by
+ *   "any number that is not whole": prices are floats too, and `138500.000` would be a worse cell
+ *   than the one we already have.
+ * - `taken` is an array of **levels**, not of bars, and the array branch below would read it as
+ *   "where it starts and how long it is" — which for a list of levels is neither. What a reader
+ *   wants of them is *which* they were, and the bar each sits on is what says so. `broke` already
+ *   carries the count in its own column, so spending this one on the count too would say one
+ *   thing twice and the other not at all.
+ *
+ * `null` from an entry means "no opinion, fall through" — a key can be listed here and still let
+ * the general rules handle a value it has nothing to say about.
+ */
+const COLUMN_FORMATS: Record<string, (value: unknown) => string | null> = {
+  ratio: value => (typeof value === 'number' ? value.toFixed(3) : null),
+  taken: (value) => {
+    if (!Array.isArray(value)) return null
+    // `—` rather than an empty cell: a leg that broke nothing is the ordinary case and reads as
+    // the same "nothing here" every other empty field on this table reads as.
+    if (value.length === 0) return '—'
+    return value.map(level => barBrief((level as PatternPoint).time)).join(' · ')
+  },
 }
 
 /**
@@ -280,6 +311,11 @@ function cell(point: PatternPoint, key: string): string {
 
   if (value === null || value === undefined) return '—'
   if (key === 'time' && typeof value === 'number') return barMoment(value)
+
+  // Ahead of the general rules rather than after them, so an exception is an exception and not a
+  // special case bolted to the end of whichever branch happened to catch the value first.
+  const formatted = COLUMN_FORMATS[key]?.(value)
+  if (formatted !== null && formatted !== undefined) return formatted
 
   if (Array.isArray(value)) {
     const first = value.at(0) as { time?: unknown } | undefined

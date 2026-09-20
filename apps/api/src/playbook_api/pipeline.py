@@ -50,6 +50,7 @@ from pattern_engine.patterns import (
     BarsPattern,
     ConsecutiveDirectionPattern,
     GeneralDirectionPattern,
+    LegBreaksPattern,
     LegExtremesPattern,
     LegPattern,
     LegReachPattern,
@@ -145,6 +146,10 @@ def build_pipeline(
     # detector rather than one shared, since a reach belongs to the legs it was cut from.
     zigzag_reach = LegReachPattern(source=zigzag, reads=("5m",), emits="5m")
     simple_reach = LegReachPattern(source=simple_leg, reads=("5m",), emits="5m")
+    # The zigzag's own retracement, bound for the reason every local here is bound: the Pattern at
+    # the bottom that reads a leg's breaks takes this instance, not its producer key. Its twin over
+    # the simple legs stays inline below, since nothing reads it.
+    zigzag_retracement = RetracementPattern(source=zigzag_reach, reads=("5m",), emits="5m")
     leg_windows = LegWindowPattern(source=zigzag, ahead=5, reads=("5m",), emits="5m")
     # Bound to a local for the same reason the detectors above are: the grouper at the bottom
     # takes this slicer's *instance*, not its producer key.
@@ -205,7 +210,7 @@ def build_pipeline(
         # has no threshold to tune.
         zigzag_reach,
         simple_reach,
-        RetracementPattern(source=zigzag_reach, reads=("5m",), emits="5m"),
+        zigzag_retracement,
         RetracementPattern(source=simple_reach, reads=("5m",), emits="5m"),
         # The first opinion that outlives a leg: the market's general lean, read off the simple
         # legs' pivots and guarded by the zigzag's. It reads the two Series above, never the
@@ -284,6 +289,23 @@ def build_pipeline(
         # window — the `ahead` tail belongs to the leg that follows. No dials: the grouping is one
         # comparison, and both sources are already tuned above.
         nested,
+        # And the first Pattern that reads a leg *against the ones before it*: what this zigzag leg
+        # broke of the earlier swing highs or lows, how many simple legs ran inside it, and how
+        # much of the prior move it gave back. Three Series joined on one Point, and the only one
+        # here that reads all three — which is the whole of what it adds, since no price in it is
+        # new. Its breaks are counted off `leg-reach` and never off the detector, for the reason
+        # that module opens with.
+        #
+        # After `nested` because it reads it, and after both `zigzag_reach` and `zigzag_retracement`
+        # further up for the same reason. No dials: every comparison is settled in the module, and
+        # the lookback is the loaded window.
+        LegBreaksPattern(
+            source=nested,
+            reaches=zigzag_reach,
+            measures=zigzag_retracement,
+            reads=("5m",),
+            emits="5m",
+        ),
         # And the filter over that grouping: inside each zigzag leg, every pullback, plus the
         # pushes that actually made a new extreme. A push that got nowhere is the only thing
         # dropped, and the output is flat — one list of legs, not a list of groups.

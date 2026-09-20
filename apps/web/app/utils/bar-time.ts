@@ -39,3 +39,25 @@ export function barMoment(seconds: number): string {
     timeStyle: 'short',
   })
 }
+
+/**
+ * The same reading, short: day and month plus the hour, with the year left off.
+ *
+ * For the places a *list* of bars has to fit in one cell — the broken levels on a `leg-breaks`
+ * row, where three of `barMoment`'s readings side by side is most of the width of the table. The
+ * year is the part that carries least: every bar in a window is in the same one, and the reader is
+ * looking at a chart that says so.
+ *
+ * Beside `barMoment` rather than inlined at its one call site, because the `BAR_ZONE` argument
+ * this module opens with applies to it identically and is the thing that does not survive being
+ * retyped.
+ */
+export function barBrief(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleString('pt-BR', {
+    timeZone: BAR_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}

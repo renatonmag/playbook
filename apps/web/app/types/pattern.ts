@@ -310,6 +310,61 @@ export interface AdvancingLeg extends PatternPoint {
 }
 
 /**
+ * One zigzag leg read at its close: what it broke, how busy it was, and how much it gave back.
+ *
+ * Anchored on the bar the leg **reached** its closing extreme on — the `Retracement` anchor, not
+ * `NestedLegs`' opening vertex — with `price` that extreme. So a row lines up with the
+ * `retracement` Series by `time` and with `nested-legs` or `leg-window` by nothing: those anchor
+ * where the leg opened.
+ *
+ * Every price behind these numbers comes from `leg-reach`, the zigzag's pivots repriced at the
+ * extremes their legs really reached, and never from the detector's own vertices. A leg that ran
+ * past where it was marked would otherwise look like it broke less than it did.
+ *
+ * A level counts as broken only when it passes three tests, and the two price ones are
+ * independent — neither implies the other, and dropping either is what makes a count climb into
+ * the dozens:
+ *
+ * - **The leg crossed it.** The level lies strictly between the leg's **own open and its close**,
+ *   so the leg actually ran through it. A leg that opened already beyond an old top did not break
+ *   it. Both bounds strict: a level at the close was *retested*, one at the open is where the leg
+ *   began. On the upper bound that is the opposite of what `retracement` does with the same two
+ *   prices, on purpose — there the question is whether price has exceeded a level, here it is
+ *   whether this leg broke it.
+ * - **It was still standing.** No same-side swing between that level and this leg had already
+ *   taken it out. A level broken three legs ago is gone, and the line from it to this leg runs
+ *   through whatever broke it.
+ * - **It is on the close's side.** A low cannot break a top.
+ *
+ * Two costs to read a row against:
+ *
+ * - **Standing is read off the swings, not off every bar**, so a level can have been pierced by a
+ *   wick that no pivot recorded.
+ * - **The lookback is the loaded window and nothing else** — a level whose bar fell off the back
+ *   of it is not there to be broken.
+ */
+export interface LegBreak extends PatternPoint {
+  /** The extreme the leg closed on, and the side the breaks are counted on. */
+  direction: 'high' | 'low'
+  /** How many standing same-side levels this leg ran through. `taken.length`. */
+  broke: number
+  /**
+   * The levels it broke, oldest first. An array on the wire. Bare pivots — a bar and a price, and
+   * no claim about the Series they came from. The Log reads them as the times they sit on.
+   */
+  taken: Array<PatternPoint & { price: number }>
+  /** How many simple legs ran inside this zigzag leg. Zero is a fact, not a gap. */
+  legs: number
+  /**
+   * The fraction of the prior move this leg gave back, in [0, 1], or `null` where the retracement
+   * could not be measured. Read off the `retracement` Series, which owns that arithmetic.
+   */
+  ratio: number | null
+  /** The last row only: its leg closes on a vertex the zigzag's cleanup can still relocate. */
+  provisional: boolean
+}
+
+/**
  * The untraded band three bars left behind, anchored on the **first** bar of the triple.
  *
  * A gap up is `bar_1.high < bar_3.low`, a gap down its mirror; the comparison is strict, so two
