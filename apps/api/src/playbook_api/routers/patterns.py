@@ -8,6 +8,13 @@ composes one: no caller adds a Pattern, removes one, reorders them, or retunes `
 `k`, `similarity` or `expansion`. What a caller may now do is hand in **the Forma rule that one
 Pattern applies** — the eight thresholds of `FormaRule`, and nothing else.
 
+Everything in this docstring is about the two routes on `/patterns` itself. **`/patterns/custom`,
+at the bottom of this module, is the one route that lets a caller take Patterns out of the tuple**
+— and it is a narrowing, never a composition, argued where it is declared and in
+`playbook_api.selection`. Read those two before reading "no caller removes one" above as covering
+it; it does not, deliberately, and that sentence stays as written because it remains true of the
+two routes it describes.
+
 That exception was made with the reason written down rather than assumed. The bench on `/rules`
 evaluates a candidate rule in the browser, over Shapes that `/shapes` already handed it, which is
 why `/shapes` takes no rule parameters and why `marks` lives in `apps/web/app/utils/rule.ts`. The
@@ -140,7 +147,13 @@ from ..lines_body import LinesIn, to_lines, to_proximity, to_trends
 from ..pipeline import DEFAULT_SMALLEST, PIPELINE, SYMBOL, build_pipeline, timeframes
 from ..rule_query import rule_override
 from ..schemas.pattern import PatternsOut, SeriesOut
-from ..store.candles import CandleWindowTooLarge, as_series, load_closed_candles
+from ..selection import CustomRunIn, Edge, select
+from ..store.candles import (
+    CandleWindowTooLarge,
+    as_series,
+    load_candles,
+    load_closed_candles,
+)
 from ..window import validate_window
 
 router = APIRouter()
@@ -174,6 +187,7 @@ def _run(
     start: datetime,
     end: datetime,
     limit: int,
+    edge: Edge = "closed",
 ) -> PatternsOut:
     """One run of `pipeline` over the window's closed bars, whichever verb asked for it.
 
@@ -194,17 +208,27 @@ def _run(
     error, because that is what the monitor already says about a pin that scrolled away.
 
     The bars handed over are the window's *closed* ones — the newest row of each Timeframe is the
-    bar the Ingestor is still writing, and it is withheld. See the module docstring.
+    bar the Ingestor is still writing, and it is withheld. See the module docstring. `edge` is the
+    one thing that moves that, and only `/patterns/custom` passes it: at `forming` the run is handed
+    every row in the window instead, the loader `/candles` and `/shapes` already use.
+
+    It is spelled as a choice between two loaders rather than as a flag on one, because that is what
+    it is — `load_closed_candles` is `load_candles` plus a second query for the live edge, and the
+    two have different costs as well as different answers.
     """
     validate_window(start, end)
+
+    # Bound once rather than branched per Timeframe, so the comprehension below cannot load one
+    # Timeframe's bars under one policy and another's under the other.
+    load = load_candles if edge == "forming" else load_closed_candles
 
     try:
         bars = {
             timeframe: as_series(
-                # `load_candles` with the forming bar withheld. `limit` still describes the
-                # window that was asked for: an overflowing window is an error about what the
-                # caller requested, not about what survived the trim.
-                load_closed_candles(
+                # `load_candles` with the forming bar withheld, unless `edge` asked otherwise.
+                # `limit` still describes the window that was asked for: an overflowing window is
+                # an error about what the caller requested, not about what survived the trim.
+                load(
                     session,
                     symbol=SYMBOL,
                     timeframe=timeframe,
@@ -316,3 +340,86 @@ def run_patterns(
     )
 
     return _run(session, pipeline, start, end, limit)
+
+
+@router.post("/patterns/custom", response_model=PatternsOut)
+def run_custom(
+    session: Annotated[Session, Depends(get_session)],
+    rule: Annotated[FormaRule | None, Depends(rule_override)],
+    body: CustomRunIn,
+    start: Annotated[datetime, Query(alias="from", description="Window start, ISO-8601 with offset")],
+    end: Annotated[datetime, Query(alias="to", description="Window end, ISO-8601 with offset")],
+    limit: Annotated[int, Query(gt=0, description="Ceiling, not a page size")] = DEFAULT_LIMIT,
+    smallest: SmallestQuery = DEFAULT_SMALLEST.bars,
+) -> PatternsOut:
+    """Some of the declared Patterns, over some of the window's bars.
+
+    **The first route on which a caller changes the shape of the pipeline**, and the module
+    docstring above spends a hundred lines arguing that no caller does. So the exception is stated
+    here rather than assumed, in the terms the other four are argued in.
+
+    The three guards that contain the parameters all still hold, unchanged and for the unchanged
+    reasons. **The rule's name is never a parameter** — `rule_override` is the same dependency the
+    two routes above take, and an override is still always named `K`. **No line changes the shape**
+    — `body` is a `LinesIn` with two fields on top, and the lines reach the same Patterns through
+    the same three conversions. **The producer key does not move**: a Pattern's key is derived from
+    its constructor call, and this route does not make one. `simple-leg(reads=5m,emits=5m)` is what
+    a selection of it answers under, byte for byte what the `GET` answers under.
+
+    The guard that does *not* hold is the fourth — the caller now decides which Patterns run — and
+    what replaces it is that the decision travels in one direction only. `build_pipeline` is called
+    first, at the declared tuning, and `select` returns a **subsequence** of what it built: Patterns
+    removed, never added, never reordered, never retuned. Run order is still declaration order, and
+    every dial is still set in `pipeline.py`. There is no body that produces a pipeline
+    `build_pipeline` could not have produced. See `playbook_api.selection`, which is also where the
+    two spellings of a name and the refusal of an unknown one are argued.
+
+    Building first and narrowing second is the whole of that, and the order is not interchangeable:
+    narrowing a list of *names* and building from it would be this route composing a pipeline out of
+    parts, which is the thing being refused.
+
+    **The second thing the body carries is the forming bar**, and it is not Pattern-shaped at all —
+    it is which rows the run is handed, so it is the one exception here that is about data rather
+    than about the pipeline. At `edge="forming"` the window's newest row is no longer withheld.
+
+    What that costs is the inverse of what the module docstring above claims for withholding it, and
+    is worth saying in full rather than by reference. A Pattern reading the forming bar answers
+    about a bar the market has not given yet: its output moves as the bar fills and can be retracted
+    outright when the bar closes somewhere else. For `simple-leg` that is precisely the point — a
+    leg turns on the bar that takes out the previous bar's extreme, and waiting for that bar to
+    close is waiting a whole Timeframe to be told something the break already said. The Series says
+    so in band: the last Point carries `provisional`, which now means "on the bar still being
+    written" rather than "on the newest closed bar".
+
+    `edge` does not *add* a bar, it stops withholding one. When the feed is stopped the newest row
+    is a bar that genuinely closed, and the two loaders agree — so the honest statement is "every
+    row in the window, including the one the feed may still be writing", not "the window plus the
+    forming bar".
+
+    One consequence of the key not moving, in the other direction from the one the module docstring
+    states for rules: a client holding both answers cannot tell them apart by their keys, which is
+    exactly what lets the monitor supersede one Series with the other in place. The caller asked for
+    `edge`, so the caller knows which it is holding; nothing in the response says so.
+
+    A narrowed run is also cheap in a way the full one is not, and the reason is upstream of this
+    route: `_run` asks `timeframes()` of the pipeline *being run*, so selecting one Pattern loads
+    one Timeframe's bars rather than every Timeframe the declared tuple reads.
+    """
+    lines, trends, proximity = to_lines(body), to_trends(body), to_proximity(body)
+    # Every argument by keyword, for the reason the `POST` above gives, and the absent rule left to
+    # `build_pipeline`'s own default so `RULE_K` stays written once.
+    declared = (
+        build_pipeline(
+            smallest=SmallestWindow(bars=smallest), lines=lines, trends=trends, proximity=proximity
+        )
+        if rule is None
+        else build_pipeline(
+            rule=rule,
+            smallest=SmallestWindow(bars=smallest),
+            lines=lines,
+            trends=trends,
+            proximity=proximity,
+        )
+    )
+
+    return _run(session, select(declared, body.patterns), start, end, limit, body.edge)

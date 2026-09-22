@@ -135,6 +135,23 @@ const OVERLAYS: Record<string, Component> = {
 const MANUAL = new Set(['line-relations', 'line-respect', 'trend-relations'])
 
 /**
+ * The Patterns whose points may come from a **fresher** run than the automatic `GET`.
+ *
+ * `MANUAL`'s cousin and pointedly not its twin. That set names Series the `GET` cannot fill at all,
+ * so they are taken from the other response *instead*. This one names Series the `GET` fills
+ * perfectly well, over the window's closed bars — and that a second run can answer better, over
+ * the same window plus the bar still being written. So a name in here is a **supersession**, not a
+ * source: the automatic answer is what is drawn until an edge run lands, and again the moment that
+ * answer goes stale.
+ *
+ * One entry, and the reason it is the only one is the reason the whole mechanism exists:
+ * `simple-leg` marks a leg on the bar that takes out the previous bar's extreme, so the break and
+ * the mark are the same event. Every other Pattern here answers something the forming bar can only
+ * make provisional. See `useEdgeLegs`.
+ */
+const EDGE = new Set(['simple-leg'])
+
+/**
  * The smallest-bar window's declared value and its bounds, repeating `DEFAULT_SMALLEST` and
  * `MAX_SMALLEST` in `routers/patterns.py`.
  *
@@ -444,6 +461,44 @@ const calculating = ref(false)
 const calculateError = ref<string | null>(null)
 
 /**
+ * The third response: `simple-leg` re-run over the forming bar, each time that bar breaks the last
+ * closed one.
+ *
+ * Here beside the other two rather than down among the watchers, for the reason `relations` gives
+ * one paragraph up: `autoOverlays` reads it, and a page whose overlay list depends on a ref
+ * declared a thousand lines further on reads as though one of them were an afterthought.
+ *
+ * Off under a replay and off with the feed, and neither is a limitation to work around. A replay
+ * has no forming bar — `closedBars` above trims the bar at the cut exactly as it trims the live
+ * edge — and with the socket closed no frame arrives for a break to be noticed in. The trigger
+ * would simply never fire; saying so in the condition is what makes that a decision rather than an
+ * accident.
+ */
+const edge = useEdgeLegs(
+  live.bars,
+  mergedBars,
+  runWindow,
+  patternsKey,
+  computed(() => live.connected.value && !replay.on.value),
+)
+
+/**
+ * The edge run's Series, and `null` the moment it stops being about the window on screen.
+ *
+ * The staleness this guards is not hypothetical and arrives on a schedule: when a bar closes,
+ * `bar.epoch` advances `runWindow`, `usePatterns` re-fetches under a new `patternsKey`, and the
+ * edge answer still in hand describes a window that ended one bar ago. Drawn anyway it would put
+ * the *previous* bar's running leg on the chart and hold it there until the next break — the exact
+ * "both appearing to work" failure, arriving as a line that is merely a little out of date.
+ *
+ * Comparing keys rather than windows, because `runWindow` is derived from the clock and differs
+ * between any two reads of it. `patternsKey` is what names a window on this page; see `usePatterns`.
+ */
+const edgeSeries = computed(() =>
+  edge.key.value === patternsKey.value ? (edge.response.value?.series ?? null) : null,
+)
+
+/**
  * The rules committed to `docs/forma/rules.json`, so the ones already worth comparing against are
  * a click rather than seven fields of typing. The same fetch and the same `parseRule` the bench
  * uses — it is the same file, and a second reading of it could disagree with the first.
@@ -528,8 +583,34 @@ function seriesPoints<TPoint extends PatternPoint>(response: PatternResponse | n
   return (found?.[1].points ?? []) as TPoint[]
 }
 
-/** Everything the automatic `GET` answered, less the Series only a body can fill. See `MANUAL`. */
-const autoOverlays = computed(() => listed(patterns.value, name => !MANUAL.has(name), 0))
+/**
+ * Everything the automatic `GET` answered, less the Series only a body can fill (see `MANUAL`), with
+ * the ones a fresher run can improve on taking their points from it instead (see `EDGE`).
+ *
+ * The swap happens **inside this list** rather than through a third `listed()` call, and that is
+ * the one detail here worth the paragraph. A third list the way `manualOverlays` is one would
+ * concatenate, and an edge Series carries the *same producer key* as the automatic one it improves
+ * on — by construction, because `/patterns/custom` runs the instance `build_pipeline` built and a
+ * producer is derived from a constructor call. So the sidebar would grow a second row under a key
+ * it already has, `shown` and `open` could not tell the two apart, and the palette offset would
+ * move the line to a different colour the moment the first break of the session landed.
+ *
+ * Superseding in place keeps the producer, the label, the palette slot and the row's position
+ * exactly where the automatic run put them, and changes the one thing that is actually fresher:
+ * what is drawn. The list's length does not change either, so `manualOverlays`' offset below still
+ * starts where it did.
+ *
+ * Keyed by the whole producer and not by `overlay.name`, although `EDGE` holds class parts: the
+ * name decides *whether* a Series can be superseded, and the key decides *by which*. A class
+ * declared twice would otherwise take one instance's points for the other's.
+ */
+const autoOverlays = computed(() =>
+  listed(patterns.value, name => !MANUAL.has(name), 0).map((overlay) => {
+    if (!EDGE.has(overlay.name)) return overlay
+    const fresher = edgeSeries.value?.[overlay.producer]?.points
+    return fresher ? { ...overlay, points: fresher as PatternPoint[] } : overlay
+  }),
+)
 
 /**
  * And those Series, from the run that actually carries the lines.
