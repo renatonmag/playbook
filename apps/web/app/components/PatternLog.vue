@@ -88,7 +88,7 @@ const HIDDEN_COLUMNS = new Set(['open', 'high', 'low', 'close', 'volume'])
  * The fields whose own name misreads, and what they are called instead.
  *
  * The exception to the rule the docblock states, and it should stay one. `line` holds an id —
- * `wick:1788519000:low:end` — so the bare field name promises a line and delivers its handle.
+ * `level:1788519000:low` — so the bare field name promises a line and delivers its handle.
  *
  * Both spellings in one entry, so a rename cannot land on the screen and not in the copy. That is
  * the whole reason this is a record of pairs rather than two maps: the header and the key are one

@@ -3,8 +3,8 @@ import type { IChartApi, ISeriesApi, MouseEventParams, SeriesType, Time } from '
 import type { Candle } from '~/types/candle'
 
 /**
- * Draws the wick levels of the candle the cursor is on: a line where each wick leaves the body and
- * another where it stopped, both running from that bar to the current candle.
+ * Draws the OHLC levels of the candle the cursor is on: a line at each of the bar's four prices,
+ * running from that bar to the current candle.
  *
  * *On* the candle, not merely in its column — the cursor has to be within the bar's own low-to-high
  * span to draw it. See `barUnder`.
@@ -18,15 +18,15 @@ import type { Candle } from '~/types/candle'
  * never scanned.
  *
  * The fourth user of `LevelSegments`, and the first to draw at the cursor rather than at what a
- * server found. Every segment it hands over is `extend: true`: see `wickLevels`.
+ * server found. Every segment it hands over is `extend: true`: see `candleLevels`.
  */
 const props = withDefaults(
   defineProps<{
     /** The loaded window plus the live bars, by `time`. The page owns the merge. */
     bars: ReadonlyMap<number, Candle>
     visible: boolean
-    /** Which wicks to draw. Absent means both. */
-    sides?: WickSide[]
+    /** Which of a bar's four prices to draw. Absent means all four. */
+    fields?: OhlcField[]
     /** Ids of the levels to keep drawn once the cursor has moved on. */
     pinned?: string[]
     /**
@@ -50,7 +50,7 @@ const props = withDefaults(
     selected?: string | null
   }>(),
   {
-    sides: () => ['high', 'low'],
+    fields: () => ['open', 'high', 'low', 'close'],
     pinned: () => [],
     tracking: true,
     selected: null,
@@ -58,7 +58,7 @@ const props = withDefaults(
 )
 
 /**
- * A level was clicked. The id is `wickLevelId`'s, and what to do about it — pin, unpin — is the
+ * A level was clicked. The id is `candleLevelId`'s, and what to do about it — pin, unpin — is the
  * page's business: this component has no memory of its own and is redrawn from `pinned` and
  * `selected`.
  *
@@ -97,9 +97,10 @@ const REACH = 4
  * over, and that strip is the full height of the chart. So the price is asked too, and the lines
  * belong to the candle rather than to everything above and below it.
  *
- * The span is the whole candle, low to high, not the body. The wick *is* what this tool is about —
- * where a price was rejected — and a cursor on the wick that is being asked about is the clearest
- * case there is of pointing at the bar.
+ * The span is the whole candle, low to high, not the body. It is the four prices of *that bar* being
+ * asked about, and low to high is exactly where they are — a cursor anywhere between them is on one
+ * of the lines about to be drawn, or between two of them, which is the clearest case there is of
+ * pointing at the bar.
  *
  * Reading `point.y` as a price position is only sound because the crosshair is `Normal` rather than
  * magnet: see `CandleChart`. A magnet crosshair would snap the cursor to a bar's nearest price and
@@ -144,7 +145,7 @@ function barUnder(param: MouseEventParams<Time>): number | null {
  * resumes tracking on the next event, which is the same frame's worth of latency the freeze took.
  *
  * That freeze carries the whole feature now that `barUnder` asks about the price as well: a cursor
- * out along a level is at the height of one of its bar's wick prices, which is almost never inside
+ * out along a level is at the height of one of its bar's four prices, which is almost never inside
  * the *current* column's candle. Without the hold, following a line would put the lines out.
  */
 function onCrosshairMove(param: MouseEventParams<Time>) {
@@ -232,7 +233,7 @@ watch(
     chart,
     () => props.bars,
     () => props.visible,
-    () => props.sides,
+    () => props.fields,
     () => props.pinned,
     () => props.tracking,
     () => props.selected,
@@ -242,7 +243,7 @@ watch(
     if (!bars) return
 
     if (!primitive) {
-      // `bars: 1` — the stub length is never reached, since every wick level extends to the live
+      // `bars: 1` — the stub length is never reached, since every level extends to the live
       // edge. It stays the floor `boundsOf` measures against, which is this bar's own width.
       primitive = new LevelSegments({ bars: 1, lineWidth: 2 })
       // The cast is the same one the other overlays make: the candlestick series is declared on the
@@ -260,7 +261,7 @@ watch(
     // same trade every primitive here makes: an empty draw is a `return`. With the tool off nothing
     // is drawn, so nothing is hit-testable and the cursor means what it always meant.
     const levels = props.visible
-      ? wickLevels(props.bars, hovered.value, new Set(props.pinned), props.sides)
+      ? candleLevels(props.bars, hovered.value, new Set(props.pinned), props.fields)
       : []
     drawnIds = new Set(levels.map(level => level.id))
     primitive.setSegments(levels)

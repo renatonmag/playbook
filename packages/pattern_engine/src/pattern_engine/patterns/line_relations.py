@@ -19,9 +19,14 @@ The rules, and what each one deliberately does not say:
 - **A touch is a wick, and only a wick.** `[max(open, close), high]` for the upper, `[low,
   min(open, close)]` for the lower, inclusive at both ends. A wick of zero length cannot touch —
   `high == max(open, close)` means there is no upper wick, and saying the line touched it would be
-  claiming contact with something that is not there. The same reading `levelsOf` gives in
-  `apps/web/app/utils/wick-levels.ts`, and it has to be the same: those are the lines being asked
-  about.
+  claiming contact with something that is not there.
+
+  The browser's `levelsOf` in `apps/web/app/utils/candle-levels.ts` once made exactly this reading
+  and no longer does: a person can pin any of a bar's four prices there, wick or no wick, because
+  an open is worth asking about on the bar that ran straight to its extreme too. The two are
+  deliberately out of step now, and nothing is lost by it — the questions here are asked of the
+  bars **after** the one the line was read off, and a line drawn through a later bar's body is
+  reported by the rule below rather than by this one.
 
 - **A line through the body is not a touch, and loses nothing by it.** A price strictly between
   the open and the close has them on opposite sides *by definition* — that bar is a breakout, and
@@ -115,7 +120,7 @@ What it costs, stated rather than hidden:
 
   The flip side is the window, and it is the same for every kind: a seam whose `bar_1` fell before
   the window's first bar is not seen, and a line whose own bar is outside the window produces
-  nothing at all — the reading `wickLevels` already gives a pin whose bar has scrolled away.
+  nothing at all — the reading `candleLevels` already gives a pin whose bar has scrolled away.
 
 - **The leg spans at the window's two ends are too large, and that is where the live edge is.**
   `split_legs` folds the bars before the first vertex into the first leg and the bars after the last
@@ -155,8 +160,9 @@ SEAM_SPAN = 3
 #: by construction rather than by rule.
 RelationKind = Literal["touch", "close", "breakout", "seam"]
 
-#: Which of a bar's two wicks made contact. The same two words the browser's `WickSide` uses, so a
-#: level pinned off a wick and a touch reported on one are named alike.
+#: Which of a bar's two wicks made contact. The same two words the browser's `OhlcField` uses for
+#: the two extremes, so a level pinned at a high and a touch reported on the upper wick are named
+#: alike.
 Wick = Literal["high", "low"]
 
 #: The side of the line price came from. Never `None` on a breakout.
@@ -176,7 +182,7 @@ PriceAt = Callable[[int], float | None]
 class Line:
     """One hand-placed level: where it starts, what price it sits at, and what its owner calls it.
 
-    `id` is opaque here and stays that way. It is the browser's own segment id — a `wick:...`
+    `id` is opaque here and stays that way. It is the browser's own segment id — a `level:...`
     string or a leg-extreme's — carried through the engine untouched so an answer can be put back
     beside the line that provoked it. Nothing in this module parses it, the way `LevelSegments`
     never parses the id it hit-tests.

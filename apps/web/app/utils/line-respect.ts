@@ -30,7 +30,7 @@ import type { PillShape, PillSide, RespectPill } from '~/utils/respect-pills'
  * because the pill sits exactly where the run's *other* extreme lives.
  *
  * For the record, what it has to stay clear of at that height is nothing: `EXTREME_HUES`'
- * violet/cyan/lime, `GAP_HUES`' sky and rose, `BAR_HUES`' four, `WICK_HUES`' rose and indigo and
+ * violet/cyan/lime, `GAP_HUES`' sky and rose, `BAR_HUES`' four, `LEVEL_HUES`' four and
  * the page's four palette colours are all drawn at a price.
  */
 export const RESPECT_HUES: Record<LineRespect['side'], string> = {

@@ -40,7 +40,7 @@ const chart = inject(CHART, shallowRef(null))
 /**
  * The bar time under the cursor, or `null`.
  *
- * A `ref` rather than a plain `let` for the reason `WickLevelsOverlay`'s `hovered` is one: it is a
+ * A `ref` rather than a plain `let` for the reason `CandleLevelsOverlay`'s `hovered` is one: it is a
  * dependency of the drawing, and the whole feature is that moving the mouse redraws.
  *
  * A bar time and nothing else — no y-test, unlike that overlay's. What is being asked here is

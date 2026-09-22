@@ -53,7 +53,7 @@ export function useLiveCandles(
    * `bars` the right input for `series.update()` and for the bar clock, and the wrong input for
    * anything that asks a question about a bar later. A bar that opened after the page loaded and has
    * since closed is in no frame and in no fetched window; without this it exists only inside the
-   * chart's own series, where nothing can look it up. The wick tool looks bars up by name on hover,
+   * chart's own series, where nothing can look it up. The levels tool looks bars up by name on hover,
    * which is how that showed.
    *
    * Reassigned rather than mutated, so a computed reading it is rebuilt when the feed moves. A later

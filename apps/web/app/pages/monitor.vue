@@ -258,7 +258,7 @@ const live = useLiveCandles(symbol, timeframe)
  * since, in time order.
  *
  * Extracted from `nextBarByTime`, which was the only thing that needed it and is no longer: the
- * wick tool reads the same bars, and a second splice would be a second chance to disagree about the
+ * levels tool reads the same bars, and a second splice would be a second chance to disagree about the
  * seam.
  *
  * Merged over `live.history` and not over `live.bars`, which is the correction: a frame carries only
@@ -561,11 +561,11 @@ function toggle(producer: string) {
 const open = ref(new Set<string>())
 
 /**
- * Everything the picker offers: the drawable Series, then the wick tool.
+ * Everything the picker offers: the drawable Series, then the levels tool.
  *
  * The tool is in the list for the reason its chip used to sit in the row beside the Patterns —
  * from here it is one more thing you can put on the chart, and giving it a control of its own
- * would turn "no server ran for it" into a layout decision. Its dot is `WICK_HUES.high`, a
+ * would turn "no server ran for it" into a layout decision. Its dot is `LEVEL_HUES.close`, a
  * colour actually on the chart, where a Pattern's is its palette slot.
  */
 const controls = computed(() => [
@@ -576,7 +576,7 @@ const controls = computed(() => [
     title: overlay.producer,
     color: overlay.color,
   })),
-  { key: WICK_KEY, label: 'Pavio', title: 'pavios do candle sob o cursor', color: WICK_HUES.high },
+  { key: LEVELS_KEY, label: 'Níveis', title: 'níveis OHLC do candle sob o cursor', color: LEVEL_HUES.close },
 ])
 
 /** `open` as the array the select speaks. The Set stays canonical — every block below asks it. */
@@ -633,12 +633,12 @@ const PINNABLE = new Set(['leg-extremes', 'bar-gap', 'trend-lines'])
  * the one selected, and the control bar's only action is the `✕` its sidebar row already carries.
  * So its click keeps the old meaning — pin, and pin again to unpin.
  *
- * The wick tool joins through `WICK_KEY`, the way it joins `PINNABLE`.
+ * The levels tool joins through `LEVELS_KEY`, the way it joins `PINNABLE`.
  */
 const SELECTABLE = new Set(['leg-extremes', 'trend-lines'])
 
 /**
- * The wick tool's key, standing where a producer key stands.
+ * The levels tool's key, standing where a producer key stands.
  *
  * It is not a Pattern — nothing runs on the server for it, and it draws off the candles themselves —
  * but it is a chip beside them, with a control block, a `Ligar` and pins. Giving it a key buys the
@@ -648,40 +648,43 @@ const SELECTABLE = new Set(['leg-extremes', 'trend-lines'])
  *
  * It cannot collide with a real producer: those always carry their `(params)` — see `producerName`.
  */
-const WICK_KEY = 'wick-levels'
+const LEVELS_KEY = 'candle-levels'
 
 /**
- * The two wicks, in the order the filters are listed. The fourth filter axis on this page, and the
- * first belonging to something that is not a Pattern.
+ * A bar's four prices, in the order the filters are listed. The fourth filter axis on this page, and
+ * the first belonging to something that is not a Pattern.
  *
- * Deliberately not `SIDES`, which it looks exactly like: that one names which extreme a *trend line*
- * runs along, and this one names a wick. The labels come from `WICK_LABELS`, so the checkboxes and
- * the pinned list below cannot end up calling one wick two different things.
+ * OHLC rather than low-to-high, which is the order they are drawn in: the words come in this order
+ * everywhere else in the repo, and a row of checkboxes is read as a list of names rather than as a
+ * picture of the candle. The labels come from `LEVEL_LABELS`, so the checkboxes and the pinned list
+ * below cannot end up calling one price two different things.
  */
-const WICK_SIDES = [
-  { value: 'high', label: WICK_LABELS.high },
-  { value: 'low', label: WICK_LABELS.low },
+const LEVEL_FIELDS = [
+  { value: 'open', label: LEVEL_LABELS.open },
+  { value: 'high', label: LEVEL_LABELS.high },
+  { value: 'low', label: LEVEL_LABELS.low },
+  { value: 'close', label: LEVEL_LABELS.close },
 ] as const
 
 /**
- * Wicks the filters have turned *off*. The exception stored, as everywhere else on this page: the
- * tool is turned on to see both, and unchecking is the deliberate act.
+ * Prices the filters have turned *off*. The exception stored, as everywhere else on this page: the
+ * tool is turned on to see all four, and unchecking is the deliberate act.
  *
- * Unkeyed, unlike its four predecessors — there is one wick tool, not one per Series.
+ * Unkeyed, unlike its four predecessors — there is one levels tool, not one per Series.
  */
-const hiddenWickSides = ref(new Set<WickSide>())
+const hiddenLevelFields = ref(new Set<OhlcField>())
 
-function wickSides(): WickSide[] {
-  return WICK_SIDES.map(item => item.value).filter(value => !hiddenWickSides.value.has(value))
+function levelFields(): OhlcField[] {
+  return LEVEL_FIELDS.map(item => item.value).filter(value => !hiddenLevelFields.value.has(value))
 }
 
-function toggleWickSide(side: WickSide) {
-  if (hiddenWickSides.value.has(side)) hiddenWickSides.value.delete(side)
-  else hiddenWickSides.value.add(side)
+function toggleLevelField(field: OhlcField) {
+  if (hiddenLevelFields.value.has(field)) hiddenLevelFields.value.delete(field)
+  else hiddenLevelFields.value.add(field)
 }
 
 /**
- * The wick tool's cursor is being held still.
+ * The levels tool's cursor is being held still.
  *
  * `Ligar` used to answer two questions at once: put the tool on the chart, *and* give the cursor a
  * new meaning. Those come apart the moment something is pinned — the pins are what you wanted to
@@ -693,10 +696,10 @@ function toggleWickSide(side: WickSide) {
  * switch here stores its non-default, and this one's default is on. Hunting for a level is what the
  * tool is turned on for, and that is the cursor.
  */
-const wickPaused = ref(false)
+const levelsPaused = ref(false)
 
-function toggleWickTracking() {
-  wickPaused.value = !wickPaused.value
+function toggleLevelTracking() {
+  levelsPaused.value = !levelsPaused.value
 }
 
 /**
@@ -1048,12 +1051,12 @@ const nextBarByTime = computed(() => {
 })
 
 /**
- * The same bars by `time` — what the wick tool looks a bar up in.
+ * The same bars by `time` — what the levels tool looks a bar up in.
  *
  * A map for the reason `nextBarByTime` is one: the lookups are by name, one bar at a time, and they
  * happen on hover. Computed, so it is rebuilt when the feed moves and never while the mouse does.
  *
- * Through the replay as well, so the wick tool and the trend lines' drag-snapping cannot reach a
+ * Through the replay as well, so the levels tool and the trend lines' drag-snapping cannot reach a
  * bar the cut has taken off the chart.
  */
 const barsByTime = computed(() => {
@@ -1246,12 +1249,12 @@ function toggleHideLink(producer: string) {
  * The command palette is open.
  *
  * Its whole job is the switches you hit while *reading* the chart rather than while setting it up:
- * `Destacar por ponto` and `Ocultar entre candles` on a Series, and `Seguir o cursor` on the wick
+ * `Destacar por ponto` and `Ocultar entre candles` on a Series, and `Seguir o cursor` on the levels
  * tool. Each sits several folds down a 20rem column that scrolls inside itself, so reaching one
  * costs the chart your eyes. `Ctrl+K` costs nothing.
  *
  * Deliberately not a component. Every row it offers is a call into this page's state — `autoHide`,
- * `shown`, `focusMode`, `focusBar`, `wickPaused`, `hideTimer` — and lifting it out would mean
+ * `shown`, `focusMode`, `focusBar`, `levelsPaused`, `hideTimer` — and lifting it out would mean
  * threading eight refs and three callbacks through props to save a template.
  *
  * Just as deliberately, it does not mirror the sidebar. `Ligar`, the filters, the pinned lists and
@@ -1277,7 +1280,7 @@ function hasAutoHide(overlay: { producer: string, name: string }) {
  * Only that group. `Seguir o cursor` is one row belonging to one tool with no Series behind it —
  * no palette colour, no producer, a different verb — and folding it in here would mean a list whose
  * entries mean two things, sorted into groups again at the other end. It is written out in the
- * template, exactly as the wick tool's control block is written out below the loop of Patterns.
+ * template, exactly as the levels tool's control block is written out below the loop of Patterns.
  *
  * Labels only — no state word. Whether a Series is currently hiding is decided by a timer that
  * exists only in the browser, so it is read in the template, inside the `ClientOnly` the dialog
@@ -1285,7 +1288,7 @@ function hasAutoHide(overlay: { producer: string, name: string }) {
  * palette dot and its key without a second, client-only copy of the list.
  *
  * The key is the producer, which `CommandItem` wants as its `value` and which is already unique —
- * `WICK_KEY` cannot collide with one, for the reason its own docblock gives.
+ * `LEVELS_KEY` cannot collide with one, for the reason its own docblock gives.
  */
 const hideActions = computed(() => overlays.value.filter(hasAutoHide).map(overlay => ({
   key: overlay.producer,
@@ -1591,9 +1594,9 @@ const panel = useStoredPanel()
 const chartCandles = computed(() => (replay.cut.value === null ? candles.value ?? [] : replay.shown.value))
 
 /**
- * The ruler's key, standing where a producer key stands — `WICK_KEY`'s arrangement, and for the
+ * The ruler's key, standing where a producer key stands — `LEVELS_KEY`'s arrangement, and for the
  * same reason: it is not a Pattern, nothing runs on the server for it, and it draws off nothing the
- * pipeline produced. What it borrows through the key is narrower than the wick tool's, though. A
+ * pipeline produced. What it borrows through the key is narrower than the levels tool's, though. A
  * ruler has no chip, no `Ligar` and no pins; the one piece of bookkeeping it joins is the
  * selection, so that the `Trash` floating over the pane can reach one.
  *
@@ -1630,7 +1633,7 @@ const rulers = ref<Ruler[]>([])
  * for a pin to name. Written once here so the bar and the list cannot drift into disagreeing about
  * it, which they would: the list has held this logic inline since before there was a bar.
  *
- * Everything that is not `trend-lines` — a leg extreme, a wick level — is a plain pin.
+ * Everything that is not `trend-lines` — a leg extreme, a candle level — is a plain pin.
  */
 function removeSelection(producer: string, segment: string) {
   // A ruler answers to neither door: there is no Point behind it for a pin to name and no line it
@@ -1754,9 +1757,9 @@ function restoreLayout() {
 /**
  * The pinned lines as the pipeline wants them: an id, the bar they start on, and a price.
  *
- * Read back through `pinnedSegments` and `pinnedWicks` rather than off `pinned` directly, so the
+ * Read back through `pinnedSegments` and `pinnedLevels` rather than off `pinned` directly, so the
  * lines that travel are exactly the ones on the screen — a pin whose leg is gone, whose bar has
- * scrolled out of the window, or whose side is unchecked resolves to nothing in both, and asking
+ * scrolled out of the window, or whose field is unchecked resolves to nothing in both, and asking
  * the server about a line nobody can see would put an answer in the response with nothing to
  * attach it to.
  *
@@ -1773,7 +1776,7 @@ function restoreLayout() {
  * on its own answer forever. Nothing is lost by narrowing: `leg-extremes` is not in `MANUAL`, so it
  * only ever arrives on the automatic response and the filter never matched a manual Series.
  *
- * `ExtremeSegment` and `WickLevel` both extend `LevelSegment`, which is already `{ id, time,
+ * `ExtremeSegment` and `CandleLevel` both extend `LevelSegment`, which is already `{ id, time,
  * price }` — so this is a narrowing, not a mapping, and there is no second definition of what a
  * pinned line is.
  */
@@ -1782,7 +1785,7 @@ const pinnedLines = computed(() =>
     ...autoOverlays.value
       .filter(overlay => overlay.name === 'leg-extremes')
       .flatMap(overlay => pinnedSegments(overlay)),
-    ...pinnedWicks(),
+    ...pinnedLevels(),
   ].map(({ id, time, price }) => ({ id, time, price })),
 )
 
@@ -2048,21 +2051,21 @@ function pinnedTrends(overlay: { producer: string, points: PatternPoint[], color
 }
 
 /**
- * The pinned wick levels as things with a colour, a wick, an end and a price — what the list under
- * the tool's checkboxes shows.
+ * The pinned candle levels as things with a colour, the prices they stand for and a price — what
+ * the list under the tool's checkboxes shows.
  *
- * Through the same `wickLevels` the overlay draws from, so the list and the chart cannot disagree,
+ * Through the same `candleLevels` the overlay draws from, so the list and the chart cannot disagree,
  * and a pin whose bar has left the window simply does not resolve. No hovered bar is passed: this
  * list is what survives the cursor moving on, which is what a pin means here.
  *
- * The side filter is passed, for the reason `pinnedSegments` passes the one it has: a level hidden
+ * The field filter is passed, for the reason `pinnedSegments` passes the one it has: a level hidden
  * by a checkbox is not on screen, and the list is a legend for what is.
  */
-function pinnedWicks(): WickLevel[] {
-  const ids = new Set(pinsFor(WICK_KEY))
+function pinnedLevels(): CandleLevel[] {
+  const ids = new Set(pinsFor(LEVELS_KEY))
   if (ids.size === 0) return []
 
-  return wickLevels(barsByTime.value, null, ids, wickSides())
+  return candleLevels(barsByTime.value, null, ids, levelFields())
 }
 
 /**
@@ -2517,17 +2520,17 @@ function isVisible(overlay: { producer: string }) {
                   <!-- Not one of the overlays above, and so not in the loop: it draws off the candles
                        rather than off a Series the pipeline produced, and has no Points, no colour from
                        the palette and no producer. What it shares with them is the chip and the pins. -->
-                  <WickLevelsOverlay
+                  <CandleLevelsOverlay
                     :bars="barsByTime"
-                    :visible="shown.has(WICK_KEY)"
-                    :sides="wickSides()"
-                    :pinned="pinsFor(WICK_KEY)"
-                    :tracking="!wickPaused"
-                    :selected="selectedIn(WICK_KEY)"
-                    @pin="(id: string) => addPin(WICK_KEY, id)"
-                    @select="(id: string | null) => onSelect(WICK_KEY, id)"
+                    :visible="shown.has(LEVELS_KEY)"
+                    :fields="levelFields()"
+                    :pinned="pinsFor(LEVELS_KEY)"
+                    :tracking="!levelsPaused"
+                    :selected="selectedIn(LEVELS_KEY)"
+                    @pin="(id: string) => addPin(LEVELS_KEY, id)"
+                    @select="(id: string | null) => onSelect(LEVELS_KEY, id)"
                   />
-                  <!-- The ruler, joined the same way and for the same reasons as the wick tool:
+                  <!-- The ruler, joined the same way and for the same reasons as the levels tool:
                        no Series behind it, no Points, no colour from the palette. Unlike it, it
                        has no chip either — it is armed from the corner of the pane rather than
                        from the sidebar, because it is a way of reading the chart and not a thing
@@ -2722,7 +2725,7 @@ function isVisible(overlay: { producer: string }) {
              thing you opened the sidebar for — below the fold. A `multiple` select trades the
              chips' one advantage, every choice legible at rest, for a single line of chrome.
 
-             Not the `v-else` of the message above: the last entry is the wick tool, which reads
+             Not the `v-else` of the message above: the last entry is the levels tool, which reads
              the candles and has something to draw whether or not the pipeline found anything. The
              message stays, because it is still true of the Patterns. -->
         <div>
@@ -3319,14 +3322,14 @@ function isVisible(overlay: { producer: string }) {
             </div>
           </template>
 
-          <!-- The wick tool's control block, in the same shape as a Pattern's and after all of
+          <!-- The levels tool's control block, in the same shape as a Pattern's and after all of
                them, because its chip is the last in the row. Written out rather than folded into
                the loop above: it has no Series, no point count and no timeframe to warn about, and
                a row of `v-if`s standing in for those would say nothing about either kind. -->
-          <div v-if="open.has(WICK_KEY)" class="mt-3 border-t border-gray-200 pt-3">
+          <div v-if="open.has(LEVELS_KEY)" class="mt-3 border-t border-gray-200 pt-3">
             <div class="flex items-baseline justify-between gap-2 text-xs">
-              <span class="min-w-0 truncate font-medium" :style="{ color: WICK_HUES.high }">
-                Pavio do candle
+              <span class="min-w-0 truncate font-medium" :style="{ color: LEVEL_HUES.close }">
+                Níveis do candle
               </span>
               <!-- Where a Pattern says how many points it found. This one finds nothing until the
                    cursor is somewhere, so it says what it does instead. -->
@@ -3335,12 +3338,12 @@ function isVisible(overlay: { producer: string }) {
 
             <button
               class="mt-1.5 rounded border px-2 py-0.5 text-xs"
-              :class="shown.has(WICK_KEY)
+              :class="shown.has(LEVELS_KEY)
                 ? 'border-green-600 bg-green-50 text-green-700'
                 : 'border-gray-300 text-gray-500'"
-              @click="toggle(WICK_KEY)"
+              @click="toggle(LEVELS_KEY)"
             >
-              {{ shown.has(WICK_KEY) ? 'Desligar' : 'Ligar' }}
+              {{ shown.has(LEVELS_KEY) ? 'Desligar' : 'Ligar' }}
             </button>
 
             <!-- The second question the button above used to answer as well: whether the cursor
@@ -3351,53 +3354,53 @@ function isVisible(overlay: { producer: string }) {
                  `Destacar por ponto`. Not called `Ativar`: it starts on, and a button reading
                  "activate" while already active says the wrong thing in its resting state. -->
             <button
-              v-if="shown.has(WICK_KEY)"
+              v-if="shown.has(LEVELS_KEY)"
               class="mt-1.5 ml-1.5 rounded border px-2 py-0.5 text-xs"
-              :class="wickPaused
+              :class="levelsPaused
                 ? 'border-gray-300 text-gray-500'
                 : 'border-green-600 bg-green-50 text-green-700'"
-              @click="toggleWickTracking"
+              @click="toggleLevelTracking"
             >
               Seguir o cursor
-              <span class="ml-1 text-gray-500">· {{ wickPaused ? 'pausado' : 'ativo' }}</span>
+              <span class="ml-1 text-gray-500">· {{ levelsPaused ? 'pausado' : 'ativo' }}</span>
             </button>
 
             <!-- Only while the tool is on, as with every filter row on this page: with `Ligar`
                  off there is nothing for these to filter. -->
-            <div v-if="shown.has(WICK_KEY)" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+            <div v-if="shown.has(LEVELS_KEY)" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
               <label
-                v-for="side in WICK_SIDES"
-                :key="side.value"
+                v-for="field in LEVEL_FIELDS"
+                :key="field.value"
                 class="flex items-center gap-1.5"
               >
                 <input
                   type="checkbox"
-                  :checked="!hiddenWickSides.has(side.value)"
-                  @change="toggleWickSide(side.value)"
+                  :checked="!hiddenLevelFields.has(field.value)"
+                  @change="toggleLevelField(field.value)"
                 >
-                <!-- The colour key and the checkbox in one: each wick is drawn in its own hue, and
-                     a separate legend for two rows would be a legend for a list of two. -->
-                <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: WICK_HUES[side.value] }" />
-                <span class="text-gray-500">{{ side.label }}</span>
+                <!-- The colour key and the checkbox in one: each field is drawn in its own hue, and
+                     a separate legend for four rows would be a legend for a list of four. -->
+                <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: LEVEL_HUES[field.value] }" />
+                <span class="text-gray-500">{{ field.label }}</span>
               </label>
             </div>
 
-            <p v-if="shown.has(WICK_KEY)" class="mt-1 text-xs text-gray-400">
-              <template v-if="wickPaused">
-                Só os pavios fixados. Ative para seguir o cursor de novo.
+            <p v-if="shown.has(LEVELS_KEY)" class="mt-1 text-xs text-gray-400">
+              <template v-if="levelsPaused">
+                Só os níveis fixados. Ative para seguir o cursor de novo.
               </template>
               <template v-else>
-                Passe o cursor sobre um candle para ver onde seus pavios começam e terminam.
+                Passe o cursor sobre um candle para ver seus níveis de abertura, máxima, mínima e fechamento.
               </template>
             </p>
 
             <!-- What survives the cursor moving on. `ClientOnly` because a pin only exists after a
                  click, the same reason the three Pattern lists are wrapped. -->
             <ClientOnly>
-              <div v-if="shown.has(WICK_KEY)" class="mt-1 text-xs">
-                <div v-if="pinnedWicks().length" class="flex items-baseline justify-between gap-2">
+              <div v-if="shown.has(LEVELS_KEY)" class="mt-1 text-xs">
+                <div v-if="pinnedLevels().length" class="flex items-baseline justify-between gap-2">
                   <span class="text-gray-500">Fixados</span>
-                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(WICK_KEY)">
+                  <button class="text-gray-400 hover:text-gray-600" @click="clearPins(LEVELS_KEY)">
                     limpar
                   </button>
                 </div>
@@ -3407,18 +3410,18 @@ function isVisible(overlay: { producer: string }) {
 
                 <ul class="mt-1 space-y-0.5">
                   <li
-                    v-for="level in pinnedWicks()"
+                    v-for="level in pinnedLevels()"
                     :key="level.id"
                     class="flex items-center gap-1.5 text-gray-500"
                   >
                     <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: level.color }" />
-                    <span>{{ WICK_LABELS[level.side] }} · {{ WICK_END_LABELS[level.end] }}</span>
+                    <span>{{ level.fields.map(field => LEVEL_LABELS[field]).join(' · ') }}</span>
                     <span class="font-mono">{{ level.price }}</span>
                     <span class="text-gray-400">{{ barLabel(level.time) }}</span>
                     <button
                       class="ml-auto text-gray-400 hover:text-gray-600"
-                      :aria-label="`desafixar ${WICK_LABELS[level.side]} ${WICK_END_LABELS[level.end]}`"
-                      @click="togglePin(WICK_KEY, level.id)"
+                      :aria-label="`desafixar ${level.fields.map(field => LEVEL_LABELS[field]).join(' e ')}`"
+                      @click="togglePin(LEVELS_KEY, level.id)"
                     >
                       ✕
                     </button>
@@ -3454,7 +3457,7 @@ function isVisible(overlay: { producer: string }) {
                    sidebar is where that is fixed — so the palette says so rather than looking
                    broken. -->
               <div
-                v-if="!hideActions.length && !focusActions.length && !shown.has(WICK_KEY)"
+                v-if="!hideActions.length && !focusActions.length && !shown.has(LEVELS_KEY)"
                 class="py-6 text-center text-sm text-gray-500"
               >
                 Nada no gráfico ainda.
@@ -3520,13 +3523,13 @@ function isVisible(overlay: { producer: string }) {
                 </CommandItem>
               </CommandGroup>
 
-              <CommandGroup v-if="shown.has(WICK_KEY)" heading="Pavio do candle">
-                <CommandItem :value="WICK_KEY" class="font-medium" @select="toggleWickTracking(); paletteOpen = false">
-                  <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: WICK_HUES.high }" />
+              <CommandGroup v-if="shown.has(LEVELS_KEY)" heading="Níveis do candle">
+                <CommandItem :value="LEVELS_KEY" class="font-medium" @select="toggleLevelTracking(); paletteOpen = false">
+                  <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: LEVEL_HUES.high }" />
                   Seguir o cursor
-                  <span class="sr-only">Pavio do candle</span>
+                  <span class="sr-only">Níveis do candle</span>
                   <span class="ml-auto text-xs font-normal text-gray-500">
-                    {{ wickPaused ? 'pausado' : 'ativo' }}
+                    {{ levelsPaused ? 'pausado' : 'ativo' }}
                   </span>
                 </CommandItem>
               </CommandGroup>
