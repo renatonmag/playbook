@@ -29,7 +29,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/componen
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '~/components/ui/dialog'
 import { useElementSize } from '@vueuse/core'
-import { ChevronRight, Ellipsis, Link2, Link2Off, Play } from '@lucide/vue'
+import { AlarmClockOff, AlarmClockPlus, ChevronRight, Ellipsis, Link2, Link2Off, Play } from '@lucide/vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -349,6 +349,13 @@ function stopReplay() {
   if (wasLive.value) live.connect()
   wasLive.value = false
 }
+
+/**
+ * The audible countdown to the next five-minute mark. Declared beside the replay because that is
+ * where its switch sits, and for no other reason: nothing on this page reads it, and it reads
+ * nothing of this page — not the feed, not the timeframe, not the window. See `useBeep`.
+ */
+const beep = useBeep()
 
 /**
  * How many bars the feed has opened since the page loaded, seeded from the loaded window's last
@@ -2502,6 +2509,26 @@ function isVisible(overlay: { producer: string }) {
       </div>
 
       <div class="flex items-center gap-3">
+        <!-- Leftmost, because it is the one control here that says nothing about what is on screen:
+             it neither moves the view nor changes what is drawn, it only decides whether the page
+             is allowed to make a sound. The icon carries the state on its own — a bell that can be
+             added, a bell that can be silenced — and the colours follow the replay's so the two
+             read as one family of switches rather than two conventions. -->
+        <Button
+          variant="outline"
+          size="icon-sm"
+          :class="beep.on.value
+            ? 'border-green-600 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-700'
+            : 'text-gray-500'"
+          :aria-pressed="beep.on.value"
+          aria-label="alarme sonoro"
+          :title="beep.on.value ? 'Desligar alarme' : 'Alarme sonoro'"
+          @click="beep.on.value ? beep.stop() : beep.start()"
+        >
+          <AlarmClockOff v-if="beep.on.value" />
+          <AlarmClockPlus v-else />
+        </Button>
+
         <!-- Left of the instrument rather than beside `Agora`, which is the other switch here: the
              two are opposites — one holds the view on an old bar, the other runs it to the live
              edge — and a pair of contradicting switches side by side reads as a pair of modes. -->
