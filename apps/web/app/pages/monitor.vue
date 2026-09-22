@@ -17,6 +17,8 @@ import ConsecutiveDirectionOverlay from '~/components/ConsecutiveDirectionOverla
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
 import RetracementOverlay from '~/components/RetracementOverlay.vue'
+import WeightedAverageOverlay from '~/components/WeightedAverageOverlay.vue'
+import IndicatorMenu from '~/components/IndicatorMenu.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
 import ProximityControls from '~/components/ProximityControls.vue'
 import PatternLog from '~/components/PatternLog.vue'
@@ -25,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/u
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '~/components/ui/dropdown-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/components/ui/resizable'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/components/ui/command'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '~/components/ui/dialog'
 import { useElementSize } from '@vueuse/core'
 import { ChevronRight, Ellipsis, Link2, Link2Off, Play } from '@lucide/vue'
 
@@ -636,6 +639,48 @@ const PINNABLE = new Set(['leg-extremes', 'bar-gap', 'trend-lines'])
  * The levels tool joins through `LEVELS_KEY`, the way it joins `PINNABLE`.
  */
 const SELECTABLE = new Set(['leg-extremes', 'trend-lines'])
+
+/**
+ * The indicators on the chart, and whether the dialog that configures them is open.
+ *
+ * The third kind of thing this page draws, after the Patterns the pipeline produced and the two
+ * cursor tools. An indicator is arithmetic over the candles the browser already holds — see
+ * `weightedAverage` — so nothing runs on the server for it, there is no producer key, and unlike
+ * the levels tool it does not join the sidebar's bookkeeping at all: it has no pins, no click on
+ * the chart to read, and no control block. What it has is settings, which is why it gets a dialog
+ * of its own rather than a chip among the Patterns.
+ *
+ * Stored rather than held, unlike every other switch on this page — see `useStoredIndicators` for
+ * why a setting comes back on reload where a layout waits for `Restaurar`.
+ */
+const { indicators, add: addIndicator, patch: patchIndicator, toggle: toggleIndicator, remove: removeIndicator } = useStoredIndicators()
+
+/**
+ * The indicator the dialog is about, by id, or `null` with the dialog closed.
+ *
+ * One value rather than an `open` flag beside a selection, because the two could disagree: the
+ * combobox opens the dialog on the instance it just added and the chip's gear opens it on an older
+ * one, and an `open` that outlived a `✕` would be a dialog editing something no longer on the
+ * chart. `editing` is resolved against the list on every read — see `edited` — so removing what it
+ * names closes it by itself.
+ */
+const editing = ref<string | null>(null)
+
+/** The instance `editing` names, or `null` — the one the dialog binds every field to. */
+const edited = computed(() => indicators.value.find(entry => entry.id === editing.value) ?? null)
+
+/** The averages, which is every indicator there is today. One overlay each. */
+/**
+ * The Timeframes an indicator may be averaged over, beyond the chart's own.
+ *
+ * Coarser only, and the list is derived rather than written down: five-minute bars group into
+ * hours, hourly bars do not come apart into five-minute ones. Switching the chart re-derives it,
+ * so the dialog never offers a bucket the overlay would refuse to draw — see `aggregationSeconds`,
+ * which is the same rule stated once for the line and once for the label.
+ */
+const coarser = computed(() => TIMEFRAMES.filter(entry => SECONDS[entry] > SECONDS[timeframe.value]))
+
+const weightedAverages = computed(() => indicators.value.filter(entry => entry.kind === 'wma'))
 
 /**
  * The levels tool's key, standing where a producer key stands.
@@ -2530,6 +2575,29 @@ function isVisible(overlay: { producer: string }) {
                     @pin="(id: string) => addPin(LEVELS_KEY, id)"
                     @select="(id: string | null) => onSelect(LEVELS_KEY, id)"
                   />
+                  <!-- An indicator, outside the loop for the levels tool's reason and one more: it
+                       has no Series behind it, no Points and no colour from the palette — and its
+                       colour is a setting rather than an assignment, because it is a line somebody
+                       chose to put there.
+
+                       `replay.shown.value` and not `chartCandles`: the chart draws the loaded window
+                       with `setData` and each live bar with `update`, so `chartCandles` deliberately
+                       stops at the fetch. An average has no equivalent — every point of it moves when
+                       the last close moves — so it reads the merged bars, which are reassigned on
+                       every frame the socket delivers. That is what makes the line tick. It is the
+                       replay's cut of them, so stepping back ends the line at the bar being replayed
+                       rather than drawing an average of bars that had not happened yet. -->
+                  <WeightedAverageOverlay
+                    v-for="average in weightedAverages"
+                    :key="average.id"
+                    :bars="replay.shown.value"
+                    :period="average.period"
+                    :color="average.color"
+                    :width="average.width"
+                    :visible="average.visible"
+                    :timeframe="average.timeframe"
+                    :chart-timeframe="timeframe"
+                  />
                   <!-- The ruler, joined the same way and for the same reasons as the levels tool:
                        no Series behind it, no Points, no colour from the palette. Unlike it, it
                        has no chip either — it is armed from the corner of the pane rather than
@@ -2553,7 +2621,18 @@ function isVisible(overlay: { producer: string }) {
                   <!-- The pane's own tools, in its top-left corner. First and only member: the
                        ruler. Inside the slot, like the two bars below, because it is positioned
                        against the chart's box. -->
-                  <ChartTools :ruler="rulerArmed" @toggle-ruler="rulerArmed = !rulerArmed" />
+                  <!-- Also the chart's legend now: one chip per indicator, which is where they are
+                       named, configured, hidden and removed. See the component's docblock for why
+                       that is this strip and not the sidebar. -->
+                  <ChartTools
+                    :ruler="rulerArmed"
+                    :indicators="indicators"
+                    :chart-timeframe="timeframe"
+                    @toggle-ruler="rulerArmed = !rulerArmed"
+                    @settings="(id: string) => editing = id"
+                    @toggle-visible="toggleIndicator"
+                    @remove="removeIndicator"
+                  />
                   <!-- The actions for whatever is selected. Inside the chart's box, and therefore
                        inside the slot, because it is positioned against that box. -->
                   <ChartToolbar
@@ -2641,11 +2720,31 @@ function isVisible(overlay: { producer: string }) {
            Only at `lg`, for the reason the row is only a row there: stacked under the chart, a
            nested scroll area is worse than the page scroll it would replace. -->
       <aside class="w-full shrink-0 border-y border-gray-200 p-4 lg:w-80 lg:overflow-y-auto lg:border-l">
-        <h2 class="flex items-baseline justify-between gap-2 text-sm font-semibold">
+        <!-- Centred rather than on the baseline: the two controls on the right are 32px squares
+             with no text in them, and a square has no baseline to share with `Padrões`. -->
+        <h2 class="flex items-center justify-between gap-2 text-sm font-semibold">
           Padrões
-          <span class="flex shrink-0 items-baseline gap-2 font-normal">
+          <span class="flex shrink-0 items-center gap-2 font-normal">
             <!-- The run is now started by editing a field, so it needs to say it is running. -->
             <span v-if="patternsPending" class="text-xs text-gray-400">rodando…</span>
+
+            <!-- The indicators, which are not Patterns and so are not in the list below: they are
+                 read off the candles the browser already holds, nothing runs on the server for
+                 them, and what they need is settings rather than a chip. Hence a dialog, and a
+                 button here rather than a row among the Series.
+
+                 It says nothing about what is already drawn: the legend in the corner of the pane
+                 names every line there is, and a tint here would be a second, vaguer answer to the
+                 same question.
+
+                 `ClientOnly` for the ellipsis's reason one comment down: what this opens is read
+                 out of `localStorage`, so the server cannot know what it says. -->
+            <ClientOnly>
+              <IndicatorMenu @add="kind => editing = addIndicator(kind)" />
+              <template #fallback>
+                <div class="size-8" />
+              </template>
+            </ClientOnly>
 
             <!-- The sidebar's own actions, which are about the panel rather than about any one
                  Pattern. `Restaurar` puts back what the sidebar looked like when you left it:
@@ -2663,12 +2762,20 @@ function isVisible(overlay: { producer: string }) {
             <ClientOnly>
               <DropdownMenu>
                 <DropdownMenuTrigger as-child>
-                  <button
-                    class="flex size-[22px] items-center justify-center rounded border border-gray-300 text-gray-500 hover:text-gray-700"
+                  <!-- The shared `Button`, matching the indicator trigger beside it: the border,
+                       the rounding and the centering this used to spell out are what the `outline`
+                       variant already is, and spelling them out was how the pair drifted into two
+                       sizes of button. The icon is left unsized for the same reason — an unclassed
+                       one is sized by `buttonVariants`. -->
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    class="shrink-0 text-gray-500"
                     title="ações do painel"
+                    aria-label="ações do painel"
                   >
-                    <Ellipsis class="size-3.5" />
-                  </button>
+                    <Ellipsis />
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" class="text-xs">
                   <DropdownMenuItem
@@ -2692,7 +2799,7 @@ function isVisible(overlay: { producer: string }) {
                 </DropdownMenuContent>
               </DropdownMenu>
               <template #fallback>
-                <div class="size-[22px]" />
+                <div class="size-8" />
               </template>
             </ClientOnly>
           </span>
@@ -3535,6 +3642,123 @@ function isVisible(overlay: { producer: string }) {
               </CommandGroup>
             </CommandList>
           </CommandDialog>
+        </ClientOnly>
+
+        <!-- One indicator, configured. Anchored at the end of the sidebar beside the palette
+             because that is where the rest of this column's overlay markup lives, but like the
+             palette it draws over the page rather than in the column.
+
+             Every field applies as it is edited and `OK` only dismisses. A `Salvar` would be a
+             second, later truth about a line already redrawn — the chart is right there behind the
+             dialog, and being able to watch the average tighten while typing the period is the
+             whole reason to edit it here rather than in a form. The settings reach `localStorage`
+             through the composable's watcher regardless of how this closes.
+
+             `v-if="edited"` rather than a disabled state: `editing` names an instance, and the `✕`
+             on its chip can take that instance away while this is open. Resolving it on every read
+             means the dialog closes with the thing it was about.
+
+             `ClientOnly` because what it reads is `localStorage`, which the server render does
+             not have. -->
+        <ClientOnly>
+          <Dialog
+            :open="edited !== null"
+            @update:open="(open: boolean) => { if (!open) editing = null }"
+          >
+            <DialogContent v-if="edited" class="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle class="flex items-baseline gap-2 text-sm">
+                  Média ponderada
+                  <span class="font-mono text-xs font-normal text-gray-400">{{ indicatorLabel(edited, timeframe) }}</span>
+                </DialogTitle>
+                <DialogDescription class="text-xs">
+                  Calculada a partir dos candles. Não passa pelo pipeline.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div class="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 border-t border-gray-200 pt-3 text-xs">
+                <!-- The bars averaged, which is a different question from which bars are drawn.
+                     `do gráfico` is stored as `null` and not as the current Timeframe, so a line
+                     left on that setting follows the chart instead of freezing at whatever it
+                     happened to be showing when it was added. -->
+                <span class="text-gray-500">Candles</span>
+                <select
+                  :value="edited.timeframe ?? ''"
+                  class="w-32 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                  @change="(event: Event) => patchIndicator(edited!.id, { timeframe: isTimeframe((event.target as HTMLSelectElement).value) ? (event.target as HTMLSelectElement).value as Timeframe : null })"
+                >
+                  <option value="">do gráfico ({{ timeframe }})</option>
+                  <option v-for="entry in coarser" :key="entry" :value="entry">{{ entry }}</option>
+                  <!-- The setting is kept when the chart moves under it — switching to `1h` does not
+                       throw away an indicator's `15m` — so the select has to be able to show a
+                       Timeframe it would not otherwise offer. Without this row the browser falls
+                       back to the first option and the dialog quietly reports `do gráfico` for a
+                       line that is still stored as something else. -->
+                  <option
+                    v-if="edited.timeframe !== null && !coarser.includes(edited.timeframe)"
+                    :value="edited.timeframe"
+                  >
+                    {{ edited.timeframe }} — sem efeito em {{ timeframe }}
+                  </option>
+                </select>
+
+                <span class="text-gray-500">Período</span>
+                <input
+                  :value="edited.period"
+                  type="number"
+                  min="2"
+                  step="1"
+                  class="w-20 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                  @input="(event: Event) => patchIndicator(edited!.id, { period: Number((event.target as HTMLInputElement).value) })"
+                >
+
+                <span class="text-gray-500">Cor</span>
+                <span class="flex items-center gap-2">
+                  <input
+                    :value="edited.color"
+                    type="color"
+                    class="size-6 rounded border border-gray-300"
+                    @input="(event: Event) => patchIndicator(edited!.id, { color: (event.target as HTMLInputElement).value })"
+                  >
+                  <span class="font-mono text-gray-500">{{ edited.color }}</span>
+                </span>
+
+                <!-- `1..4`: the only weights the library draws. See `useLineOverlay`. -->
+                <span class="text-gray-500">Espessura</span>
+                <span class="flex items-center gap-2">
+                  <input
+                    :value="edited.width"
+                    type="number"
+                    min="1"
+                    max="4"
+                    step="1"
+                    class="w-20 rounded border border-gray-300 px-1.5 py-0.5 text-xs"
+                    @input="(event: Event) => patchIndicator(edited!.id, { width: Number((event.target as HTMLInputElement).value) })"
+                  >
+                  <span class="text-gray-500">px</span>
+                </span>
+              </div>
+
+              <!-- The line starts at the Nth bar, which is the one surprise the settings can
+                   produce: a period longer than the window draws nothing at all. Aggregating makes
+                   that ordinary rather than exotic — the window holds a few hundred 5m bars but
+                   only a few dozen hours — so the count is named in the unit being averaged. -->
+              <p class="text-xs text-gray-500">
+                A linha começa no candle {{ edited.period }}
+                <template v-if="aggregationSeconds(edited.timeframe, timeframe) !== undefined">
+                  de {{ edited.timeframe }}
+                </template>
+                da janela — antes disso não há história suficiente para a média. A janela carregada
+                guarda cerca de cinco pregões.
+              </p>
+
+              <DialogFooter>
+                <Button size="sm" class="text-xs" @click="editing = null">
+                  OK
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </ClientOnly>
 
         <!-- A Pattern that raised drew nothing, and so did a Pattern that found nothing. Without

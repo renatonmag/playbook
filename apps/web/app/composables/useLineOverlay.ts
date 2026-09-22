@@ -1,5 +1,16 @@
-import { LineSeries, type ISeriesApi, type LineData, type UTCTimestamp } from 'lightweight-charts'
+import { LineSeries, type ISeriesApi, type LineData, type LineWidth, type UTCTimestamp } from 'lightweight-charts'
 import type { MaybeRefOrGetter } from 'vue'
+
+/**
+ * The library's line weights are the four integers `1..4` and nothing else, so a width arriving
+ * from a number input has to be brought into that set rather than trusted. Out of range clamps and
+ * anything unusable — a half-typed field, an older `localStorage` entry — reads as the 1px default,
+ * which is the same answer every Pattern's line already gives.
+ */
+function asLineWidth(width: number | undefined): LineWidth {
+  if (!Number.isFinite(width)) return 1
+  return Math.min(4, Math.max(1, Math.round(width!))) as LineWidth
+}
 
 /**
  * A line drawn on the chart an overlay is nested in — the whole of what a polyline overlay does.
@@ -10,11 +21,17 @@ import type { MaybeRefOrGetter } from 'vue'
  *
  * The caller does the mapping. A Point type is the overlay's business, and a composable that
  * knew how to read a `price` off one would have to learn every Pattern's Point in turn.
+ *
+ * `width` is the one thing here that is a setting rather than a fact about the data, and it is
+ * optional because only the indicator has one: a Pattern's line is drawn at the weight every other
+ * Pattern's is, and offering to thicken one would invite a chart where thickness means nothing in
+ * particular. An indicator is a line somebody chose to put there, so its weight is theirs too.
  */
 export function useLineOverlay(
   data: MaybeRefOrGetter<LineData<UTCTimestamp>[]>,
   visible: MaybeRefOrGetter<boolean>,
   color: MaybeRefOrGetter<string | undefined>,
+  width?: MaybeRefOrGetter<number | undefined>,
 ) {
   const chart = inject(CHART, shallowRef(null))
 
@@ -24,8 +41,8 @@ export function useLineOverlay(
   // yet at an overlay's `onMounted`. Waiting on the ref is required, not stylistic: reading it
   // too early fails by drawing nothing rather than by raising.
   watch(
-    [chart, () => toValue(data), () => toValue(visible), () => toValue(color)],
-    ([chartApi, points, isVisible, stroke]) => {
+    [chart, () => toValue(data), () => toValue(visible), () => toValue(color), () => toValue(width)],
+    ([chartApi, points, isVisible, stroke, thickness]) => {
       if (!chartApi) return
 
       line ??= chartApi.addSeries(LineSeries, {
@@ -42,7 +59,7 @@ export function useLineOverlay(
       })
 
       line.setData(points)
-      line.applyOptions({ visible: isVisible, color: stroke ?? '#2563eb' })
+      line.applyOptions({ visible: isVisible, color: stroke ?? '#2563eb', lineWidth: asLineWidth(thickness) })
     },
     { immediate: true },
   )
