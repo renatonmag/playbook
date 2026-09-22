@@ -291,6 +291,28 @@ const mergedBars = computed(() => {
 const replay = useReplay(mergedBars)
 
 /**
+ * The same bars with the one still being written taken off the end.
+ *
+ * The feed rewrites its newest bar in place, which makes that bar a witness to nothing: a break it
+ * has not made yet is a break it may still make, and a question answered off it has an answer that
+ * moves with every tick. Two readers want the history without it — the map that says which bar
+ * followed which, and the name of the bar the pipeline last reached — and they used to ask the
+ * question separately. One of them asked it wrong.
+ *
+ * Read through the replay, for the reason `nextBarByTime` already was: under a cut the newest bar
+ * on screen is the newest bar there is, so an older cut has nothing to trim here and the bar at the
+ * cut is treated exactly as the live edge's is — ends the history, and is judged by nothing.
+ *
+ * The cost, stated once for both readers: a window whose `to` is in the past has no forming bar at
+ * its edge, and this drops a closed one anyway. The monitor is a live surface and the case to get
+ * right is the one at the live edge.
+ */
+const closedBars = computed(() => {
+  const shown = replay.shown.value
+  return shown.at(-1)?.time === mergedBars.value.at(-1)?.time ? shown.slice(0, -1) : shown
+})
+
+/**
  * Whether the feed was running when the replay started, so ending one can put it back.
  *
  * A replay and a live feed contradict each other the way a pinned window and one do — see the
@@ -1071,22 +1093,27 @@ function toggleConfirmedOnly(producer: string) {
 }
 
 /**
- * A map from a bar's `time` to the bar that immediately follows it, over the loaded window plus
- * any live bars — the input the confirmation filter reads.
+ * A map from a bar's `time` to the bar that immediately follows it, over the closed history — the
+ * input the confirmation filter reads.
  *
  * One map for the page rather than per Series, because every confirmable Series is measured
  * against the same candle history: the anchor moves with the pipeline run, but the bars don't.
- * A missing key means the bar is the newest one on screen, and the filter keeps such marks — see
- * `confirmed` in `utils/bars`. `mergedBars` puts the live bars in time order after the loaded
- * window, so the seam between the two links across like any other pair.
+ * A missing key means the bar is the newest one this map knows about, and the filter keeps such
+ * marks — see `confirmed` in `utils/bars`.
  *
- * Read through the replay, so a bar the cut has hidden is not the witness for the one before it:
- * during a replay the last bar on screen is the newest bar there is, and its mark stays unjudged
- * exactly as the live edge's does.
+ * Built over `closedBars` and not over everything on screen, which is the whole of why the newest
+ * mark survives the filter. The bar the pipeline last reached is the bar a live reader is looking
+ * at, and the only bar after it is the one still filling: judging the mark against that one denies
+ * it a break the bar has not had time to make, and flickers the dot in and out as ticks arrive.
+ * Ending the map one bar earlier leaves the mark *undecided* instead, which is the reading every
+ * other overlay on this page gives its live edge.
+ *
+ * `closedBars` also reads through the replay, so a bar the cut has hidden is not the witness for the
+ * one before it: the mark at the cut stays unjudged exactly as the live edge's does.
  */
 const nextBarByTime = computed(() => {
   const map = new Map<number, { high: number, low: number }>()
-  const all = replay.shown.value
+  const all = closedBars.value
   for (let i = 0; i < all.length - 1; i++) {
     const bar = all[i]!
     const next = all[i + 1]!
@@ -2163,20 +2190,10 @@ const lastBarLabel = computed(() => {
  * makes the same argument) — so `time - SECONDS` names a bar that is often not there, and a
  * lookup on it silently finds nothing.
  *
- * Read through the replay's view, so a cut moves it. Standing on the feed's newest bar — live, or
- * a replay cut there — means the run ended one behind it; an older cut already ends on a closed
- * bar, since the route's bounds are inclusive and nothing newer than the cut was asked for.
- *
- * The cost, stated: a window whose `to` is in the past has no forming bar at its edge, and this
- * still steps back one. `lastBarLabel` makes exactly that claim already, and the monitor is a
- * live surface — the case to get right is the one at the live edge.
+ * Which bar the feed is still writing, and what that costs on a window that ends in the past, is
+ * `closedBars`' to say — this is the end of the history it hands over, and nothing more.
  */
-const lastClosedTime = computed<number | null>(() => {
-  const shown = replay.shown.value
-  const last = shown.at(-1)
-  if (!last) return null
-  return last.time === mergedBars.value.at(-1)?.time ? shown.at(-2)?.time ?? null : last.time
-})
+const lastClosedTime = computed<number | null>(() => closedBars.value.at(-1)?.time ?? null)
 
 /**
  * The leg the panel talks about: the newest `leg-breaks` Point, whatever bar it sits on.
