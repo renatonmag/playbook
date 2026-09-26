@@ -50,6 +50,7 @@ from .line_respect import (
     undone_breakouts,
 )
 from .nested_legs import NestedLegs, NestedLegsPattern, nested_legs
+from .pivot_offset import PivotOffset, PivotOffsetPattern, pivot_offset
 from .proximity import NO_PROXIMITY, ProximityLevel, ProximityRule, reach
 from .retracement import RetracedMove, Retracement, RetracementPattern, retracements
 # Re-exported from here rather than from `leg_reversals`, where they used to live: they are the
@@ -132,6 +133,8 @@ __all__ = [
     "PinnedLines",
     "PinnedTrend",
     "PinnedTrends",
+    "PivotOffset",
+    "PivotOffsetPattern",
     "PriceAt",
     "ProximityLevel",
     "ProximityRule",
@@ -175,6 +178,7 @@ __all__ = [
     "nears",
     "nested_legs",
     "nests",
+    "pivot_offset",
     "position_of",
     "price_at",
     "reach",

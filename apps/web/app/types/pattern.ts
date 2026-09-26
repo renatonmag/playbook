@@ -611,6 +611,24 @@ export interface Retracement extends PatternPoint {
   provisional: boolean
 }
 
+/**
+ * Whether the simple legs are still lagging the zigzag at the right edge — `pivot-offset`.
+ *
+ * **At most one Point per response**, and only for the newest pair, unlike every other Series
+ * here: this reads the window's right edge and nothing behind it, so the history of past offsets
+ * is not in it. It repaints — a new confirmed mark or a new vertex replaces the Point outright.
+ *
+ * Anchored on the simple-leg mark, which is the later of the two bars whenever `offset` is true.
+ * The zigzag's own bar is not carried: `zig-zag` is on the wire under its own key, and a copy here
+ * could drift from it. No `price` — the answer is about which bar came later, not about a level.
+ *
+ * Draws nothing, so it has no `OVERLAYS` entry. Read with `seriesPoints`, like `leg-breaks`.
+ */
+export interface PivotOffset extends PatternPoint {
+  /** True when the mark sits on a **strictly later** bar than the vertex. The same bar is false. */
+  offset: boolean
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   /**
    * What the Pattern calls itself — one line, written on the class, for a person reading a list.

@@ -2,10 +2,10 @@
 import type { Component } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
-import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type TrendLine } from '~/types/pattern'
+import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type PivotOffset, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import { toProximityBody } from '~/utils/proximity'
-import { reading } from '~/utils/reading'
+import { offsetPhrase, reading } from '~/utils/reading'
 import type { Ruler } from '~/utils/ruler'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
@@ -2314,6 +2314,25 @@ const currentMarks = computed<BarMark[]>(() => {
 const currentReading = computed(() => reading(currentLeg.value, currentMarks.value))
 
 /**
+ * And the panel's other statement: where the two detectors' newest pivots sit relative to
+ * each other.
+ *
+ * `at(-1)` on a Series that holds at most one Point — the expression says "the newest", which is
+ * what this reads, rather than leaning on a count the Pattern could change. Empty when either
+ * detector found nothing in the window, or when every simple-leg mark is still provisional.
+ *
+ * `patterns` and never `edgeSeries`, exactly as `currentLeg` above: the edge run re-runs
+ * `simple-leg` alone, so this Series is not in it, and a forming mark is the one thing the
+ * Pattern deliberately refuses to judge anyway.
+ */
+const currentOffset = computed<PivotOffset | null>(() =>
+  seriesPoints<PivotOffset>(patterns.value, 'pivot-offset').at(-1) ?? null,
+)
+
+/** That one as a phrase. `null` when there was no pair to compare. */
+const offsetReading = computed(() => offsetPhrase(currentOffset.value))
+
+/**
  * The splitter between the chart and the Log, in the pixels its two constants are written in.
  *
  * `reka-ui` lays panels out in percentages, so every height here has to be divided by the box the
@@ -3922,7 +3941,11 @@ function isVisible(overlay: { producer: string }) {
         <!-- The leg in progress and the bar that just closed, in one sentence. A panel with
              nothing to say keeps its placeholder rather than showing a sentence of gaps. -->
         <p v-if="currentReading" class="text-sm leading-relaxed text-gray-700">{{ currentReading }}</p>
-        <p v-else class="text-sm text-gray-500">Nada aqui ainda.</p>
+        <!-- Where the two detectors' newest pivots sit. Its own line, not a clause of the sentence
+             above: that one is about the leg and the bar, this is about the detectors. -->
+        <p v-if="offsetReading" class="text-sm leading-relaxed text-gray-700">{{ offsetReading }}</p>
+        <!-- The placeholder waits on both, so a quiet leg with a pivot reading still shows it. -->
+        <p v-if="!currentReading && !offsetReading" class="text-sm text-gray-500">Nada aqui ainda.</p>
       </FloatingPanel>
     </ClientOnly>
   </main>

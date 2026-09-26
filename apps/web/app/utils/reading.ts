@@ -1,4 +1,4 @@
-import type { BarMark, LegBreak } from '~/types/pattern'
+import type { BarMark, LegBreak, PivotOffset } from '~/types/pattern'
 import { TURN_LABELS } from '~/utils/bars'
 
 /**
@@ -69,4 +69,22 @@ export function reading(leg: LegBreak | null, marks: BarMark[]): string | null {
   const last = clauses[clauses.length - 1]!
   const rest = clauses.slice(0, -1)
   return rest.length === 0 ? last : `${rest.join(', ')} e ${last}`
+}
+
+/**
+ * The two detectors at the right edge, said out loud — or `null` when there is no pair to judge.
+ *
+ * Its own sentence rather than a clause of `reading()`, and that is the whole reason it is a
+ * second function: everything in that one is about the leg in progress and the bar that just
+ * closed, and this is about the two *detectors* disagreeing. Folding it into the same sentence
+ * would join two readings that are not about the same thing.
+ *
+ * `null` for "nothing to compare" rather than a third phrase, on this file's standing rule: a
+ * clause with nothing to say disappears. The Series is empty when either detector found nothing
+ * in the window or every simple-leg mark is still provisional, and "not displaced" is not what
+ * that means.
+ */
+export function offsetPhrase(offset: PivotOffset | null): string | null {
+  if (offset === null) return null
+  return offset.offset ? 'Pivots estão deslocados' : 'Pivots não estão deslocados'
 }

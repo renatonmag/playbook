@@ -60,6 +60,7 @@ from pattern_engine.patterns import (
     NestedLegsPattern,
     PinnedLines,
     PinnedTrends,
+    PivotOffsetPattern,
     ProximityRule,
     RetracementPattern,
     SimpleLegPattern,
@@ -216,6 +217,13 @@ def build_pipeline(
         # legs' pivots and guarded by the zigzag's. It reads the two Series above, never the
         # bars, so it must sit after both — declaration order is run order.
         GeneralDirectionPattern(source=simple_leg, pivots=zigzag, reads=("5m",), emits="5m"),
+        # The other thing to ask of those same two Series, and the cheapest: at the right edge of
+        # the window, has the simple leg's mark got *past* the zigzag's vertex? One Point, never
+        # more — this reads the newest pair and nothing behind it, so the history of past offsets
+        # is not in here. The newest mark is skipped while it is provisional, or the answer would
+        # track the clock rather than the market. After both sources, like the Pattern above it,
+        # and for the same reason. No dials.
+        PivotOffsetPattern(source=simple_leg, pivots=zigzag, reads=("5m",), emits="5m"),
         # The other thing the simple legs' pivots say once you stop reading them one leg at a
         # time: the straight lines they can be joined by. Tops to tops and bottoms to bottoms,
         # kept only where no candle in between reaches through the line. It needs the bars as well
