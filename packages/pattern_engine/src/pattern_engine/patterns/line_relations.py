@@ -318,9 +318,18 @@ def leg_spans(bars: Sequence[Candle], legs: Sequence[Leg]) -> list[float | None]
     distance between its vertices, so a wick that overshot the vertex counts. `None` for a bar no
     leg covers, which is every bar when the window held too few vertices to carve one.
 
-    Legs overlap by exactly one bar, the vertex that closes one and opens the next. The walk is in
-    leg order and writes unconditionally, so the **later** leg wins there: the bar that ends a move
-    is the first bar of the one that follows, and the move in force from it is the new one.
+    Legs overlap by exactly one bar, the vertex that closes one and opens the next, and the
+    **earlier** leg wins there: a bar is measured against the move it *ended*. The scale a bar asks
+    to be judged on is the move that was in force while it was forming, and at a vertex the leg it
+    opens is one bar long — its own. Handing it that one would measure the most interesting bar on
+    the chart, the one that turned, on the smallest scale available, and would shrink the reach
+    exactly where a person watching a level is looking hardest.
+
+    What it costs: the first bar of every leg but the first now answers under the previous leg's
+    scale, so two adjacent bars across a turn can be granted very different reaches — a bar inside
+    a 300-point leg reaching further than its neighbour one bar later. That is the rule doing what
+    it says rather than an artefact of it, and the `leg` a `close` carries is what lets a reader see
+    which move they are being quoted.
 
     Built once per run and handed to `relations_of` as a list, because a span is a fact about the
     bar and not about the line — deriving it inside the line loop would recompute the same number
@@ -336,7 +345,10 @@ def leg_spans(bars: Sequence[Candle], legs: Sequence[Leg]) -> list[float | None]
         span = max(bar.high for bar in leg.bars) - min(bar.low for bar in leg.bars)
         for bar in leg.bars:
             at = at_time.get(bar.time)
-            if at is not None:
+            # A bar keeps the first span claimed for it, which is what makes the earlier leg win the
+            # vertex the two share. The walk stays in leg order — reading the legs backwards would
+            # say the same thing while reading as though the order mattered for something else.
+            if at is not None and spans[at] is None:
                 spans[at] = span
 
     return spans

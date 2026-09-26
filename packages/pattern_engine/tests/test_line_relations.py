@@ -18,6 +18,7 @@ tested is where the bar was. `flipped` mirrors a case around that price, so the 
 rule is never typed twice — the idiom the rest of this suite uses.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -510,10 +511,14 @@ def test_only_a_close_carries_a_gap_and_a_leg() -> None:
 # --- the leg spans ----------------------------------------------------------------------------
 
 
-def leg(*indices: int) -> Leg:
-    """A leg over the bars of `STAIRS` at `indices`, anchored on the first of them."""
-    bars = tuple(series(*STAIRS).points[index] for index in indices)
-    return Leg.anchored(bars[0], bars=bars)
+def leg(bars: Sequence[Candle], *indices: int) -> Leg:
+    """A leg over `bars` at `indices`, anchored on the first of them.
+
+    Takes the bars rather than closing over one fixture, because two fixtures below are cut into
+    legs — the span table's and the one that carries a near miss through to a Point.
+    """
+    over = tuple(bars[index] for index in indices)
+    return Leg.anchored(over[0], bars=over)
 
 
 #: Three bars climbing, so a leg over the first two spans less than one over all three. The shared
@@ -527,16 +532,49 @@ STAIRS = (
 
 def test_a_span_is_the_height_of_the_leg_and_not_the_distance_between_its_vertices() -> None:
     """A wick that overshot the vertex counts: 40 minus 10, not 38 minus 10."""
-    assert leg_spans(series(*STAIRS).points, [leg(0, 1)]) == [30.0, 30.0, None]
+    bars = series(*STAIRS).points
+    assert leg_spans(bars, [leg(bars, 0, 1)]) == [30.0, 30.0, None]
 
 
-def test_a_boundary_bar_takes_the_span_of_the_leg_it_opens() -> None:
-    """Legs overlap by one bar, and the move in force from it is the new one."""
-    assert leg_spans(series(*STAIRS).points, [leg(0, 1), leg(1, 2)]) == [30.0, 73.0, 73.0]
+def test_a_boundary_bar_takes_the_span_of_the_leg_it_closes() -> None:
+    """Legs overlap by one bar, and the bar is measured against the move it ended.
+
+    The middle bar is the vertex. It keeps the first leg's thirty rather than taking the second's
+    seventy-three: the move in force while it was forming is the one it closed, and the leg it opens
+    is at that point one bar long.
+    """
+    bars = series(*STAIRS).points
+    assert leg_spans(bars, [leg(bars, 0, 1), leg(bars, 1, 2)]) == [30.0, 30.0, 73.0]
 
 
 def test_a_window_with_no_legs_has_no_spans() -> None:
     assert leg_spans(series(*STAIRS).points, []) == [None, None, None]
+
+
+#: A fall to seven points above the line, then a turn back up. The bar that turned is index 2 — the
+#: vertex the two legs share — and it is the only bar of the four anywhere near the line.
+#:
+#: The leg it *closed* is a hundred points tall, so the rung's tenth reaches ten and seven is inside
+#: it. The leg it *opens* is forty-six, reaching 4.6 — five, on the tick — and seven is outside. So
+#: which of the two claims the bar decides whether anything is reported at all, which is what makes
+#: this the fixture for the rule above rather than a second span table.
+TURNED_AT_A_VERTEX = (
+    (205.0, 207.0, 199.0, 200.0),
+    (200.0, 201.0, 150.0, 152.0),
+    (152.0, 153.0, 107.0, 108.0),
+    (108.0, 137.0, 108.0, 135.0),
+)
+
+
+def test_a_vertex_bar_reports_the_near_miss_its_own_move_grants() -> None:
+    """The span rule and the reach it feeds, in one assertion — neither half can regress alone."""
+    bars = series(*TURNED_AT_A_VERTEX).points
+    spans = leg_spans(bars, [leg(bars, 0, 1, 2), leg(bars, 2, 3)])
+    assert spans == [100.0, 100.0, 100.0, 46.0]
+
+    found = line_relations(bars, lines(("a", 0)), NEAR, spans)
+    assert kinds(found) == [(2, "close", None, "above")]
+    assert (found[0].gap, found[0].leg) == (7.0, 100.0)
 
 
 # --- the near miss through the engine -----------------------------------------------------------
