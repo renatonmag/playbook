@@ -496,10 +496,19 @@ export interface LineRelation extends PatternPoint {
 /**
  * One stretch over which one pinned line held: the bars, and the side they held it from.
  *
- * The reading of `LineRelation` rather than a second look at the market. A stretch runs until a
- * breakout nothing takes back — touches, seams and the breakouts a seam undid all leave the line
- * standing, and only a definitive one ends a run. That breakout is in neither the run it closed
- * nor the one it opened.
+ * The reading of `LineRelation` rather than a second look at the market. A stretch runs until price
+ * leaves the side it was holding — a breakout nothing takes back, or a seam. Touches, `close`s and
+ * the breakouts a seam undid all leave the line standing, so none of those ends a run.
+ *
+ * The two enders are not alike. A definitive breakout closed on the far side and is in neither the
+ * run it closed nor the one it opened; a seam took its crossing back, so it is the **last bar** of
+ * the group it ends and its own side is the one that names that group. Which means two groups of one
+ * line can be adjacent: a crossing and a crossing back read as one stretch on each side, rather
+ * than as one stretch labelled for the side the whipsaw finished on.
+ *
+ * So `side` answers for the **anchor** and not for every bar in `bars`. A seam can leave the side
+ * its run was holding and still be a seam, and the group it closes is named for where it closed. The
+ * bars are all carried; a reader who wants the whole stretch reads them.
  *
  * `side` is **not** `LineRelation.side`, despite the spelling. There it is where a bar opened; here
  * it is which side of the line price was holding, which is why these are two Series and not four

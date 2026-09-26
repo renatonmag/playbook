@@ -125,9 +125,10 @@ ADJACENT = (
 )
 
 #: An anchor, a break up, a break back down inside the span, then a break up again. Three
-#: crossings, two seams, and no breakout that stands — one group over all three bars. The only
-#: fixture whose events disagree about the side: the first two respected `below` and the last
-#: closed back above, so the group is held from *above*, which is where the run finished.
+#: crossings, two seams, and no breakout that stands — so nothing here separates two groups, and
+#: yet there are two: each seam closes the stretch it came back to. The first two bars respected
+#: `below` and the seam on bar 2 ends that group; bar 3 came back above and is a group of one.
+#: The only fixture where the side changes inside a run of events, which is the whole of the rule.
 WHIPPED = (
     (80.0, 85.0, 79.0, 84.0),
     (90.0, 115.0, 89.0, 110.0),
@@ -269,19 +270,74 @@ def test_a_definitive_breakout_closes_a_group_and_joins_none(specs: tuple) -> No
 
 @pytest.mark.parametrize("specs", [WHIPPED, flipped(WHIPPED)])
 def test_the_breakout_a_seam_undid_is_inside_the_group(specs: tuple) -> None:
-    """All three crossings are one run: the first is undone, and the other two are the seams."""
-    assert runs(specs, ("a", 0)) == [("a", "above" if specs == WHIPPED else "below", 1, 3)]
+    """The undone breakout is a member: bar 1 held the line from below and the seam on bar 2 said
+    so by coming back, so the two are one group even though bar 1 closed on the far side."""
+    held, then = ("below", "above") if specs == WHIPPED else ("above", "below")
+    assert runs(specs, ("a", 0)) == [("a", held, 1, 2), ("a", then, 3, 3)]
 
 
-def test_the_side_is_the_last_event_and_not_the_first_when_they_disagree() -> None:
-    """A run of seams crosses the line without ever ending, so its events *do* disagree — and the
-    group is named for the crossing that stands, not for the one that opened the stretch."""
+def test_each_seam_closes_the_group_it_came_back_to() -> None:
+    """A run of seams crosses the line without any breakout standing, so the side *does* change
+    inside it — and each crossing back ends the stretch it returned to rather than relabelling it.
+    """
     bars = series(*WHIPPED).points
     events = line_relations(bars, lines(("a", 0)))
 
     assert respected_side(events[0]) == "below"
     assert respected_side(events[-1]) == "above"
-    assert [point.side for point in line_respects(events, bars)] == ["above"]
+    assert [point.side for point in line_respects(events, bars)] == ["below", "above"]
+
+
+def test_the_seam_is_the_last_bar_of_the_group_it_closes() -> None:
+    """A separator is in neither group; a seam is in the one it ends. So the two groups here are
+    adjacent — bar 2 closes the first, bar 3 opens the second — and they still share no bar."""
+    bars = series(*WHIPPED).points
+    found = line_respects(line_relations(bars, lines(("a", 0))), bars)
+
+    assert [point.bars for point in found] == [(bars[1], bars[2]), (bars[3],)]
+
+
+def test_a_seam_that_left_the_side_its_run_held_still_names_the_group() -> None:
+    """The sharp cost of the rule, pinned rather than left to be discovered on real bars.
+
+    A seam is a seam because it undoes *a recent crossing*, and that crossing need not be the one
+    that opened the run it ends. Here bar 1 crossed down, bars 2 and 3 touched from below, and bar 4
+    crossed back up inside `SEAM_SPAN` of bar 1 — so bar 4 is a seam that *left* the side its run
+    was holding, and the group it closes is named `above` even though two of its bars held `below`.
+    """
+    left = (
+        (110.0, 112.0, 108.0, 111.0),
+        (110.0, 111.0, 85.0, 90.0),
+        (90.0, 100.0, 88.0, 95.0),
+        (90.0, 100.0, 88.0, 95.0),
+        (90.0, 115.0, 89.0, 110.0),
+    )
+    bars = series(*left).points
+    events = line_relations(bars, lines(("a", 0)))
+
+    assert [(index(point.time), point.kind, point.side) for point in events] == [
+        (1, "breakout", "above"),
+        (2, "touch", "below"),
+        (3, "touch", "below"),
+        (4, "seam", "below"),
+    ]
+    assert runs(left, ("a", 0)) == [("a", "above", 1, 4)]
+
+
+def test_a_seam_alone_in_its_run_is_a_group_of_one() -> None:
+    """The cost the module docstring states: a crossing can be a whole group. The break on bar 1
+    is undone by the seam on bar 3, and the quiet bar 2 leaves that seam alone in its run."""
+    lulled = (
+        (80.0, 85.0, 79.0, 84.0),
+        (90.0, 115.0, 89.0, 110.0),
+        (110.0, 112.0, 109.0, 111.0),
+        (110.0, 111.0, 85.0, 90.0),
+    )
+    bars = series(*lulled).points
+    events = line_relations(bars, lines(("a", 0)))
+
+    assert [(index(point.time), point.kind) for point in events] == [(1, "breakout"), (3, "seam")]
+    assert runs(lulled, ("a", 0)) == [("a", "below", 1, 1), ("a", "below", 3, 3)]
 
 
 def test_a_breakout_that_also_touched_still_joins_no_group() -> None:

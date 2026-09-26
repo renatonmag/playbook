@@ -8,7 +8,8 @@ the line held**, and from which side.
 A **respect group** is that stretch. One line, one run of bars, one side:
 
 ```
-respect   a maximal run of events on consecutive bars with no definitive breakout in it
+respect   a run of events on consecutive bars with no definitive breakout in it, ended by
+          the seam that takes price off that side if one comes before the breakout does
 ```
 
 The rules, and what each one deliberately does not say:
@@ -17,7 +18,8 @@ The rules, and what each one deliberately does not say:
   definitive when no later `seam` names it as `since` — that is, when nothing undid it. Everything
   else a bar can do about a line leaves the line standing: a touch is a rejection, a `close` is a
   rejection that stopped short, a seam is a crossing taken back, and the breakout a seam undid was
-  never a break at all. So all four extend a run and only the definitive breakout ends one.
+  never a break at all. So all four extend a run — and two of them also end one: a definitive
+  breakout ends the run from outside it, and a seam ends it from inside.
 
   **A `close` is in, deliberately.** A bar that ran to within the rule's reach and turned is the
   same evidence a touch is, arriving a few points earlier, and nothing here re-asks how near it got
@@ -30,25 +32,49 @@ The rules, and what each one deliberately does not say:
   it into the run it opened would claim the new side started with a bar that opened on the old one.
   It is the separator, and separators are not members.
 
-- **The side is the last event that could say.** `side` on a `LineRelation` is where the bar
-  *opened*; what a group needs is where price *sat*, and the two coincide on every kind but one. A
-  `touch` and an undone `breakout` both opened on the side they held; a `seam` opened on the broken
-  side and closed back, so its respected side is the opposite.
+  A seam ends a run too and is nothing like this. The difference is where the bar finished: a
+  breakout closed on the far side, a seam closed back on the side the run was holding. One of them
+  held the line on its own bar and the other did not, so the seam is the last *member* of the group
+  it ends and not a separator between two.
 
-  Read off the last event because the events of one run *can* disagree, which is the thing a run of
-  seams does. Price changes sides on every crossing, and a crossing that a later one takes back is
-  never a definitive breakout, so it never ends the run: break up, seam back down, seam back up is
-  one group whose bars respected `below`, `below`, then `above`. The last reading is the one that
-  is still true at the anchor, which is where a reader is standing.
+- **A seam closes the group it returned to, and is its last bar.** `side` on a `LineRelation` is
+  where the bar *opened*; what a group needs is where price *sat*, and the two coincide on every
+  kind but one. A `touch` and an undone `breakout` both opened on the side they held; a `seam`
+  opened on the broken side and closed back, so the side it respected is the opposite — and that is
+  the side the run behind it was already holding, because the crossing a seam takes back is the one
+  that left it.
 
-  What that costs is worth saying plainly: one side names a stretch that may have had two, so a
-  whipsawed run is labelled for the side it *finished* on and not for the side it spent most of
-  itself on. The bars are all carried, so a reader who wants the whole story reads them; what this
-  field answers is "which side is the line being held from now".
+  Which is why the seam is where that stretch ends. Price sat on one side, crossed, and came back:
+  the bar that came back is the last one that can be said to have held the line from there, and
+  everything after it stands on the far side of a crossing. So break up, seam back down, seam back
+  up is *two* groups — bars one and two holding `below`, bar three holding `above` — and not one
+  group labelled for whichever side the whipsaw happened to finish on.
+
+  The side is still read off the last event in the run that **could** say, rather than off the last
+  event outright, and that is not the leftover of the old rule. A bar that opened exactly *on* the
+  line says nothing, and it must not blank a reading already taken merely by being the most recent.
 
   This is one meaning of `side` across one Series, the same discipline `line_relations` keeps, and
   it is why this is a second Pattern rather than a fifth `kind` there: that field means "where the
   bar opened" on all four of its kinds, and this one cannot.
+
+  Three costs, stated rather than hidden.
+
+  A crossing can be a whole group on its own — a seam whose run holds nothing else is one bar
+  respecting the side it came back to, which is true but thin. And **two groups of one line can be
+  adjacent**: bar *N* closes one and bar *N+1* opens the next, with nothing between them, where
+  before a quiet bar or a breaking bar always parted two groups of one line. A run that was being
+  held from below and is still being held from below therefore reads as two stretches whenever a
+  seam falls in the middle of it.
+
+  The third is the sharp one, and it is the old rule's cost in a smaller place rather than gone.
+  A seam is named a seam because it undoes *a recent crossing*, and that crossing need not be the
+  one that left the run the seam is closing. So a seam can leave the side its own run was holding
+  and still be a seam — touch from below, touch from below, cross up inside `SEAM_SPAN` of an older
+  crossing — and because the group is named for the side the seam closed on, those two touches end
+  up inside a group labelled for the side they were *not* on. The bars are all carried, so a reader
+  who wants the whole story still reads them; what this field answers is "which side is the line
+  being held from now", and at the anchor that answer is right.
 
 - **A run of one is a run.** A lone touch with nothing either side of it is a group of one bar. No
   minimum, and no dial for one: a threshold would be a claim about how much respect counts, which
@@ -261,6 +287,16 @@ def line_respects(
             respected = respected_side(event)
             if respected is not None:
                 side = respected
+
+            if event.kind == "seam":
+                # The seam closes what it came back to: a member first and the end of the group
+                # second — see the module docstring. Closed here rather than on the next event
+                # because a crossing is the last thing a bar emits about a line, so nothing still
+                # to come on this bar could reopen the run this just ended.
+                group = _closed(line, price, side, run, bars)
+                if group is not None:
+                    found.append(group)
+                run, side, price = [], None, None
 
         # The run still open at the window's edge, emitted on the same terms as one a breakout
         # ended. See the module docstring on why it carries no mark saying so.
