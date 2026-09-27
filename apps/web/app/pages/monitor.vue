@@ -2327,10 +2327,15 @@ const offsetReading = computed(() => offsetPhrase(currentOffset.value))
  *
  * **Drawn newest first, which is this list's decision and not the Series'.** The Points arrive in
  * run order and that is a fact about the wire; what is rendered is the reverse of it. A session
- * overflows the panel, so oldest-first buries the leg the market is actually in at the bottom of a
- * scroll — the one line a reader wants without looking for it. Reversed, it sits directly under the
- * two statements above, which are also about the right edge. The rows carry their own `span`, so
- * nothing downstream depends on the order either way.
+ * overflows the panel, so oldest-first buries the leg the market is actually in at the end of a
+ * scroll — the one phrase a reader wants without looking for it. Reversed, it opens the paragraph,
+ * directly under the two statements above, which are also about the right edge. The rows carry
+ * their own `span`, so nothing downstream depends on the order either way.
+ *
+ * A list here and a paragraph on screen: these are rendered as one run of text separated by
+ * middots rather than as a row apiece. That is the template's business and nothing here changes
+ * for it — each row still carries its own `key`, `text` and `span`, which is what lets a phrase
+ * inside a paragraph still be pointed at one at a time.
  *
  * **It reads both responses, unlike the two lines above, and that is `PARTIAL`'s rule rather than a
  * preference.** `leg-recap` is in that set — see `utils/manual-series` — because four of its six
@@ -4020,25 +4025,38 @@ function isVisible(overlay: { producer: string }) {
         <!-- Where the two detectors' newest pivots sit. Its own line, not a clause of the sentence
              above: that one is about the leg and the bar, this is about the detectors. -->
         <p v-if="offsetReading" class="text-sm leading-relaxed text-gray-700">{{ offsetReading }}</p>
-        <!-- And the session: one line per leg, because `leg-recap` is the sequence. Newest first,
-             which is `recapReadings`' doing and not the Series' — so the leg still running is the
-             first line under the rule, beside the two statements above that are also about the
-             right edge. Below them rather than in place of them: those answer about the edge and
-             this about the whole day, and a list a session long must not push them out of view.
-             The rule is what separates the two kinds of statement; it is not there when either
-             side of it is empty. -->
+        <!-- And the session: one phrase per leg, because `leg-recap` is the sequence. Newest
+             first, which is `recapReadings`' doing and not the Series' — so the leg still running
+             opens the paragraph under the rule, beside the two statements above that are also
+             about the right edge. Below them rather than in place of them: those answer about the
+             edge and this about the whole day. The rule is what separates the two kinds of
+             statement; it is not there when either side of it is empty. -->
         <hr v-if="(currentReading || offsetReading) && recapReadings.length > 0" class="my-2 border-gray-100">
-        <!-- Hovering a line shades its leg on the chart. The tint on the line itself is the other
-             half of that: without it the sentence under the cursor is the only thing on screen not
-             saying it is the one being pointed at. `cursor-default` because a pointing hand would
-             promise a click, and there is nothing here to click. -->
-        <p
-          v-for="row in recapReadings"
-          :key="row.key"
-          class="cursor-default rounded-sm text-sm leading-relaxed text-gray-700 hover:bg-sky-50"
-          @mouseenter="hoveredRecap = row.span"
-          @mouseleave="hoveredRecap = null"
-        >{{ row.text }}</p>
+        <!-- One paragraph rather than one line per leg: a session is thirty-odd phrases, and
+             stacked they fill the panel to say what running text says in a fraction of it.
+
+             Hovering a phrase shades its leg on the chart, and the tint on the phrase itself is
+             the other half of that — it matters more here than it did stacked, because a phrase
+             inside a paragraph has no edges of its own to say it is the one being pointed at.
+             `box-decoration-clone` is what makes that tint survive a phrase wrapping to the next
+             line: two fragments, each rounded, rather than one box drawn across the pair.
+             `cursor-default` because a pointing hand would promise a click, and there is nothing
+             here to click.
+
+             The middot is a separator and not punctuation, which is why it is a span of its own
+             outside the hoverable one: it belongs to neither phrase, so pointing at it highlights
+             nothing and draws nothing. A full stop could not do the job — the phrases already
+             contain one, between the leg and its targets. -->
+        <p class="text-sm leading-relaxed text-gray-700">
+          <template v-for="(row, index) in recapReadings" :key="row.key">
+            <span
+              class="box-decoration-clone cursor-default rounded-sm hover:bg-sky-50"
+              @mouseenter="hoveredRecap = row.span"
+              @mouseleave="hoveredRecap = null"
+            >{{ row.text }}</span>
+            <span v-if="index < recapReadings.length - 1" class="text-gray-400"> · </span>
+          </template>
+        </p>
         <!-- The placeholder waits on all three, so a quiet leg with a pivot reading still shows it. -->
         <p v-if="!currentReading && !offsetReading && recapReadings.length === 0" class="text-sm text-gray-500">Nada aqui ainda.</p>
       </FloatingPanel>
