@@ -47,6 +47,7 @@ import {
 } from '@tanstack/vue-table'
 import { producerName, type PatternPoint, type PatternResponse } from '~/types/pattern'
 import { barBrief, barMoment } from '~/utils/bar-time'
+import { MANUAL, PARTIAL } from '~/utils/manual-series'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '~/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '~/components/ui/table'
 
@@ -64,12 +65,35 @@ const props = defineProps<{
  * its parameters — exactly as `OVERLAYS` is keyed, so a Pattern is named the same way on both
  * sides. Being in both is allowed and would mean a Series you can look at and read.
  *
- * A name can stand for more than one Series, and `line-respect` now does: the pipeline declares it
- * over the levels and again over the sloped lines. Both reach the picker, for the reason both are
- * drawn — they are the same rows about different lines. The filter is on the name and the entries
- * are on the key, so admitting one admits both and they stay two things to pick between.
+ * A name can stand for more than one Series, and four names here do: the pipeline declares
+ * `line-respect` over the levels and again over the sloped lines, `leg-target` follows it once per
+ * respect, and the two moving averages get an `average-relations` and an `average-respect` each. All
+ * of each reach the picker, for the reason both halves of the first pair are drawn — they are the same
+ * rows about different lines. The filter is on the name and the entries are on the key, so admitting
+ * one admits every instance, and they stay separate things to pick between.
+ *
+ * The three `average-*` names are `bars`' case and not `line-relations`': they are in the declared
+ * pipeline and answer about the market on every closed bar, so they arrive on the automatic run and
+ * are not in `MANUAL`. What that costs is the fourth kind. A `close` needs the proximity ladder, the
+ * ladder only travels in a body, and `entries` below takes a producer both runs answered from the
+ * automatic one — so the near misses around an average are computed on a `Calcular` and then shadowed
+ * here by the `GET`'s copy, which has three kinds. That is a real loss, it is the one kind with a
+ * dial, and the alternatives are worse: naming them `MANUAL` would click-gate a Series about the
+ * market behind a button that is about pinned lines, and preferring the `POST`'s copy would move
+ * `bars` too.
  */
-const LOGGED = new Set(['bars', 'leg-breaks', 'line-relations', 'line-respect', 'trend-relations'])
+const LOGGED = new Set([
+  'average-relations',
+  'average-respect',
+  'average-target',
+  'bars',
+  'leg-breaks',
+  'leg-recap',
+  'leg-target',
+  'line-relations',
+  'line-respect',
+  'trend-relations',
+])
 
 /** Pulled to the front, so a row says which bar it is before it says anything else. */
 const BASE_COLUMNS = ['time']
@@ -115,12 +139,47 @@ const COLUMN_RENAMES: Record<string, { header: string, key: string }> = {
  *   wants of them is *which* they were, and the bar each sits on is what says so. `broke` already
  *   carries the count in its own column, so spending this one on the count too would say one
  *   thing twice and the other not at all.
+ * - `measured` is a whole `RetracedMove` and has no bar of its own, so the object branch below
+ *   falls through to `JSON.stringify` and spends the width on six fields to show one number. The
+ *   fraction is the answer; `retraced_legs` is what makes it legible and is the thing this hides,
+ *   which is what `Copiar JSON` is for — the same trade `taken` makes.
+ * - `reach` is a **`LegPoint` on one Series and a price on another**: `leg-recap` carries the whole
+ *   point, `leg-target` carries the number. The object branch would show the bar and drop the
+ *   price, which is the half a reader is checking, so both travel — and the `null` fall-through is
+ *   what lets the bare number keep the general rule.
+ * - `levels`, `trends`, `averages` and `hourly_averages` are arrays of **targets**, not of bars, so
+ *   the array branch would read them as "where it starts and how long it is" and answer `1 barra`
+ *   about a line. Which lines is the whole question — and on the two average fields the answer is
+ *   the average's own name, since an average names its own line.
  *
  * `null` from an entry means "no opinion, fall through" — a key can be listed here and still let
  * the general rules handle a value it has nothing to say about.
  */
+function hits(value: unknown): string | null {
+  if (!Array.isArray(value)) return null
+  // `—` rather than an empty cell, `taken`'s reason. On a `leg-recap` row it has two readings and
+  // `provisional` is the column that tells them apart — see that field's own note in `pattern.ts`.
+  // On the two average fields there is a third: those are filled on the automatic run, so an empty
+  // one there is about the leg and never about nobody having pressed `Calcular`.
+  if (value.length === 0) return '—'
+  return value.map(target => String((target as { line?: unknown }).line)).join(' · ')
+}
+
 const COLUMN_FORMATS: Record<string, (value: unknown) => string | null> = {
   ratio: value => (typeof value === 'number' ? value.toFixed(3) : null),
+  measured: (value) => {
+    const ratio = (value as { ratio?: unknown } | null)?.ratio
+    return typeof ratio === 'number' ? ratio.toFixed(3) : null
+  },
+  reach: (value) => {
+    const point = value as { price?: unknown, time?: unknown } | null
+    if (typeof point?.price !== 'number' || typeof point.time !== 'number') return null
+    return `${point.price} · ${barBrief(point.time)}`
+  },
+  levels: hits,
+  trends: hits,
+  averages: hits,
+  hourly_averages: hits,
   taken: (value) => {
     if (!Array.isArray(value)) return null
     // `—` rather than an empty cell: a leg that broke nothing is the ordinary case and reads as
@@ -155,15 +214,45 @@ function logged(response: PatternResponse | null) {
 /**
  * Both runs' logged Series, the automatic one first.
  *
- * A producer answered by both is taken from the automatic run and not listed twice. That is not a
- * theoretical case: the manual `POST` runs the *whole* pipeline, so `bars` comes back on it too,
- * and the two answers are about the same window under the same key. First wins, so the entry a
- * reader has been looking at does not jump position the moment somebody presses `Calcular`.
+ * **Three rules, and they are three different rules.** The two responses answer under the same
+ * producer keys — `PinnedLines.__str__` says `pinned` whatever the lines are, deliberately, so a key
+ * does not move when they change — and nothing but the sets in `manual-series.ts` can tell the
+ * copies apart.
+ *
+ * 1. A producer **both runs answer identically** is taken from the automatic one and not listed
+ *    twice. The manual `POST` runs the *whole* pipeline, so `bars` comes back on it too, and the two
+ *    answers are about the same window. First wins, so the entry a reader has been looking at does
+ *    not jump position the moment a run lands.
+ * 2. A producer in `MANUAL` is dropped from the automatic list *before* `seen` is built from it. The
+ *    `GET` carries no lines, so it answers those keys with an empty Series on every run, forever.
+ *    Left in, that empty answer claims the key and filters the real rows out, and the Pattern can
+ *    only ever say "0 pontos" — which is exactly what it did until this filter existed. So before
+ *    the first run with lines those Series are not in the picker at all. That is the honest state
+ *    and the sidebar's already: without lines there is no question to answer.
+ * 3. A producer in `PARTIAL` is the case neither of those covers, and `leg-recap` is why it exists:
+ *    the `GET` answers it, but with two of its six readings empty for want of a line. So it is kept
+ *    from the automatic run **only until the manual run answers it**, and superseded after. Rule 1
+ *    would shadow the complete copy with the partial one; rule 2 would put a row that is four
+ *    sixths right behind a button that is about lines.
+ *
+ * The cost of rule 3 is the thing rule 1 exists to prevent — a `PARTIAL` entry **moves position**
+ * when a `Calcular` lands, out of the first block and into the second. Argued where the set is
+ * declared. The *selection* survives it regardless: `selected` holds a producer key, both copies
+ * wear the same one, and the repair watch below only fires when the key has gone.
  */
 const entries = computed(() => {
-  const automatic = logged(props.auto)
+  const manual = logged(props.response)
+  const answered = new Set(manual.map(entry => entry.producer))
+
+  const automatic = logged(props.auto).filter((entry) => {
+    const name = producerName(entry.producer)
+    if (MANUAL.has(name)) return false
+    if (PARTIAL.has(name)) return !answered.has(entry.producer)
+    return true
+  })
+
   const seen = new Set(automatic.map(entry => entry.producer))
-  return [...automatic, ...logged(props.response).filter(entry => !seen.has(entry.producer))]
+  return [...automatic, ...manual.filter(entry => !seen.has(entry.producer))]
 })
 
 /**
@@ -288,6 +377,31 @@ const selectedRows = computed(() =>
 
 const copied = ref(false)
 
+/** Whether the dump below the table is open. Survives a new response and a new producer. */
+const dumping = ref(false)
+
+/**
+ * The Points on screen exactly as the engine emitted them — the ticked ones, or all of them.
+ *
+ * **Not `selectedRows`**, and the difference is the whole reason this exists. That computed narrows
+ * to the visible columns and renames `line` to `lineId`, which is right for a clipboard: the reader
+ * picked those columns and the header they read said `line id`. It is wrong here. What the table
+ * above does to every nested field is collapse it — `bars` to where it starts and how long it is,
+ * `levels` to a line id, `measured` to a fraction — and each of those is argued for in `cell()`. So
+ * the one thing a reader cannot get from this panel is the Point, and that is what this is: the
+ * hidden bar included, `time` still in Unix seconds, under the keys the wire uses and code will
+ * index by. The table is the reading; this is the thing being read.
+ *
+ * Which means the two must not be folded together, however alike they look.
+ *
+ * Reads the selection model rather than `props`, so it tracks the ticks; and needs no watch of its
+ * own, because the one above already clears them on a new response or a new producer.
+ */
+const dump = computed(() => {
+  const ticked = table.getSelectedRowModel().rows
+  return JSON.stringify(ticked.length ? ticked.map(row => row.original) : points.value, null, 2)
+})
+
 async function copySelection() {
   await navigator.clipboard.writeText(JSON.stringify(selectedRows.value, null, 2))
   copied.value = true
@@ -386,13 +500,24 @@ function pick(value: unknown) {
           <span v-if="selectedRows.length">· {{ selectedRows.length }} selecionado{{ selectedRows.length === 1 ? '' : 's' }}</span>
         </p>
 
-        <button
-          class="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent"
-          :disabled="!selectedRows.length"
-          @click="copySelection"
-        >
-          {{ copied ? 'Copiado!' : 'Copiar JSON' }}
-        </button>
+        <div class="flex items-center gap-2">
+          <!-- Never disabled, unlike its neighbour: there is always a Series to dump, and with no
+               ticks that is the whole of it. -->
+          <button
+            class="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
+            @click="dumping = !dumping"
+          >
+            {{ dumping ? 'Ocultar JSON' : 'Ver JSON' }}
+          </button>
+
+          <button
+            class="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent"
+            :disabled="!selectedRows.length"
+            @click="copySelection"
+          >
+            {{ copied ? 'Copiado!' : 'Copiar JSON' }}
+          </button>
+        </div>
       </div>
 
       <!-- `Table` brings its own horizontal scroll: the panel already scrolls vertically, and a
@@ -451,6 +576,15 @@ function pick(value: unknown) {
           </TableRow>
         </TableBody>
       </Table>
+
+      <!-- Both scrollbars of its own. The panel scrolls vertically and `Table` brings its own
+           horizontal scroll, so a dump that grew with its content would push the table out of
+           reach — of a reader who is looking at both. Tinted and bordered so it reads as a quoted
+           artefact rather than as more of the table above it. -->
+      <pre
+        v-if="dumping"
+        class="mt-3 max-h-80 overflow-auto rounded border border-gray-200 bg-gray-50 p-2 text-xs leading-snug text-gray-700"
+      >{{ dump }}</pre>
     </template>
   </div>
 </template>

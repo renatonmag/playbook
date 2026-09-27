@@ -448,8 +448,14 @@ export interface TrendLine extends PatternPoint {
 }
 
 /**
- * One thing a pinned line did on one bar: the line was touched, missed narrowly, broken through, or
- * the breakout before it was undone.
+ * One thing a bar did about one line: the line was touched, missed narrowly, broken through, or the
+ * breakout before it was undone.
+ *
+ * Three Series arrive in this shape and the differences between them are only in what drew the line.
+ * `line-relations` answers about a level somebody pinned, `trend-relations` about a sloped line
+ * somebody kept or dragged, and `average-relations` about a moving average the *engine* computed —
+ * see `WeightedAverage` below. The rules are one set of rules, applied to a price the line has on
+ * the bar in question, so a reader who knows what a touch is knows it for all three.
  *
  * The Series is sparse — most bars say nothing about most lines — and it is bar-major, so its
  * anchors never go backwards. One bar and one line make at most one crossing, and a crossing that
@@ -469,7 +475,14 @@ export interface TrendLine extends PatternPoint {
  * bar's, and repeating one of its numbers here would say nothing.
  */
 export interface LineRelation extends PatternPoint {
-  /** The browser's own segment id, handed over on the `POST` and returned unparsed. */
+  /**
+   * Whatever the line's owner calls it, unparsed.
+   *
+   * On the two pinned Series that is this browser's own segment id, handed over on the `POST` and
+   * returned untouched. On `average-relations` there is no browser to have minted one, so the owner
+   * is the engine and the id is the average's own name — `wma-30`, `wma-30-1h`. Worth knowing before
+   * reading the Log, where this column is headed "line id".
+   */
   line: string
   /** The line's price — the level the bar met, not anything about the bar. */
   price: number
@@ -494,7 +507,13 @@ export interface LineRelation extends PatternPoint {
 }
 
 /**
- * One stretch over which one pinned line held: the bars, and the side they held it from.
+ * One stretch over which one line held: the bars, and the side they held it from.
+ *
+ * Four Series arrive in this shape, one per relations Series: `line-respect` reads the levels and the
+ * sloped lines, `average-respect` the two moving averages. One Pattern behind all four, because a
+ * stretch is a run of events with no definitive breakout in it and that reads nothing about what drew
+ * the line. `average-respect` carries a name of its own for a reason that has nothing to do with the
+ * arithmetic — see `MANUAL` in `utils/manual-series.ts`.
  *
  * The reading of `LineRelation` rather than a second look at the market. A stretch runs until price
  * leaves the side it was holding — a breakout nothing takes back, or a seam. Touches, `close`s and
@@ -519,7 +538,7 @@ export interface LineRelation extends PatternPoint {
  * line, so the run's extreme can be measured without going back to the candles.
  */
 export interface LineRespect extends PatternPoint {
-  /** The browser's own segment id, the same one `LineRelation.line` carries. */
+  /** The line's id, the same one `LineRelation.line` carries — and read the same way. */
   line: string
   /** The line's price — the level the bars held, not anything about them. */
   price: number
@@ -527,6 +546,78 @@ export interface LineRespect extends PatternPoint {
   side: 'above' | 'below'
   /** The run, first bar to last. `bars[bars.length - 1]` is this Point's own anchor. */
   bars: PatternPoint[]
+}
+
+/**
+ * One bar's value of a weighted moving average the **engine** computed.
+ *
+ * Not the line on the chart. That one is `weightedAverage` in `utils/indicator.ts`, recomputed in
+ * this browser on every tick, and it is still the only average anything here draws. This Series is
+ * the same average computed server-side, and it exists because `average-relations` asks it the four
+ * questions `line-relations` asks of a pinned level — which cannot be asked here, since the near-miss
+ * reach is a fraction of a zigzag leg the engine slices. The argument in full, and the cost of having
+ * two implementations of one average in two languages, is in `weighted_average.py`'s docstring.
+ *
+ * Dense, unlike almost everything else on the wire: one Point per bar once the average has `period`
+ * buckets behind it, and nothing at all before that. The two the pipeline declares are a 30-bar
+ * average of the `5m` closes and a 30-bucket average of hourly ones, the second of which says nothing
+ * until thirty closed hours are in the window.
+ *
+ * No `OVERLAYS` entry, and no row in the Log either — deliberately, in both cases. Drawing it would
+ * put a second line on top of this browser's own and invite reading the difference between two
+ * implementations as something about the market. What is read instead is the Series that asks
+ * questions of it.
+ */
+export interface WeightedAverage extends PatternPoint {
+  /** The average on this bar. `value` and not `price`: it is not a level read off the bar. */
+  value: number
+}
+
+/**
+ * A leg that ran into a line and was held by it — the join of `LineRespect` and the simple legs.
+ *
+ * **Four Series arrive in this shape**, the same spread `LineRelation` and `LineRespect` cover: two
+ * under `leg-target`, for the levels and the sloped lines a person pinned, and two under
+ * `average-target`, for the two moving averages the engine computes. The producer name is the only
+ * thing that differs and it differs on purpose — `leg-target` is in `MANUAL` and `average-target`
+ * must not be, since an average needs no `POST` to exist. Nothing in this type ever said "pinned".
+ *
+ * Neither Series says this on its own. `LineRespect` says over which stretches a line held;
+ * `leg-extremes` says how far each leg got. This is the bar where those two coincide: the leg's
+ * extreme — the highest high of a leg that ran up, the lowest low of one that ran down — sitting
+ * inside a stretch the line held *from the side that would have stopped the leg*. A bull leg's target
+ * is a line its bars held from `below`; a bear leg's, from `above`. A group on the far side is the
+ * line sitting behind price, and no reading of that is a target.
+ *
+ * Anchored on the **extreme bar**, so `time` is the answer and needs no unwrapping — unlike
+ * `LegExtremes`, which anchors where its leg does because it is a reading of a leg. This is a
+ * reading of a meeting, and the meeting happened on this bar.
+ *
+ * Closed legs only: the leg still running is redrawn by every close, so its extreme and its target
+ * would move with it. One Point per line, never a list — a leg's extreme can land inside the groups
+ * of several lines at once, and each of those is a fact about a different line.
+ */
+export interface LegTarget extends PatternPoint {
+  /**
+   * The line's id, the same one `LineRespect.line` carries — and read the same way.
+   *
+   * On the two pinned Series it is this browser's own segment id, handed over on the `POST` and
+   * returned untouched. On the two average Series there was no browser to mint one, so the owner is
+   * the engine and the id is the average's own name — `wma-30`, `wma-30-1h`.
+   */
+  line: string
+  /** The **line's** price, not the leg's. On a clean touch it equals `reach`. */
+  price: number
+  /** Which side the group held the line from. Always the side that agrees with `direction`. */
+  side: 'above' | 'below'
+  /** The extreme the leg made: its `high` when bullish, its `low` when bearish. */
+  reach: number
+  /** The leg's own move, read off the mark it closed on. */
+  direction: 'bullish' | 'bearish'
+  /** The leg's first bar. With `end`, the span this target is a fact about. */
+  start: PatternPoint
+  /** The leg's last bar — the mark it was cut at. */
+  end: PatternPoint
 }
 
 /**
@@ -616,6 +707,110 @@ export interface Retracement extends PatternPoint {
    * Read positionally on the server, so one rule serves both detectors — which makes it
    * conservative: a genuinely closed final leg is flagged too. Carried, not acted on, the trade
    * `LegMark.provisional` makes.
+   */
+  provisional: boolean
+}
+
+/**
+ * One simple leg of the newest session with every reading of it already on the row — `leg-recap`.
+ *
+ * **The Series is the sequence.** One Point per leg, in the order the legs run, so walking the
+ * array walks the session. It exists because the six Series it is made of cannot be walked
+ * together: `legs` anchors on a leg's first bar, `retracement` on the reach bar of the pivot that
+ * closed it, and the four target Series on the extreme bar, nought-to-several times per leg. Three
+ * anchors and three cardinalities, aligned once on the server so that nothing here has to re-cut
+ * the legs to ask a question about them. Six Series on one row, four of them targets — one per kind
+ * of line this installation watches.
+ *
+ * **The newest day only**, and the only Series on the wire that is not the whole window. A leg
+ * belongs to the day if any of its bars do, so the first row can open on the session before — read
+ * `time` and `end.time` rather than assuming both sit inside it.
+ *
+ * Nothing on it was measured here or by it. Every number arrived from one of the four, so a
+ * fraction that is wrong is wrong in `retracement` and a target that is missing is missing in
+ * `leg-target`.
+ *
+ * **Two of its four target fields need pinned lines and two never do**, which is the sharpest edge
+ * on the row. `levels` and `trends` are downstream of lines a person drew, so the automatic `GET`
+ * answers this key with them empty whatever the legs did; `averages` and `hourly_averages` are
+ * downstream of averages the engine computes and are filled on every run. A row off the `GET` is
+ * therefore right about four of its six readings and silently wrong about two — worse than being
+ * wrong about all of them, because it looks like an answer.
+ *
+ * Which is why this Series is in `PARTIAL` rather than `MANUAL`: the Log shows the automatic copy,
+ * so the sequence of legs can be read without pinning anything, and replaces it with the `POST`'s
+ * the moment there is one. Nothing on the Point says which copy is in hand — both answer under the
+ * same producer key — so a row with empty `levels` is a row that either found no line **or** was
+ * never asked about one.
+ *
+ * Draws nothing and has no `OVERLAYS` entry; read it with `seriesPoints`.
+ */
+export interface LegRecap extends PatternPoint {
+  /** The leg's bars, inclusive at both ends — so the bar shared with the next leg is in both.
+   *  An array on the wire: the Python tuple serializes as a list. */
+  bars: PatternPoint[]
+  /** The leg's last bar: the mark it was cut at, except on the running leg, where it is the
+   *  window's newest bar and no mark at all. */
+  end: PatternPoint
+  /**
+   * The leg's own move, translated from the closing pivot's side.
+   *
+   * The bull/bear vocabulary, unlike `Retracement.direction` it was read from — so a filter on it
+   * joins `DIRECTIONAL` in `pages/monitor.vue`, never `SIDES`. It agrees by construction with the
+   * `direction` on every target hanging off this row.
+   */
+  direction: 'bullish' | 'bearish'
+  /**
+   * How far the leg got, carried whole so the bar the level was made on is here beside the price.
+   *
+   * A `LegPoint`, the same shape `LegExtremes.found` holds, and always the `reach` of the three
+   * readings. `LegTarget.reach` is this same number where a target exists; this is on every row.
+   */
+  reach: LegPoint
+  /** What the leg gave back, or `null` — copied from `retracement`, absence and all. `null` means
+   *  "not measured in this window"; see `Retracement.measured`. */
+  measured: RetracedMove | null
+  /**
+   * The levels this leg ran into and was held by, as `leg-target` emitted them.
+   *
+   * Empty has **three readings** here, and only two of them are on the Point. On a closed leg it
+   * means the leg reached no line; on the running leg — the one `provisional` flags — it means
+   * nothing measured that leg at all. The third is not visible from the row: on a copy from the
+   * automatic run **no line was pinned**, so every row's `levels` is empty and none of them is
+   * about a leg. A reader that checks only `provisional` will report a whole session as having
+   * reached nothing.
+   */
+  levels: LegTarget[]
+  /** The same against the sloped lines. A separate field rather than one list, because a target
+   *  against a level and one against a trend line are claims about different lines. */
+  trends: LegTarget[]
+  /**
+   * The moving average this leg ran into and was held by — `wma-30`, from `average-target`.
+   *
+   * **At most one**, always: an average's relations Series carries exactly one line id, and a line's
+   * respect groups are disjoint runs, so at most one can cover a leg's extreme. An array anyway, so
+   * that all four target fields read alike — the bound is a fact about how the pipeline declares
+   * them, not about the type.
+   *
+   * Unlike `levels` and `trends`, **this arrives on the automatic run**: the line it is about is
+   * arithmetic over closes, not something a person drew. So empty here means the leg did not reach
+   * the average, or reached it and was not held — never "nobody has run this yet". Except on the
+   * provisional row, where nothing was measured at all; see that field.
+   */
+  averages: LegTarget[]
+  /** The same against the hourly-bucketed average, `wma-30-1h`. Two fields rather than one list
+   *  told apart by `line`, so reading a row needs neither of those two strings — though each target
+   *  does carry its average's name, since an average names its own line. */
+  hourly_averages: LegTarget[]
+  /**
+   * True for the **last** row only: that leg closes on the newest mark the detector produced, so
+   * its bars are recut by every close.
+   *
+   * Two things are wrong with it on purpose, and this flag is the warning for both. Its `end` is
+   * the newest bar rather than a mark, so **none** of the four target fields can hold anything —
+   * including the two averages, which are filled on every other row. And its
+   * `reach` is taken over bars that include everything after the last mark — bars belonging to a
+   * leg that runs the other way and has not been marked yet — so it can name the wrong extreme.
    */
   provisional: boolean
 }

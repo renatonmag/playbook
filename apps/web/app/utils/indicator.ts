@@ -10,6 +10,16 @@ import { SECONDS, type Candle, type Timeframe } from '~/types/candle'
  * the only correct place for it is the browser: sending the same closes back to the API to have
  * them averaged would buy nothing and cost the round trip that makes "on tick" impossible.
  *
+ * All of which stays true of an average that is **drawn**, and every line this file draws still is.
+ * What it does not cover is an average a *Pattern asks questions of*, and there is now one of those:
+ * `weighted_average` in `pattern_engine` mirrors `weightedAverage` below, because `average_relations`
+ * asks a moving average the four questions `line_relations` asks of a pinned level, and those need
+ * the average inside the engine — beside the zigzag leg spans that scale a near miss, and the bar
+ * history this browser does not hold. Nothing is sent back to be averaged; the closes were always
+ * there. The cost is the one the paragraph above was avoiding, paid knowingly and stated in that
+ * module's docstring: two implementations of one average, in two languages, that must not disagree
+ * and are kept in step by nothing but care. Change one, read the other.
+ *
  * Pure, and takes the bars rather than reaching for them — `useLineOverlay`'s rule read one level
  * up. The caller owns which bars count (the loaded window, the live edge, the replay's cut), and a
  * function that knew how to decide that would have to learn the whole of `monitor.vue`.

@@ -52,6 +52,7 @@ export function reading(leg: LegBreak | null, marks: BarMark[]): string | null {
     // In [0, 1] on the wire; a percentage is how a pullback is spoken about. Rounded rather than
     // fixed to a decimal: the number qualifies the leg, and a tenth of a percent qualifies nothing.
     if (leg.ratio !== null) clauses.push(`Perna com retração de ${Math.round(leg.ratio * 100)}%`)
+    clauses.push(`${leg.broke} ${leg.broke === 1 ? 'nível rompido' : 'níveis rompidos'}`)
     clauses.push(`${leg.legs} ${leg.legs === 1 ? 'perna interna' : 'pernas internas'}`)
   }
 

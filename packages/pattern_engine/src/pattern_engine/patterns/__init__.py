@@ -1,6 +1,14 @@
 """The Patterns themselves. The engine imports none of these — a pipeline names them."""
 
 from .advancing_legs import AdvancingLeg, AdvancingLegsPattern, advancing_legs, trim_tail
+# `resolver` and `label` stay behind, deliberately. `trend_relations` already exports a
+# `resolver` and `average_relations` has one of its own; two of that name in one flat namespace
+# is the silent shadowing this file's ordering exists to prevent, and `label` and `MIN_PERIOD`
+# in `weighted_average` are generic enough to invite the same collision later. All four are
+# reachable on their own modules, which is how the tests import them.
+from .average_relations import AverageRelationsPattern, average_relations, values_at
+from .average_respect import AverageRespectPattern
+from .average_target import AverageTargetPattern
 from .bar_gap import BarGap, BarGapPattern, bar_gaps
 from .bars import BarMark, BarsPattern, SmallestWindow
 from .consecutive_direction import (
@@ -19,7 +27,9 @@ from .leg_extremes import (
 )
 from .leg_processor import Leg, LegPattern, bar_positions, position_of, split_legs
 from .leg_reach import LegReach, LegReachPattern, SidedPivot, leg_reaches
+from .leg_recap import LegRecap, LegRecapPattern, leg_recaps
 from .leg_reversals import LegBar, LegReversals, LegReversalsPattern, marked_bars
+from .leg_target import AGREES, LegTarget, LegTargetPattern, leg_targets
 from .leg_window import LegWindow, LegWindowPattern, split_leg_windows
 from .line_relations import (
     NO_LINES,
@@ -83,12 +93,17 @@ from .trend_relations import (
     resolver,
     trend_relations,
 )
+from .weighted_average import WeightedAverage, WeightedAveragePattern, weighted_average
 from .zigzag import ZigZagIndidicator, ZigZagPattern, ZigZagPivot
 
 __all__ = [
+    "AGREES",
     "AVERAGE_WINDOW",
     "AdvancingLeg",
     "AdvancingLegsPattern",
+    "AverageRelationsPattern",
+    "AverageRespectPattern",
+    "AverageTargetPattern",
     "BarGap",
     "BarGapPattern",
     "BarMark",
@@ -112,8 +127,12 @@ __all__ = [
     "LegPoint",
     "LegReach",
     "LegReachPattern",
+    "LegRecap",
+    "LegRecapPattern",
     "LegReversals",
     "LegReversalsPattern",
+    "LegTarget",
+    "LegTargetPattern",
     "LegWindow",
     "LegWindowPattern",
     "Line",
@@ -149,6 +168,8 @@ __all__ = [
     "TrendLine",
     "TrendLinesPattern",
     "TrendRelationsPattern",
+    "WeightedAverage",
+    "WeightedAveragePattern",
     "Wick",
     "ZigZagIndidicator",
     "ZigZagPattern",
@@ -156,6 +177,7 @@ __all__ = [
     "adjacent",
     "advancing_legs",
     "alike",
+    "average_relations",
     "bar_gaps",
     "bar_positions",
     "breaks_out",
@@ -171,7 +193,9 @@ __all__ = [
     "leans",
     "leg_ends",
     "leg_reaches",
+    "leg_recaps",
     "leg_spans",
+    "leg_targets",
     "line_relations",
     "line_respects",
     "marked_bars",
@@ -198,4 +222,6 @@ __all__ = [
     "trend_relations",
     "trim_tail",
     "undone_breakouts",
+    "values_at",
+    "weighted_average",
 ]

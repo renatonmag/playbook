@@ -6,6 +6,7 @@ import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtreme
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import { toProximityBody } from '~/utils/proximity'
 import { offsetPhrase, reading } from '~/utils/reading'
+import { MANUAL } from '~/utils/manual-series'
 import type { Ruler } from '~/utils/ruler'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
@@ -113,26 +114,6 @@ const OVERLAYS: Record<string, Component> = {
   'line-respect': LineRespectOverlay,
   'retracement': RetracementOverlay,
 }
-
-/**
- * The Patterns whose Series comes off `Calcular` rather than off the automatic `GET`.
- *
- * Both of them answer about the lines a person pinned, and a `GET` carries no lines — so the
- * automatic response holds an empty Series under each of these keys on every run, forever. Listing
- * them here is what lets `overlays` below take them from `relations` instead and drop the empty
- * copies, rather than putting a Pattern in the sidebar that can only ever say "0 pontos".
- *
- * `line-relations` is in the set although it has no entry in `OVERLAYS`: it is read in the Log, and
- * what this set decides is *which response a Series comes from*, not whether it is drawn.
- * `trend-relations` is there on both counts — it is the sloped twin, and it is read the same way.
- *
- * `line-respect` covers **two** Series, because the pipeline declares that Pattern twice: once over
- * the levels and once over the sloped lines. One name, one `OVERLAYS` entry, two rows in the
- * sidebar — which is right rather than merely convenient, since a respect group is the same thing
- * whichever kind of line it was held against, and `LineRespectOverlay` draws its pills in pixels
- * beside the run rather than at the line's price.
- */
-const MANUAL = new Set(['line-relations', 'line-respect', 'trend-relations'])
 
 /**
  * The Patterns whose points may come from a **fresher** run than the automatic `GET`.

@@ -46,6 +46,9 @@ from pattern_engine.patterns import (
     NO_PROXIMITY,
     NO_TRENDS,
     AdvancingLegsPattern,
+    AverageRelationsPattern,
+    AverageRespectPattern,
+    AverageTargetPattern,
     BarGapPattern,
     BarsPattern,
     ConsecutiveDirectionPattern,
@@ -54,6 +57,8 @@ from pattern_engine.patterns import (
     LegExtremesPattern,
     LegPattern,
     LegReachPattern,
+    LegRecapPattern,
+    LegTargetPattern,
     LegWindowPattern,
     LineRelationsPattern,
     LineRespectPattern,
@@ -67,6 +72,7 @@ from pattern_engine.patterns import (
     SmallestWindow,
     TrendLinesPattern,
     TrendRelationsPattern,
+    WeightedAveragePattern,
     ZigZagPattern,
 )
 
@@ -132,10 +138,13 @@ def build_pipeline(
     Pattern object: nothing today would notice, but the moment a second argument lands, a shared
     zigzag between the "old" and "new" pipelines is a bug nobody would look for.
 
-    The `proximity` rule goes to both relation Patterns and is one ladder for the pipeline, the same
-    trade `rule` makes and for a sharper version of the same reason: a level and a sloped line are
-    asked the same four questions, and letting the browser tune "how near is near" differently for
-    the two would make the one comparison somebody pins both kinds of line to draw meaningless.
+    The `proximity` rule goes to **all four** relation Patterns and is one ladder for the pipeline,
+    the same trade `rule` makes and for a sharper version of the same reason: a level, a sloped line
+    and a moving average are asked the same four questions, and letting the browser tune "how near
+    is near" differently between them would make the one comparison somebody reads two of those
+    Series side by side for meaningless. It gains no new parameter for the averages — the ladder a
+    body sets is set for them too, and `average-respect` folds those `close` events into its
+    stretches exactly as `line-respect` does.
     """
     zigzag = ZigZagPattern(depth=8, reads=("5m",), emits="5m")
     # Reads the same bars as the zigzag above, deliberately: the two are alternative answers to
@@ -147,10 +156,11 @@ def build_pipeline(
     # detector rather than one shared, since a reach belongs to the legs it was cut from.
     zigzag_reach = LegReachPattern(source=zigzag, reads=("5m",), emits="5m")
     simple_reach = LegReachPattern(source=simple_leg, reads=("5m",), emits="5m")
-    # The zigzag's own retracement, bound for the reason every local here is bound: the Pattern at
-    # the bottom that reads a leg's breaks takes this instance, not its producer key. Its twin over
-    # the simple legs stays inline below, since nothing reads it.
+    # Both retracements, bound for the reason every local here is bound: the Pattern at the bottom
+    # that reads a leg's breaks takes the zigzag's instance, and the recap at the very bottom takes
+    # the simple legs' — one row per leg, and this is the Series that says how much each gave back.
     zigzag_retracement = RetracementPattern(source=zigzag_reach, reads=("5m",), emits="5m")
+    simple_retracement = RetracementPattern(source=simple_reach, reads=("5m",), emits="5m")
     leg_windows = LegWindowPattern(source=zigzag, ahead=5, reads=("5m",), emits="5m")
     # Bound to a local for the same reason the detectors above are: the grouper at the bottom
     # takes this slicer's *instance*, not its producer key.
@@ -177,6 +187,60 @@ def build_pipeline(
     # `trend-lines`, because it is not downstream of the fan — see `TrendRelationsPattern`.
     trend_relations = TrendRelationsPattern(
         trends=trends, proximity=proximity, legs=legs, reads=("5m",), emits="5m"
+    )
+    # The two readings of those events, bound for the reason everything else here is bound: the two
+    # `leg-target` instances at the very bottom each take one of these *instances*, not its key.
+    level_respects = LineRespectPattern(source=relations, reads=("5m",), emits="5m")
+    trend_respects = LineRespectPattern(source=trend_relations, reads=("5m",), emits="5m")
+    # The targets against each kind of line, bound because the recap at the very bottom takes all
+    # four instances and keeps them apart on its row. Four Patterns rather than one reading every
+    # respect Series — the reason the respects themselves are four, restated at the tuple site below.
+    level_targets = LegTargetPattern(
+        source=simple_legs, marks=simple_leg, respects=level_respects, reads=("5m",), emits="5m"
+    )
+    trend_targets = LegTargetPattern(
+        source=simple_legs, marks=simple_leg, respects=trend_respects, reads=("5m",), emits="5m"
+    )
+    # The two averages this installation watches, and the same four questions asked of each. Bound
+    # for the reason every local here is bound: the relations Patterns take the average's *instance*
+    # and the respects take theirs.
+    #
+    # An average is a Pattern here at all because a *Pattern asks questions of it* — the argument is
+    # in `weighted_average`'s docstring, against the paragraph in `apps/web/app/utils/indicator.ts`
+    # that says an indicator belongs in the browser. The line on the chart is still drawn there.
+    #
+    # The periods are **not** parameters, and they fail this module's one test in the most decisive
+    # way available: an average is arithmetic over closes this server already holds, so unlike a
+    # pinned line or a proximity ladder there is nothing here the browser knows that this does not.
+    # Somebody who wants a different period edits this line.
+    #
+    # Thirty twice, and the two are not one setting said twice. Thirty five-minute bars is two and a
+    # half hours — and it is `DEFAULTS.period` in `useStoredIndicators.ts`, the line the monitor
+    # draws before anybody touches a dial, which is what makes the two comparable by eye. Thirty
+    # hourly buckets is three sessions, and costs the first three of the nine a default window holds:
+    # that Series says nothing until it has thirty closed hours behind it.
+    average = WeightedAveragePattern(period=30, bucket=None, reads=("5m",), emits="5m")
+    hourly_average = WeightedAveragePattern(period=30, bucket="1h", reads=("5m",), emits="5m")
+    average_relations = AverageRelationsPattern(
+        source=average, proximity=proximity, legs=legs, reads=("5m",), emits="5m"
+    )
+    hourly_relations = AverageRelationsPattern(
+        source=hourly_average, proximity=proximity, legs=legs, reads=("5m",), emits="5m"
+    )
+    # And their respect groups, bound where they used to sit inline: the two targets below take the
+    # instances. `AverageRespectPattern` is `LineRespectPattern` under a name of its own and
+    # `AverageTargetPattern` is `LegTargetPattern` under one — the same cut for the same reason, one
+    # step apart on one chain, argued in full in `average_respect.py` and transposed in
+    # `average_target.py`. Both matter here and nowhere else: the web app keys "is this Series only
+    # ever filled by a `POST`" off the class part of a producer, and neither of these is downstream
+    # of anything a person drew.
+    average_respects = AverageRespectPattern(source=average_relations, reads=("5m",), emits="5m")
+    hourly_respects = AverageRespectPattern(source=hourly_relations, reads=("5m",), emits="5m")
+    average_targets = AverageTargetPattern(
+        source=simple_legs, marks=simple_leg, respects=average_respects, reads=("5m",), emits="5m"
+    )
+    hourly_targets = AverageTargetPattern(
+        source=simple_legs, marks=simple_leg, respects=hourly_respects, reads=("5m",), emits="5m"
     )
 
     return (
@@ -205,14 +269,12 @@ def build_pipeline(
         # legs is most of them. The reach Patterns above run through the bars and hand over one
         # Point per pivot, in the same order, priced where the leg really got to.
         #
-        # Not bound to locals, unlike the reaches and the slicers around them — nothing downstream
-        # takes these instances, which is the same reason `GeneralDirectionPattern` below is not
-        # bound either. No dials: the loaded window is the whole of the lookback, and the fraction
-        # has no threshold to tune.
+        # No dials: the loaded window is the whole of the lookback, and the fraction has no
+        # threshold to tune.
         zigzag_reach,
         simple_reach,
         zigzag_retracement,
-        RetracementPattern(source=simple_reach, reads=("5m",), emits="5m"),
+        simple_retracement,
         # The first opinion that outlives a leg: the market's general lean, read off the simple
         # legs' pivots and guarded by the zigzag's. It reads the two Series above, never the
         # bars, so it must sit after both — declaration order is run order.
@@ -251,6 +313,16 @@ def build_pipeline(
         # reported once, when it reaches three — see the module docstring, which states what that
         # costs: a run of thirty is indistinguishable here from an exact triple.
         ConsecutiveDirectionPattern(reads=("5m",), emits="5m"),
+        # And the two averages, which belong in this block for the same reason the two above do:
+        # they read `ctx["bars"]` and nothing else, so they carry no ordering constraint and could
+        # be declared anywhere. What sits below them does have one — see the four relation Series
+        # near the bottom, which take these instances.
+        #
+        # Dense output, unlike everything else in this tuple: one Point per bar past the warm-up,
+        # around 970 on a default window each. That is the price of the questions asked of them
+        # further down, and it is paid on every run whether or not anybody reads the average itself.
+        average,
+        hourly_average,
         # One slicer per detector, so the comparison the two detectors exist for survives the
         # step from vertices to bars. Both must come after their source: declaration order is
         # run order, and a slicer ahead of its detector reads a key that is not in `ctx` yet.
@@ -355,7 +427,7 @@ def build_pipeline(
         #
         # Immediately after its source, and this one *is* an ordering constraint: it reads a
         # producer key rather than `ctx["bars"]`, so declared before `relations` it would raise.
-        LineRespectPattern(source=relations, reads=("5m",), emits="5m"),
+        level_respects,
         # The same pair again for the lines that slope. A pinned trend line asks what a pinned level
         # asks — is price still respecting this? — and gets the same three answers under the same
         # three names, because they are the same rules read off a price that moves with the bar.
@@ -365,7 +437,78 @@ def build_pipeline(
         # They are distinct in `ctx` because `producer` renders the source into the key, and
         # distinct on the screen because `name` is derived from the source's.
         trend_relations,
-        LineRespectPattern(source=trend_relations, reads=("5m",), emits="5m"),
+        trend_respects,
+        # And the same pair twice more, for the two lines nobody drew. An average has a price on
+        # every bar exactly as a level and a sloped line do, so the four questions are the four
+        # questions — `AverageRelationsPattern` reuses the driver rather than restating the rules,
+        # and `line-respect` reads its events without being told what drew the line.
+        #
+        # Which makes these the third and fourth Patterns here to ask them, and the first two that
+        # are *not* told their geometry: the levels and the trend lines above are a person's input
+        # and cannot be re-derived, while these lines are Series this pipeline computed four entries
+        # up. So they are in the tuple on every run with nothing to wait for, and an empty Series
+        # from one of them means the window was too short for the period rather than that nobody
+        # asked.
+        #
+        # Two ordering constraints each, both satisfied here: after their average, and after `legs`
+        # for the near miss. `AverageRespectPattern` is `LineRespectPattern` under a name of its
+        # own, and the name is the whole of the subclass — `apps/web/app/utils/manual-series.ts`
+        # keys "is this Series only ever filled by a `POST`" off the producer's class part, and
+        # `line-respect` is in that set because both of the instances above are downstream of the
+        # pinned lines. These two are not, so they must not answer to that name.
+        average_relations,
+        hourly_relations,
+        average_respects,
+        hourly_respects,
+        # And the last thing to ask once both halves are on the table: where the legs and the lines
+        # *met*. Everything above answers about one or the other — how far a leg got, which lines are
+        # holding — and this is the join: each closed simple leg's extreme, where that bar sits
+        # inside a stretch one line held from the side that would have stopped it.
+        #
+        # Down here because declaration order is run order and it reads three keys, the furthest
+        # down of them the two respects immediately above. Two instances rather than one Pattern
+        # reading both, the reason the two `LineRespectPattern`s give: a target against a level and
+        # a target against a sloped line are the same reading of different lines, and a Pattern
+        # taking both Series could mix them with nothing downstream able to tell. The recap below
+        # keeps them in two fields for exactly that reason.
+        #
+        # No dials. Which side agrees is settled in the module, the extreme is `reach`, and the
+        # detector's tuning is set once above.
+        level_targets,
+        trend_targets,
+        # And the same join against the two averages, which is the same reading of a line nobody
+        # drew — `leg_targets` asks a respect group about a leg's extreme and never asks what drew
+        # the line, exactly as `line_respects` never asks. What differs is only the producer name,
+        # and only because it has to: `leg-target` is in the web app's `MANUAL` and these two must
+        # not be, since their whole chain is computed from closes on every run. The argument is
+        # `average_target.py`'s, and it is `average_respect.py`'s one step up the same chain.
+        average_targets,
+        hourly_targets,
+        # And then the row the monitor's panel reads: one Point per simple leg of the newest day,
+        # carrying the leg, how far it reached, what it retraced, and the lines it ran into — the
+        # two Series immediately above, split by which kind of line they are about.
+        #
+        # Last in the tuple, and by the widest margin of anything here: four keys, the furthest down
+        # of them declared on the line before. It is also the only Pattern in this pipeline that
+        # answers about *part* of the window, which is the point — a phrase about the session reads
+        # one Series and does no arithmetic, and that is what "align it in the backend" means.
+        #
+        # The alignment it leans on is a fact about these particular declarations, not a guarantee:
+        # `simple_retracement` measures the legs of `simple_legs` only because both were built off
+        # `simple_leg` above. A retracement over the zigzag would have the same shape, pass the
+        # count guard, and be wrong on every row.
+        #
+        # No dials. Nothing here measures anything — every number arrived from one of the four.
+        LegRecapPattern(
+            source=simple_legs,
+            measures=simple_retracement,
+            levels=level_targets,
+            trends=trend_targets,
+            averages=average_targets,
+            hourly_averages=hourly_targets,
+            reads=("5m",),
+            emits="5m",
+        ),
     )
 
 

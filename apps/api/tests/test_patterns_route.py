@@ -13,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 from pattern_engine import BaseSeries, Ctx, Pattern, SeriesIdentity
 from pattern_engine.patterns import (
+    AverageRelationsPattern,
+    AverageRespectPattern,
     BarsPattern,
     LegExtremesPattern,
     LineRelationsPattern,
@@ -996,3 +998,94 @@ def test_a_rung_claiming_every_leg_by_size_zero_is_refused(client):
 
     assert response.status_code == 400
     assert "above zero" in response.json()["detail"]
+
+
+# --- the lines nobody drew ------------------------------------------------------------------------
+
+#: The four Series about the two moving averages, found by class for the reason `BARS` is — and then
+#: told apart by their source's `bucket`, which is the only thing that differs between them. Written
+#: this way rather than by position because that is what survives a reordering of the tuple, and
+#: because "the hourly one" is what the assertions below actually mean.
+AVERAGES = [
+    pattern for pattern in PIPELINE if isinstance(pattern, AverageRelationsPattern)
+]
+BY_BAR = next(pattern.producer for pattern in AVERAGES if pattern.source.bucket is None)
+BY_HOUR = next(pattern.producer for pattern in AVERAGES if pattern.source.bucket == "1h")
+BY_BAR_RESPECT = next(
+    pattern.producer
+    for pattern in PIPELINE
+    if isinstance(pattern, AverageRespectPattern) and pattern.source.producer == BY_BAR
+)
+
+
+def test_the_get_answers_about_the_averages_without_being_asked(client):
+    """The one property that separates these from every other relations Series in the pipeline.
+
+    Levels and trend lines are a person's input, so their Series are empty on a `GET` and filled by a
+    body. An average is arithmetic over the closes this server already loaded, so there is nothing to
+    wait for and nothing for a caller to send — which is why `average-relations` and `average-respect`
+    are **not** in `MANUAL` in `apps/web/app/utils/manual-series.ts`. Asserting it here is what keeps
+    that decision honest: if this ever answered empty on a `GET`, the browser would be dropping the
+    only copy it is ever going to get.
+    """
+    body = client.get("/patterns", params=WINDOW).json()
+
+    assert body["failed"] == []
+    assert body["series"][BY_BAR]["points"]
+    assert body["series"][BY_BAR_RESPECT]["points"]
+    # Every bar of `wave()` opens and closes at its midpoint, so a body can never cross a line —
+    # touches are the only event this fixture can produce, about an average as about a level.
+    assert {point["kind"] for point in body["series"][BY_BAR]["points"]} == {"touch"}
+    # Labelled with the average's own name, since there is no browser here to have minted an id.
+    assert {point["line"] for point in body["series"][BY_BAR]["points"]} == {"wma-30"}
+
+
+def test_a_window_too_short_for_the_hourly_average_answers_nothing(client):
+    """The warm-up cost, where it actually bites: thirty hourly buckets, and five hours of bars.
+
+    Present and empty rather than absent — the same distinction the pinned lines' Series make, for a
+    different reason. Here it says "not enough history yet", which is what `weighted_average`'s
+    docstring promises instead of an average built out of whatever it had.
+    """
+    body = client.get("/patterns", params=WINDOW).json()
+
+    assert BY_HOUR in body["series"]
+    assert body["series"][BY_HOUR]["points"] == []
+
+
+def test_the_two_averages_are_named_apart(client):
+    """One class declared twice, so the label separates them as the key does — `line-respect`'s case."""
+    body = client.get("/patterns", params=WINDOW).json()
+
+    assert body["series"][BY_BAR]["name"] == "Relations · wma-30"
+    assert body["series"][BY_HOUR]["name"] == "Relations · wma-30-1h"
+
+
+def test_the_averages_answer_the_same_whether_or_not_a_line_was_pinned(client):
+    """A body adds data to a question; it must not move a Series that answers about the market."""
+    plain = client.get("/patterns", params=WINDOW).json()
+    posted = client.post("/patterns", params=WINDOW, json=PINNED).json()
+
+    assert posted["series"][BY_BAR] == plain["series"][BY_BAR]
+    assert posted["series"][BY_BAR_RESPECT] == plain["series"][BY_BAR_RESPECT]
+
+
+def test_a_posted_ladder_reaches_the_averages_too(client):
+    """The fourth kind, wired to the averages by the same parameter and with no pin in sight.
+
+    One ladder for the pipeline is the claim `build_pipeline` makes, and this is the half of it the
+    `GET` cannot show: a body carrying rungs and **no lines at all** still turns the near misses
+    around the average into `close` Points, with the `gap` and `leg` that let a reader check them.
+    """
+    plain = client.get("/patterns", params=WINDOW).json()
+    laddered = client.post("/patterns", params=WINDOW, json={"proximity": LADDER}).json()
+
+    before = {point["kind"] for point in plain["series"][BY_BAR]["points"]}
+    after = [point for point in laddered["series"][BY_BAR]["points"] if point["kind"] == "close"]
+
+    assert "close" not in before
+    assert after
+    rule = ProximityRule(name="proximidade", levels=(ProximityLevel(points=1.0, trigger=0.5),))
+    assert all(0 < point["gap"] <= reach(rule, point["leg"]) for point in after)
+    # And the pinned lines' own Series is still empty, because no line was sent.
+    assert laddered["series"][LINES]["points"] == []
