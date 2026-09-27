@@ -66,7 +66,15 @@ export const MANUAL = new Set([
  * because a `Calcular` is a deliberate act, and the alternative is a row saying a leg reached no
  * line while the line sits on the chart.
  *
- * Read only by the Log. The overlay sidebar splits on `MANUAL` alone, which is right: this Series
- * draws nothing and has no `OVERLAYS` entry to reach either way.
+ * Read by the Log and by the monitor panel's session lines — two readers, and they apply the rule
+ * at different shapes. `PatternLog.entries` is building a picker, so it drops a `PARTIAL` producer
+ * from the automatic list when the manual one carries the same key; `monitor.vue`'s `recapReadings`
+ * wants one named Series, so it takes the manual copy when there is one and the automatic copy
+ * otherwise. Same rule, and both turn on the manual run having **answered the key** rather than on
+ * how many Points came back.
+ *
+ * The overlay sidebar is the one reader that does not consult this set, and splits on `MANUAL`
+ * alone — which is right: this Series draws nothing and has no `OVERLAYS` entry to reach either
+ * way. The split that matters here is about reading rows, not about drawing.
  */
 export const PARTIAL = new Set(['leg-recap'])

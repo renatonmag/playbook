@@ -1,4 +1,5 @@
-import type { BarMark, LegBreak, PivotOffset } from '~/types/pattern'
+import type { BarMark, LegBreak, LegRecap, PivotOffset } from '~/types/pattern'
+import { barHour } from '~/utils/bar-time'
 import { TURN_LABELS } from '~/utils/bars'
 
 /**
@@ -27,6 +28,43 @@ import { TURN_LABELS } from '~/utils/bars'
  * **A clause with nothing to say disappears.** No measurable retracement, no marks on the bar, no
  * leg in the window — each drops its own clause, and nothing left drops the sentence. The
  * alternative is a line of em-dashes that reads as a broken panel rather than as a quiet bar.
+ *
+ * `recapPhrase` is the third statement here and the only one that is not about the right edge: one
+ * line per leg of the session, read off `leg-recap` and nothing else. Three things about it are
+ * load-bearing and none of them is visible from the string it returns.
+ *
+ * **It reads one Series, and that is the whole reason `leg-recap` exists.** The retracement and the
+ * four kinds of target were aligned onto one row on the server precisely so a sentence about the
+ * session would not have to join three anchors and three cardinalities in the browser. So nothing
+ * here looks up a second Series, and a clause that wants a number this row does not carry is a
+ * clause that does not belong on this line.
+ *
+ * **Which is why the two counts from `reading()` above are absent.** `níveis rompidos` and
+ * `pernas internas` are `LegBreak.broke` and `LegBreak.legs`, and a `LegBreak` is a **zigzag** leg
+ * while a recap row is a **simple** one — several simple legs run inside one zigzag leg. Putting
+ * them on this line would take a simple-leg-to-group join this row cannot do, and would then repeat
+ * one pair of numbers down a run of consecutive lines as though each had been measured. Left off
+ * deliberately; they are still on the `reading()` line above, where they are about the leg they
+ * describe.
+ *
+ * **Two bars in one sentence, and they are different bars.** `end.time` is where the leg was cut
+ * and is what names it; `reach.time` is where price actually got to, and is the bar every
+ * `LegTarget` on the row is anchored on — `leg_recap.py` and `leg_target.py` take it from the same
+ * `extreme_points` call, so one time serves however many targets there are. On a leg marked late
+ * the two are several candles apart, and collapsing them would put the meeting on a bar it did not
+ * happen on.
+ *
+ * **An empty target list has three readings and the row shows only two.** On a closed leg the leg
+ * reached no line. On the `provisional` last row nothing measured that leg at all — see
+ * `LegRecap.provisional`, which is also why `reach` naming the wrong extreme there costs nothing
+ * here: that row can never carry a target, so the clause never renders on it.
+ *
+ * The third is not on the Point at all: on a copy from the automatic `GET` **no line was pinned**,
+ * so `levels` and `trends` are empty whatever the legs did. That one is not this function's to fix
+ * and not permanent either — `recapReadings` prefers the `Calcular` copy the moment one exists, on
+ * `PARTIAL`'s rule in `utils/manual-series.ts`, so what this says about the two pinned kinds is
+ * "nobody has asked yet" before a line is pinned and the honest answer after. Until then the two
+ * moving averages are the only lines these rows can be about, and no field anywhere says so.
  */
 
 /** One mark, named: its kind, and its direction where it has one. */
@@ -88,4 +126,36 @@ export function reading(leg: LegBreak | null, marks: BarMark[]): string | null {
 export function offsetPhrase(offset: PivotOffset | null): string | null {
   if (offset === null) return null
   return offset.offset ? 'Pivots estão deslocados' : 'Pivots não estão deslocados'
+}
+
+/**
+ * One leg of the session said out loud: when it was cut, what it gave back, and how many lines it
+ * met.
+ *
+ * A `string` rather than `string | null`, unlike the two above: every row has a bar, so there is
+ * always the leg itself to name. It is the *clauses* that disappear here — an unmeasured
+ * retracement and a leg that met nothing each drop their own, on this file's standing rule.
+ *
+ * Targets are **counted, not listed**, and the four fields are summed rather than kept apart. The
+ * row keeps them separate because a level, a sloped line and each average are claims about
+ * different lines; a reader scanning a session wants to know that the leg was held, and the Log has
+ * the four columns for the reader who wants to know by what.
+ */
+export function recapPhrase(recap: LegRecap): string {
+  // The bar the leg was cut at, which is what identifies it — not the anchor, which is its first
+  // bar. A reader looking for this leg on the chart looks for where it ended.
+  const cut = barHour(recap.end.time)
+  // In [0, 1] on the wire, spoken as a percentage and rounded, exactly as `reading()` says it.
+  // `null` is "not measured in this window" and never "gave nothing back", so the clause goes
+  // rather than reading 0%.
+  const retraced = recap.measured ? ` com retração de ${Math.round(recap.measured.ratio * 100)}%` : ''
+  const hits =
+    recap.levels.length + recap.trends.length + recap.averages.length + recap.hourly_averages.length
+
+  if (hits === 0) return `Perna de ${cut}${retraced}`
+
+  // The extreme bar, and read only here: with no target there is no meeting to put a time on, and
+  // on the provisional row — the one where `reach` can name the wrong extreme — `hits` is
+  // necessarily 0, so this line is unreachable there.
+  return `Perna de ${cut}${retraced}. Atingiu ${hits} ${hits === 1 ? 'alvo' : 'alvos'} em ${barHour(recap.reach.time)}`
 }

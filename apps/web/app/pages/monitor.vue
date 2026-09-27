@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
+import type { UTCTimestamp } from 'lightweight-charts'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
-import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtremes, type LineRespect, type PatternPoint, type PatternResponse, type PivotOffset, type TrendLine } from '~/types/pattern'
+import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtremes, type LegRecap, type LineRespect, type PatternPoint, type PatternResponse, type PivotOffset, type SeriesEnvelope, type TrendLine } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import { toProximityBody } from '~/utils/proximity'
-import { offsetPhrase, reading } from '~/utils/reading'
+import { barHour } from '~/utils/bar-time'
+import type { LegSpan } from '~/utils/leg-spans'
+import { offsetPhrase, reading, recapPhrase } from '~/utils/reading'
 import { MANUAL } from '~/utils/manual-series'
 import type { Ruler } from '~/utils/ruler'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
@@ -552,7 +555,7 @@ function listed(response: PatternResponse | null, keep: (name: string) => boolea
 }
 
 /**
- * One Series' Points out of a response, by the producer's class part.
+ * One Series out of a response, by the producer's class part — the envelope, not its Points.
  *
  * `listed()` above cannot serve this, and the reason is worth keeping: it drops every producer
  * with no entry in `OVERLAYS`, which is the right rule for a list of things to draw and the wrong
@@ -563,12 +566,30 @@ function listed(response: PatternResponse | null, keep: (name: string) => boolea
  * coin-toss; nothing in `pipeline.py` declares a second `bars` or a second `leg-breaks`, and the
  * day one does this needs the full producer key rather than a better tie-break.
  *
+ * `null` means the response did **not** answer under this name, which is a different fact from
+ * answering with no Points — and the whole reason this is separate from `seriesPoints` below. A
+ * reader choosing between two responses has to be able to tell "this run was not asked" from "this
+ * run was asked and found nothing"; `PARTIAL`'s rule in `utils/manual-series` turns on exactly that
+ * distinction, and `recapReadings` is the reader that needs it.
+ */
+function seriesEntry(response: PatternResponse | null, name: string): SeriesEnvelope | null {
+  const found = Object.entries(response?.series ?? {}).find(([producer]) => producerName(producer) === name)
+  return found?.[1] ?? null
+}
+
+/**
+ * That Series' Points, for the readers with only one response to consult.
+ *
+ * `[]` for both of `seriesEntry`'s two answers, which is right wherever the difference cannot
+ * matter: a Pattern that is not in the response and one that found nothing are both "nothing to
+ * say" to `currentLeg`, `currentMarks` and `currentOffset`, none of which has a second copy to
+ * fall back to.
+ *
  * The caller names the Point type, as with `listed`: a response holds every Pattern's shape and
  * only the reader knows which one this producer emits.
  */
 function seriesPoints<TPoint extends PatternPoint>(response: PatternResponse | null, name: string): TPoint[] {
-  const found = Object.entries(response?.series ?? {}).find(([producer]) => producerName(producer) === name)
-  return (found?.[1].points ?? []) as TPoint[]
+  return (seriesEntry(response, name)?.points ?? []) as TPoint[]
 }
 
 /**
@@ -2210,25 +2231,6 @@ function pinnedLevels(): CandleLevel[] {
 }
 
 /**
- * A bar time as a clock reading.
- *
- * `timeZone: 'UTC'` is what makes the hour come out right in São Paulo, and is *not* a decision to
- * display UTC: the stored epoch encodes São Paulo wall time labelled as UTC. The docblock on
- * `pages/record-bars.vue` sets this out in full; without it every label here reads three hours
- * early. One function rather than one per caller, because that reasoning does not survive being
- * retyped.
- *
- * Unix seconds, so `* 1000`.
- */
-function barLabel(seconds: number) {
-  return new Date(seconds * 1000).toLocaleTimeString('pt-BR', {
-    timeZone: 'UTC',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-/**
  * The bar the last pipeline run reached — one behind `bar.last`, always.
  *
  * `/patterns` withholds the newest bar the feed has written, because that is the one still being
@@ -2238,14 +2240,14 @@ function barLabel(seconds: number) {
  *
  * No clock is consulted, deliberately, and none can be: the server's rule is "a later bar
  * exists", and a wall-clock test here would be worse than useless because bar times are not on
- * the wall clock's scale — see `barLabel`.
+ * the wall clock's scale — see `barHour`.
  *
  * Client-only by where it is rendered — `bar.last` is seeded from the fetch and moved by the
  * socket, and the server has neither.
  */
 const lastBarLabel = computed(() => {
   if (bar.last.value === null) return null
-  return barLabel(bar.last.value - SECONDS[timeframe.value])
+  return barHour(bar.last.value - SECONDS[timeframe.value])
 })
 
 /**
@@ -2312,6 +2314,93 @@ const currentOffset = computed<PivotOffset | null>(() =>
 
 /** That one as a phrase. `null` when there was no pair to compare. */
 const offsetReading = computed(() => offsetPhrase(currentOffset.value))
+
+/**
+ * And the panel's third statement, the only one that is not about the right edge: the session, one
+ * line per leg.
+ *
+ * No `at(-1)` and no filter, unlike the two above — `leg-recap` **is** the sequence, one Point per
+ * simple leg of the newest day in the order they ran, so the whole Series is the answer and mapping
+ * it is the whole of the work. `seriesEntry` rather than `listed()` for the reason `currentLeg`
+ * gives: the Series draws nothing, so it has no `OVERLAYS` entry and `listed()` would not hand it
+ * over.
+ *
+ * **Drawn newest first, which is this list's decision and not the Series'.** The Points arrive in
+ * run order and that is a fact about the wire; what is rendered is the reverse of it. A session
+ * overflows the panel, so oldest-first buries the leg the market is actually in at the bottom of a
+ * scroll — the one line a reader wants without looking for it. Reversed, it sits directly under the
+ * two statements above, which are also about the right edge. The rows carry their own `span`, so
+ * nothing downstream depends on the order either way.
+ *
+ * **It reads both responses, unlike the two lines above, and that is `PARTIAL`'s rule rather than a
+ * preference.** `leg-recap` is in that set — see `utils/manual-series` — because four of its six
+ * readings come off closes this server already holds and two of them, `levels` and `trends`, are
+ * the pinned lines' and cannot be in a `GET` at all. So the automatic copy answers this key on
+ * every run with those two necessarily empty, and reading it alone means a line pinned on the chart
+ * changes nothing about what the panel says. Show the automatic copy until the manual one exists,
+ * then prefer the manual one. The Log applies the same rule to the same Series in `PatternLog.vue`.
+ *
+ * **Presence, not point count.** A `POST` that answered `leg-recap` with no rows still answered,
+ * and its empty copy is the truthful one — which is why this asks `seriesEntry` for the envelope
+ * instead of asking `seriesPoints` for a length. The fallback is not sticky either: `calculate`
+ * sets `relations` back to `null` when the last line is unpinned, and the automatic copy returns.
+ *
+ * `edgeSeries` is not consulted, like the two lines above and for their reason: the edge run
+ * re-runs `simple-leg` alone, so this Series is not in it.
+ *
+ * What that costs is the Log's cost, taken here rather than guarded against: `relations` is not
+ * window-checked the way `edgeSeries` is. `calculateKey` carries the window, so a closing bar does
+ * re-run it — but through a debounce and a request, and in that gap this describes the window
+ * before. Guarding it only here would make the panel and the Log disagree about one Series, which
+ * is worse than the gap.
+ *
+ * **Three anchors on one row and none of them interchangeable.** `time` is the leg's first bar and
+ * is the key here — unique per row, and the only one of the three that is. The phrase speaks the
+ * other two: `end.time` names the leg and `reach.time` dates the targets. See `utils/reading`.
+ *
+ * Not trimmed to a window: the day is the server's cut, and a session's worth of legs is what the
+ * panel was resized for. It scrolls.
+ */
+const recapReadings = computed(() => {
+  const answered = seriesEntry(relations.value, 'leg-recap')
+  const points = (answered ?? seriesEntry(patterns.value, 'leg-recap'))?.points ?? []
+
+  return (points as LegRecap[]).map(recap => ({
+    key: recap.time,
+    text: recapPhrase(recap),
+    // All three anchors, because the hover draws the run and the phrase names two points inside
+    // it. `from` is the same number as `key` and is written out anyway: one is this list's identity
+    // and the other is a bar on the chart, and a reader should not have to know they coincide.
+    span: {
+      from: recap.time as UTCTimestamp,
+      to: recap.end.time as UTCTimestamp,
+      at: recap.reach.time as UTCTimestamp,
+    } satisfies LegSpan,
+  }))
+    // Newest first — see the docblock. After the `map` and never on `points`: that array is the
+    // response envelope's own, shared with every other reader of the same Series, and `reverse`
+    // mutates in place. `map` has already produced a fresh array, so this reorders the list and
+    // nothing else; on `points` it would reorder the Series for the Log too, and re-reverse it on
+    // every recompute.
+    .reverse()
+})
+
+/**
+ * The leg under the cursor, or `null` when the pointer is on none of the panel's lines.
+ *
+ * Beside `focusBar` in spirit and shaped after it: chart state the page owns, that no overlay
+ * remembers and nothing persists. `shallowRef` because every hovered value on this chart is one —
+ * it has to be a watcher dependency, or the wash would not follow the pointer.
+ *
+ * **The first hover on this page that starts outside the chart.** Every other one is driven from
+ * within by `subscribeCrosshairMove`, which is available precisely because the cursor is over the
+ * pane. These lines are in a panel teleported to `body`, so there is no crosshair to subscribe to
+ * and the coupling has to be a ref the rows write and an overlay prop reads.
+ *
+ * Deliberately not in `useStoredOverlays`, the split `focusMode` and `focusBar` already make: which
+ * Patterns are armed is a preference worth keeping, and where a pointer was last week is not.
+ */
+const hoveredRecap = shallowRef<LegSpan | null>(null)
 
 /**
  * The splitter between the chart and the Log, in the pixels its two constants are written in.
@@ -2739,6 +2828,12 @@ function isVisible(overlay: { producer: string }) {
                     @select="(id: string | null) => onSelect(RULER_KEY, id)"
                     @disarm="rulerArmed = false"
                   />
+                  <!-- The leg whose line the cursor is resting on, washed across its bars. Out
+                       here with the levels tool and the ruler rather than in the loop above,
+                       because `leg-recap` has no `OVERLAYS` entry and is not in `overlays` — and
+                       for a reason of its own on top of that: it is the only overlay answering
+                       about where the pointer is rather than about the market. -->
+                  <LegSpanOverlay :span="hoveredRecap" />
                   <!-- Draws nothing and listens for one thing: the click that lands on no line, and
                        so ends the selection. It cannot be any of the overlays' business — each of
                        them only ever knows the click was not *its* — so it is the page's. -->
@@ -3190,7 +3285,7 @@ function isVisible(overlay: { producer: string }) {
                   <!-- Which candle is being asked about. The only place it is written down: on the
                        chart it is wherever the lit lines happen to meet. -->
                   <span v-if="focusFor(overlay.producer) !== null" class="ml-1 text-gray-500">
-                    · {{ barLabel(focusFor(overlay.producer)!) }}
+                    · {{ barHour(focusFor(overlay.producer)!) }}
                   </span>
                 </button>
 
@@ -3370,7 +3465,7 @@ function isVisible(overlay: { producer: string }) {
                       <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: segment.color }" />
                       <span>{{ EXTREME_LABELS[segment.type] }}</span>
                       <span class="font-mono">{{ segment.price }}</span>
-                      <span class="text-gray-400">{{ barLabel(segment.time) }}</span>
+                      <span class="text-gray-400">{{ barHour(segment.time) }}</span>
                       <button
                         class="ml-auto text-gray-400 hover:text-gray-600"
                         :aria-label="`desafixar ${EXTREME_LABELS[segment.type]}`"
@@ -3409,12 +3504,12 @@ function isVisible(overlay: { producer: string }) {
                       <span class="inline-block h-2 w-3 shrink-0 border" :style="{ borderColor: box.color, backgroundColor: box.color + '40' }" />
                       <span>{{ GAP_LABELS[box.direction] }}</span>
                       <span class="font-mono">{{ box.bottom }}–{{ box.top }}</span>
-                      <span class="text-gray-400">{{ barLabel(box.time) }}</span>
+                      <span class="text-gray-400">{{ barHour(box.time) }}</span>
                       <!-- The state in words as well as in colour, and for a closed gap the bar that
                            closed it: on the chart that bar is nowhere, since the box does not reach
                            it. -->
                       <span class="text-gray-400">
-                        {{ GAP_STATE_LABELS[box.state] }}<template v-if="box.closedAt"> {{ barLabel(box.closedAt) }}</template>
+                        {{ GAP_STATE_LABELS[box.state] }}<template v-if="box.closedAt"> {{ barHour(box.closedAt) }}</template>
                       </span>
                       <button
                         class="ml-auto text-gray-400 hover:text-gray-600"
@@ -3459,7 +3554,7 @@ function isVisible(overlay: { producer: string }) {
                       <span>{{ TREND_LABELS[segment.side] }}</span>
                       <span class="font-mono">{{ segment.fromPrice }}→{{ segment.toPrice }}</span>
                       <span class="text-gray-400">
-                        {{ barLabel(segment.from.time) }}–{{ barLabel(segment.to.time) }}
+                        {{ barHour(segment.from.time) }}–{{ barHour(segment.to.time) }}
                       </span>
                       <!-- A line whose ends you placed yourself, and the anchors you placed them
                            on. The chart cannot say the second half: every line ends on a price, and
@@ -3649,7 +3744,7 @@ function isVisible(overlay: { producer: string }) {
                     <span class="inline-block h-0.5 w-3 shrink-0" :style="{ backgroundColor: level.color }" />
                     <span>{{ level.fields.map(field => LEVEL_LABELS[field]).join(' · ') }}</span>
                     <span class="font-mono">{{ level.price }}</span>
-                    <span class="text-gray-400">{{ barLabel(level.time) }}</span>
+                    <span class="text-gray-400">{{ barHour(level.time) }}</span>
                     <button
                       class="ml-auto text-gray-400 hover:text-gray-600"
                       :aria-label="`desafixar ${level.fields.map(field => LEVEL_LABELS[field]).join(' e ')}`"
@@ -3721,7 +3816,7 @@ function isVisible(overlay: { producer: string }) {
                   <span class="ml-auto text-xs font-normal text-gray-500">
                     {{ !focusMode.has(action.key)
                       ? 'desligado'
-                      : focusFor(action.key) === null ? 'clique num candle' : barLabel(focusFor(action.key)!) }}
+                      : focusFor(action.key) === null ? 'clique num candle' : barHour(focusFor(action.key)!) }}
                   </span>
                 </CommandItem>
               </CommandGroup>
@@ -3925,8 +4020,27 @@ function isVisible(overlay: { producer: string }) {
         <!-- Where the two detectors' newest pivots sit. Its own line, not a clause of the sentence
              above: that one is about the leg and the bar, this is about the detectors. -->
         <p v-if="offsetReading" class="text-sm leading-relaxed text-gray-700">{{ offsetReading }}</p>
-        <!-- The placeholder waits on both, so a quiet leg with a pivot reading still shows it. -->
-        <p v-if="!currentReading && !offsetReading" class="text-sm text-gray-500">Nada aqui ainda.</p>
+        <!-- And the session: one line per leg, because `leg-recap` is the sequence. Newest first,
+             which is `recapReadings`' doing and not the Series' — so the leg still running is the
+             first line under the rule, beside the two statements above that are also about the
+             right edge. Below them rather than in place of them: those answer about the edge and
+             this about the whole day, and a list a session long must not push them out of view.
+             The rule is what separates the two kinds of statement; it is not there when either
+             side of it is empty. -->
+        <hr v-if="(currentReading || offsetReading) && recapReadings.length > 0" class="my-2 border-gray-100">
+        <!-- Hovering a line shades its leg on the chart. The tint on the line itself is the other
+             half of that: without it the sentence under the cursor is the only thing on screen not
+             saying it is the one being pointed at. `cursor-default` because a pointing hand would
+             promise a click, and there is nothing here to click. -->
+        <p
+          v-for="row in recapReadings"
+          :key="row.key"
+          class="cursor-default rounded-sm text-sm leading-relaxed text-gray-700 hover:bg-sky-50"
+          @mouseenter="hoveredRecap = row.span"
+          @mouseleave="hoveredRecap = null"
+        >{{ row.text }}</p>
+        <!-- The placeholder waits on all three, so a quiet leg with a pivot reading still shows it. -->
+        <p v-if="!currentReading && !offsetReading && recapReadings.length === 0" class="text-sm text-gray-500">Nada aqui ainda.</p>
       </FloatingPanel>
     </ClientOnly>
   </main>

@@ -61,3 +61,22 @@ export function barBrief(seconds: number): string {
     minute: '2-digit',
   })
 }
+
+/**
+ * The shortest of the three: the hour and minute alone.
+ *
+ * For the places the date carries nothing because the surrounding text has already fixed it — a
+ * sidebar column reading down one window, or a sentence about the legs of one session, where
+ * `28/03, 09:40` says the same thing as `09:40` in three times the width.
+ *
+ * It was `barLabel` in `pages/monitor.vue` for as long as this module has existed, with the UTC
+ * paragraph above retyped above it — the exact duplication this module was written against. Here
+ * instead, so there is one copy of that reasoning and three readings of it.
+ */
+export function barHour(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleTimeString('pt-BR', {
+    timeZone: BAR_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
