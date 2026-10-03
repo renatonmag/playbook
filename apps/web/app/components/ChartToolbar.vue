@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GripVertical, Trash } from '@lucide/vue'
+import { Copy, GripVertical, Trash } from '@lucide/vue'
 
 /**
  * The actions for whatever line is selected on the chart, as a small bar floating over the pane.
@@ -15,7 +15,7 @@ import { GripVertical, Trash } from '@lucide/vue'
  * Rendered inside `CandleChart`'s slot, which is a sibling of the library-owned container — see the
  * `relative` on the tag in `pages/monitor.vue`, which is the box these coordinates are measured in.
  */
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   /**
    * Where the bar sits inside that box, in pixels from its top-left, or `null` for "never moved".
    *
@@ -25,13 +25,25 @@ const props = defineProps<{
    */
   x: number | null
   y: number | null
-}>()
+  /**
+   * Whether the selection can be duplicated — only the `unbroken-wick` glows, today. Off by default,
+   * so the lines this bar was written for keep the one button they always had.
+   */
+  copy?: boolean
+  /**
+   * Whether the selection can be removed. On by default; off for the one thing that can be selected
+   * and not deleted — the glow the Pattern drew, which is the Series' answer and not anybody's mark.
+   */
+  remove?: boolean
+}>(), { copy: false, remove: true })
 
 const emit = defineEmits<{
   /** The grip was dragged. The page holds the position, so the bar stays put across selections. */
   move: [x: number, y: number]
   /** The `Trash`: whatever is selected should go. */
   remove: []
+  /** The `Copy`: duplicate whatever is selected. */
+  copy: []
 }>()
 
 const { root, onPointerDown } = useFloatingBar(
@@ -60,6 +72,17 @@ const { root, onPointerDown } = useFloatingBar(
     <span class="mx-0.5 h-5 w-px bg-gray-200" />
 
     <button
+      v-if="props.copy"
+      class="flex size-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+      aria-label="duplicar marcação"
+      title="Duplicar"
+      @click="emit('copy')"
+    >
+      <Copy class="size-4" />
+    </button>
+
+    <button
+      v-if="props.remove"
       class="flex size-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-red-600"
       aria-label="remover linha"
       title="Remover"

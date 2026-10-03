@@ -54,9 +54,9 @@ const KEY = 'playbook:monitor:overlays'
  * (`hiddenDirections`, `hiddenSides`, `hiddenStates`) are keyed the same way and stay in memory:
  * they are the contrast that says what this one trades, not a rule this one breaks.
  */
-type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'hideLinked' | 'confirmedOnly' | 'focusMode' | 'labelsAlways' | 'hiddenMarkTypes'
+type Stored = 'shown' | 'open' | 'pinned' | 'moves' | 'autoHide' | 'hideLinked' | 'confirmedOnly' | 'focusMode' | 'labelsAlways' | 'hiddenMarkTypes' | 'hideAtEdge'
 
-const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'hideLinked', 'confirmedOnly', 'focusMode', 'labelsAlways', 'hiddenMarkTypes']
+const NAMES: Stored[] = ['shown', 'open', 'pinned', 'moves', 'autoHide', 'hideLinked', 'confirmedOnly', 'focusMode', 'labelsAlways', 'hiddenMarkTypes', 'hideAtEdge']
 
 /** Total, like `parseRule`: anything that is not an array of strings reads as an empty set. */
 function readList(value: unknown): string[] {

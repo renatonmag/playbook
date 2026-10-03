@@ -93,6 +93,7 @@ from .trend_relations import (
     resolver,
     trend_relations,
 )
+from .unbroken_wick import UnbrokenWick, UnbrokenWickPattern, unbroken_wick
 from .weighted_average import WeightedAverage, WeightedAveragePattern, weighted_average
 from .zigzag import ZigZagIndidicator, ZigZagPattern, ZigZagPivot
 
@@ -168,6 +169,8 @@ __all__ = [
     "TrendLine",
     "TrendLinesPattern",
     "TrendRelationsPattern",
+    "UnbrokenWick",
+    "UnbrokenWickPattern",
     "WeightedAverage",
     "WeightedAveragePattern",
     "Wick",
@@ -221,6 +224,7 @@ __all__ = [
     "trend_lines",
     "trend_relations",
     "trim_tail",
+    "unbroken_wick",
     "undone_breakouts",
     "values_at",
     "weighted_average",

@@ -3,7 +3,7 @@ import type { Component } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import type { UTCTimestamp } from 'lightweight-charts'
 import { isTimeframe, SECONDS, TIMEFRAMES, type Candle, type Timeframe } from '~/types/candle'
-import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtremes, type LegRecap, type LineRespect, type PatternPoint, type PatternResponse, type PivotOffset, type SeriesEnvelope, type TrendLine } from '~/types/pattern'
+import { producerName, type BarGap, type BarMark, type LegBreak, type LegExtremes, type LegRecap, type LineRespect, type PatternPoint, type PatternResponse, type PivotOffset, type SeriesEnvelope, type TrendLine, type UnbrokenWick } from '~/types/pattern'
 import { parseRule, PIPELINE_RULE, sameRule, toPatternQuery } from '~/utils/rule'
 import { toProximityBody } from '~/utils/proximity'
 import { barHour } from '~/utils/bar-time'
@@ -21,6 +21,7 @@ import ConsecutiveDirectionOverlay from '~/components/ConsecutiveDirectionOverla
 import TrendLinesOverlay from '~/components/TrendLinesOverlay.vue'
 import LineRespectOverlay from '~/components/LineRespectOverlay.vue'
 import RetracementOverlay from '~/components/RetracementOverlay.vue'
+import UnbrokenWickOverlay from '~/components/UnbrokenWickOverlay.vue'
 import WeightedAverageOverlay from '~/components/WeightedAverageOverlay.vue'
 import IndicatorMenu from '~/components/IndicatorMenu.vue'
 import FormaRuleControls from '~/components/FormaRuleControls.vue'
@@ -116,6 +117,9 @@ const OVERLAYS: Record<string, Component> = {
   'trend-lines': TrendLinesOverlay,
   'line-respect': LineRespectOverlay,
   'retracement': RetracementOverlay,
+  // The first entry that renders markup rather than drawing through the chart API: a pulsing circle
+  // on the one wick the Series names, animated in CSS because a canvas would repaint every frame.
+  'unbroken-wick': UnbrokenWickOverlay,
 }
 
 /**
@@ -990,6 +994,77 @@ function toggleLabelsAlways(producer: string) {
 }
 
 /**
+ * Producers whose `Ocultar no último candle` switch is on — `unbroken-wick`'s one control.
+ *
+ * That Series always answers, because the newest bar it reads can never have been closed beyond, and
+ * when the newest bar *is* the answer the pulse lands on the candle that just closed and says only
+ * that nothing older survived. This lets somebody silence exactly that case and keep the rest.
+ *
+ * Off by default and stored as the exception, `labelsAlways`' terms: it is a decision about a Series,
+ * keyed by producer, saved with the layout and restored only on `Restaurar`. The comparison is
+ * against `lastClosedTime` and not the chart's last candle — `/patterns` withholds the forming bar,
+ * so a wick on it is impossible and the switch would never fire.
+ */
+const hideAtEdge = ref(new Set<string>())
+
+function toggleHideAtEdge(producer: string) {
+  if (hideAtEdge.value.has(producer)) hideAtEdge.value.delete(producer)
+  else hideAtEdge.value.add(producer)
+}
+
+/**
+ * The glows somebody copied off `unbroken-wick` and dragged onto wicks of their own. Stored, unlike
+ * the rulers — see `useStoredWickCopies` for why, and for why a copy holds a bar and never a price.
+ */
+const wickCopies = useStoredWickCopies()
+
+/** The segment id the Pattern's own glow is selected under — `UnbrokenWickOverlay`'s `ORIGINAL`. */
+const WICK_ORIGINAL = 'wick'
+
+/**
+ * The selection, when it is a glow: which `unbroken-wick` Series it belongs to and which glow. `null`
+ * for anything else, which is what keeps the `Copy` off the bar for every line.
+ */
+const selectedWick = computed<{ producer: string, id: string } | null>(() => {
+  const key = selected.value
+  if (key === null) return null
+  const cut = key.indexOf('|')
+  if (cut === -1) return null
+  const producer = key.slice(0, cut)
+  if (producerName(producer) !== 'unbroken-wick') return null
+  return { producer, id: key.slice(cut + 1) }
+})
+
+/**
+ * The bar's `Copy`: a new glow on the selected one's bar and side, selected at once so the next
+ * press can carry it away. Copying the Pattern's glow reads its Point; copying a copy reads the copy.
+ */
+function copySelectedWick() {
+  const at = selectedWick.value
+  if (at === null) return
+
+  let source: { time: number, side: 'high' | 'low' } | null = null
+  if (at.id === WICK_ORIGINAL) {
+    const point = (patterns.value?.series[at.producer]?.points.at(-1) ?? null) as UnbrokenWick | null
+    if (point) source = { time: point.time, side: point.direction }
+  }
+  else {
+    const copy = wickCopies.copies.value.find(item => item.id === at.id)
+    if (copy) source = { time: copy.time, side: copy.side }
+  }
+  if (source === null) return
+
+  const made = wickCopies.add({ symbol: symbol.value, timeframe: timeframe.value, ...source })
+  selected.value = pinKey(at.producer, made.id)
+}
+
+/** Whether this Series' wick sits on the newest closed bar — the case the switch above hides. */
+function wickAtEdge(overlay: { points: PatternPoint[] }) {
+  const at = overlay.points.at(-1)
+  return at !== undefined && at.time === lastClosedTime.value
+}
+
+/**
  * Producers whose `Destacar por ponto` switch is on, keyed the way `shown` and `autoHide` are.
  *
  * Off by default and stored as the exception, the fourth time on this page — and here the rule has
@@ -1806,6 +1881,14 @@ function removeSelection(producer: string, segment: string) {
     return
   }
 
+  // A copied glow is the third door: neither a pin nor a move, but an entry in its own stored list.
+  // The Pattern's own glow never gets here — the bar offers no `Trash` for it.
+  if (producerName(producer) === 'unbroken-wick') {
+    if (segment !== WICK_ORIGINAL) wickCopies.remove(segment)
+    if (selected.value === pinKey(producer, segment)) selected.value = null
+    return
+  }
+
   const overlay = overlays.value.find(item => item.producer === producer)
 
   const drawn = overlay?.name === 'trend-lines'
@@ -1849,6 +1932,7 @@ const layout = useStoredOverlays({
   focusMode,
   labelsAlways,
   hiddenMarkTypes,
+  hideAtEdge,
 })
 
 /**
@@ -2529,6 +2613,21 @@ function extraProps(overlay: { producer: string, name: string }) {
     ...overlay.name === 'retracement'
       ? { always: labelsAlways.value.has(overlay.producer) }
       : {},
+    // The switch and the bar it compares against — the newest closed one. See `hideAtEdge`.
+    ...overlay.name === 'unbroken-wick'
+      ? {
+          hideAtEdge: hideAtEdge.value.has(overlay.producer),
+          lastTime: lastClosedTime.value,
+          // And the copies on this chart's Instrument and timeframe — a bar time names nothing on
+          // another. The overlay reports presses and drops; the page owns the list and the selection.
+          copies: wickCopies.copies.value.filter(copy =>
+            copy.symbol === symbol.value && copy.timeframe === timeframe.value),
+          bars: barsByTime.value,
+          selected: selectedIn(overlay.producer),
+          onSelect: (id: string) => { selected.value = pinKey(overlay.producer, id) },
+          onMove: (id: string, time: number) => wickCopies.move(id, time),
+        }
+      : {},
     // What this Series calls its segments. `leg-extremes` alone, because it is the only Pattern
     // the pipeline runs twice — over the zigzag's leg windows and over the advancing legs — and
     // two Series minting one id would have each pinning the other's levels.
@@ -2865,7 +2964,10 @@ function isVisible(overlay: { producer: string }) {
                     :x="toolbarX"
                     :y="toolbarY"
                     @move="(x: number, y: number) => { toolbarX = x; toolbarY = y }"
+                    :copy="selectedWick !== null"
+                    :remove="selectedWick?.id !== WICK_ORIGINAL"
                     @remove="removeSelected"
+                    @copy="copySelectedWick"
                   />
                   <!-- The replay's transport, up from the moment it is armed and before any bar has
                        been picked — that empty state is where the instruction to click one lives. -->
@@ -3318,6 +3420,29 @@ function isVisible(overlay: { producer: string }) {
                    switch makes a *click* on the chart mean something new, while this one changes
                    how much of a Series is drawn and nothing else. Both are saved for the same
                    reason even so — somebody chose them — and both come back only on `Restaurar`. -->
+              <!-- `unbroken-wick`'s one switch, under a drawn Series only. The hint is for the case
+                   the switch exists for: `Desligar` lit and nothing on the chart needs a reason. -->
+              <div
+                v-if="overlay.name === 'unbroken-wick' && shown.has(overlay.producer)"
+                class="mt-1"
+              >
+                <button
+                  class="rounded border px-2 py-0.5 text-xs"
+                  :class="hideAtEdge.has(overlay.producer)
+                    ? 'border-green-600 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-500'"
+                  @click="toggleHideAtEdge(overlay.producer)"
+                >
+                  Ocultar no último candle
+                </button>
+                <p
+                  v-if="hideAtEdge.has(overlay.producer) && wickAtEdge(overlay)"
+                  class="mt-0.5 text-xs text-gray-400"
+                >
+                  Oculto: o pavio é o do último candle fechado.
+                </p>
+              </div>
+
               <div
                 v-if="overlay.name === 'retracement' && shown.has(overlay.producer)"
                 class="mt-1"

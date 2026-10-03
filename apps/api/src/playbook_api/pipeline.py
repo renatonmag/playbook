@@ -72,6 +72,7 @@ from pattern_engine.patterns import (
     SmallestWindow,
     TrendLinesPattern,
     TrendRelationsPattern,
+    UnbrokenWickPattern,
     WeightedAveragePattern,
     ZigZagPattern,
 )
@@ -286,6 +287,15 @@ def build_pipeline(
         # track the clock rather than the market. After both sources, like the Pattern above it,
         # and for the same reason. No dials.
         PivotOffsetPattern(source=simple_leg, pivots=zigzag, reads=("5m",), emits="5m"),
+        # And a third right-edge reading of the simple legs, the first that names a *price*: the
+        # oldest wick of the last six bars that no close has gone beyond since, on the side the
+        # running leg is heading for — highs in a bull leg, lows in a bear one. At most one Point,
+        # and it repaints as `pivot-offset` does. One ordering constraint, after `simple_leg`.
+        #
+        # Six is written here and not passed in: it is a detector dial, and fails this module's
+        # test as `depth` and `ahead` do. Half an hour of five-minute bars — it bounds which levels
+        # still count as recent, and is unrelated to `DEFAULT_SMALLEST`'s ten, which ranks a bar.
+        UnbrokenWickPattern(source=simple_leg, lookback=6, reads=("5m",), emits="5m"),
         # The other thing the simple legs' pivots say once you stop reading them one leg at a
         # time: the straight lines they can be joined by. Tops to tops and bottoms to bottoms,
         # kept only where no candle in between reaches through the line. It needs the bars as well

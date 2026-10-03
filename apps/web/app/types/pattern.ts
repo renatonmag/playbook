@@ -833,6 +833,18 @@ export interface PivotOffset extends PatternPoint {
   offset: boolean
 }
 
+/**
+ * The oldest wick of the last six closed bars that no later close went beyond — `unbroken-wick`.
+ *
+ * Asked on the running simple leg's side: a high while the leg is bull, a low while it is bear.
+ * **At most one Point** and it repaints, like `pivot-offset`; anchored on the wick's own bar.
+ */
+export interface UnbrokenWick extends PatternPoint {
+  /** The wick: the bar's high when `direction` is `high`, its low when `low`. */
+  price: number
+  direction: 'high' | 'low'
+}
+
 export interface SeriesEnvelope<TPoint extends PatternPoint = PatternPoint> {
   /**
    * What the Pattern calls itself — one line, written on the class, for a person reading a list.
