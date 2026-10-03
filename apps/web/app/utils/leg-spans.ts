@@ -34,6 +34,10 @@ import { barSpacing, type RenderTarget } from './level-segments'
  *
  * Knows nothing about Patterns, like its two siblings. The caller maps a `LegRecap` to the three
  * times — see `recapReadings` in `pages/monitor.vue`.
+ *
+ * The second caller is a tag on the chart (`TagOverlay`), hovered on the pane rather than in the
+ * panel. A tag has no extreme, so it hands over no `at` and gets the run alone — the same answer to
+ * "which bars is this about", which is why it is this primitive and not a lookalike.
  */
 
 /**
@@ -83,14 +87,14 @@ export interface LegSpan {
    * handed in a bar outside the run would get a second column drawn beside it, which is a visible
    * bug rather than a silent one.
    */
-  at: UTCTimestamp
+  at?: UTCTimestamp
 }
 
 interface SpanBounds {
   left: number
   right: number
-  barLeft: number
-  barRight: number
+  /** The extreme's column, or `null` for a span that named none. */
+  bar: { left: number, right: number } | null
 }
 
 /**
@@ -120,16 +124,18 @@ function boundsOf(
 ): SpanBounds | null {
   const from = timeScale.timeToCoordinate(span.from)
   const to = timeScale.timeToCoordinate(span.to)
-  const at = timeScale.timeToCoordinate(span.at)
-  if (from === null || to === null || at === null) return null
+  if (from === null || to === null) return null
+
+  const at = span.at === undefined ? undefined : timeScale.timeToCoordinate(span.at)
+  if (at === null) return null
 
   const half = spacing / 2
 
   return {
-    left: from - half,
-    right: to + half,
-    barLeft: at - half,
-    barRight: at + half,
+    // Min and max, not `from` and `to`: a tag's ends are stored in the order they were placed.
+    left: Math.min(from, to) - half,
+    right: Math.max(from, to) + half,
+    bar: at === undefined ? null : { left: at - half, right: at + half },
   }
 }
 
@@ -154,8 +160,6 @@ class LegSpansRenderer implements IPrimitivePaneRenderer {
     target.useBitmapCoordinateSpace(({ context, bitmapSize, horizontalPixelRatio }) => {
       const left = Math.round(rect.left * horizontalPixelRatio)
       const right = Math.round(rect.right * horizontalPixelRatio)
-      const barLeft = Math.round(rect.barLeft * horizontalPixelRatio)
-      const barRight = Math.round(rect.barRight * horizontalPixelRatio)
 
       // `save`/`restore` around the pair rather than around each: `globalAlpha` and `fillStyle` are
       // canvas-wide state and no later primitive may inherit either, which is `LevelBoxes`' note.
@@ -171,8 +175,12 @@ class LegSpansRenderer implements IPrimitivePaneRenderer {
 
       // And the extreme's own column, over the run rather than instead of it: the two alphas stack
       // there, which is what the pair was chosen to do.
-      context.globalAlpha = BAR_ALPHA
-      context.fillRect(barLeft, 0, barRight - barLeft, bitmapSize.height)
+      if (rect.bar !== null) {
+        const barLeft = Math.round(rect.bar.left * horizontalPixelRatio)
+        const barRight = Math.round(rect.bar.right * horizontalPixelRatio)
+        context.globalAlpha = BAR_ALPHA
+        context.fillRect(barLeft, 0, barRight - barLeft, bitmapSize.height)
+      }
 
       context.restore()
     })

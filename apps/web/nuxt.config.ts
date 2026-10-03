@@ -33,6 +33,18 @@ export default defineNuxtConfig({
     // `dir` resolves against Nitro's srcDir, which Nuxt sets to `<rootDir>/server` — hence three
     // levels up from `apps/web/server`, not two.
     serverAssets: [{ baseName: 'forma', dir: '../../../docs/forma' }],
+    // `docs/tags/strategies.json` is the strategy tag buckets, read *and written* by
+    // `/api/strategies` — see `server/utils/strategies.ts` for why this one is writable when the
+    // rules are not. A storage mount rather than a server asset, because assets are read-only.
+    // Absolute: Nitro hands a relative `base` to the fs driver as is, which resolves it against
+    // the process's cwd — so `pnpm dev` from the repo root and from `apps/web` would write to two
+    // different places. `URL` rather than `node:url`, which keeps `@types/node` out of the app.
+    storage: {
+      strategies: {
+        driver: 'fs',
+        base: decodeURIComponent(new URL('../../docs/tags', import.meta.url).pathname),
+      },
+    },
   },
   vite: {
     plugins: [

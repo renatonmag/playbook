@@ -21,7 +21,9 @@ commands; trust CONTEXT.md for what the words mean.
 `@tailwindcss/vite` (not `@nuxtjs/tailwindcss`), shadcn-nuxt over reka-ui for components,
 `lightweight-charts` v5 for the chart, `@vueuse/core`. Its one Nitro route, `/api/rules`,
 reads `docs/forma/rules.json` through a `serverAssets` mount — the rules stay a domain
-artefact in `docs/` rather than a copy inside the app.
+artefact in `docs/` rather than a copy inside the app. `/api/strategies` (CRUD) reads **and
+writes** `docs/tags/strategies.json` — the strategy tag buckets `/tags` lists — through a Nitro
+`fs` storage mount, so a click on that page changes a tracked file.
 
 **API** — `apps/api`. FastAPI + uvicorn, SQLModel and psycopg 3 over the Postgres on
 Supabase, `pydantic-settings` reading `apps/api/.env` (gitignored; see `.env.example`). Use

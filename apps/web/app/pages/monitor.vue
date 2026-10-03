@@ -11,6 +11,7 @@ import type { LegSpan } from '~/utils/leg-spans'
 import { offsetPhrase, reading, recapPhrase } from '~/utils/reading'
 import { MANUAL } from '~/utils/manual-series'
 import type { Ruler } from '~/utils/ruler'
+import type { Tag } from '~/utils/tag'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import BarsOverlay from '~/components/BarsOverlay.vue'
@@ -34,7 +35,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '~/componen
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '~/components/ui/command'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '~/components/ui/dialog'
 import { useElementSize } from '@vueuse/core'
-import { AlarmClockOff, AlarmClockPlus, ChevronRight, Ellipsis, Link2, Link2Off, Play } from '@lucide/vue'
+import { AlarmClockOff, AlarmClockPlus, ChevronRight, Ellipsis, Link2, Link2Off, Play, Tag as TagIcon } from '@lucide/vue'
 
 /**
  * Until instruments are a table, the picker offers what the database is known to hold.
@@ -363,6 +364,9 @@ watch([symbol, timeframe], () => {
   // old one's points — a wrong answer drawn as confidently as a right one.
   rulers.value = []
   rulerArmed.value = false
+  // The tags too, for the same reason: their bars are this series' bars and their price is this scale's.
+  tags.value = []
+  tagArmed.value = false
   // A bar time is only comparable within one Instrument and Timeframe for the replay too: the cut
   // would name a bar in the new series that nobody chose, or no bar at all.
   stopReplay()
@@ -1778,7 +1782,7 @@ function onPaneClick(time: number | null) {
       // on nothing by definition — there is no ruler yet for it to claim — and reading it as a
       // click on nothing would deselect whatever the reader is measuring *about*, and cut the
       // replay at whichever bar they happened to start from.
-      if (rulerArmed.value) return
+      if (rulerArmed.value || tagArmed.value) return
 
       selected.value = null
       if (time !== null) replay.pick(time)
@@ -1863,6 +1867,71 @@ const rulerArmed = ref(false)
 const rulers = ref<Ruler[]>([])
 
 /**
+ * The tags' key, standing where a producer key stands — `RULER_KEY`'s arrangement, and borrowing
+ * the same one piece of bookkeeping: the selection, so the floating `Trash` can reach a tag.
+ */
+const TAG_KEY = 'tag'
+
+/**
+ * Whether the next two clicks on the pane lay a tag. Off again after the second — `TagOverlay`.
+ *
+ * Exclusive with `rulerArmed`, in both directions: two armed tools would each read the next click
+ * as their first, and the reader would get two drafts for one gesture. See `toggleTool`.
+ */
+const tagArmed = ref(false)
+
+/**
+ * The tags on the chart. Not stored and not undoable, `rulers`' reasoning: a tag's ends are bars of
+ * *this* window and its price is read off *this* scale.
+ */
+const tags = ref<Tag[]>([])
+
+/**
+ * Whether every tag is off the chart for now. The tags are kept, only not drawn — the way the
+ * legend's eye hides an indicator that still exists. Hiding also disarms: laying a tag nobody can
+ * see would be a click that seems to do nothing.
+ */
+const tagsHidden = ref(false)
+
+/** Arm one of the pane's two drawing tools, disarming the other — or disarm the one that is on. */
+function toggleTool(tool: 'ruler' | 'tag') {
+  const ruler = tool === 'ruler' ? !rulerArmed.value : false
+  const tag = tool === 'tag' ? !tagArmed.value : false
+
+  rulerArmed.value = ruler
+  tagArmed.value = tag
+
+  // Arming the tag tool while the tags are hidden would lay one that cannot be seen; show them.
+  if (tag) tagsHidden.value = false
+}
+
+/**
+ * A tag was pressed, or its selection no longer resolves.
+ *
+ * Not `onSelect`, and the difference is where the press happened. `onSelect` marks the click
+ * `claimed` for `onPaneClick` to read and reset — but a tag is a `div` over the pane, its press
+ * never reaches the chart, and so no pane click follows to reset it. The flag would stay up and
+ * swallow the next real click on nothing, which is the one that should deselect.
+ *
+ * A new tag is the exception, and it is selected on `add` through `onSelect` instead: the click that
+ * finishes one *is* a chart click, and it disarms the tool before `onPaneClick` gets to read it —
+ * unclaimed, it would deselect the tag it just made.
+ */
+function selectTag(id: string | null) {
+  if (id === null) {
+    if (selectedIn(TAG_KEY) !== null) selected.value = null
+    return
+  }
+
+  selected.value = pinKey(TAG_KEY, id)
+}
+
+function toggleTagsHidden() {
+  tagsHidden.value = !tagsHidden.value
+  if (tagsHidden.value) tagArmed.value = false
+}
+
+/**
  * The `Trash`, and the `✕` in `Selecionadas`: take one line off the chart.
  *
  * The two doors, and which one a line leaves by is not a choice — a hand-placed line answers to a
@@ -1877,6 +1946,13 @@ function removeSelection(producer: string, segment: string) {
   // was moved from, so the list it is in is the whole of its existence.
   if (producer === RULER_KEY) {
     rulers.value = rulers.value.filter(ruler => ruler.id !== segment)
+    if (selected.value === pinKey(producer, segment)) selected.value = null
+    return
+  }
+
+  // A tag the same: its list is the whole of its existence.
+  if (producer === TAG_KEY) {
+    tags.value = tags.value.filter(tag => tag.id !== segment)
     if (selected.value === pinKey(producer, segment)) selected.value = null
     return
   }
@@ -2722,6 +2798,16 @@ function isVisible(overlay: { producer: string }) {
           <AlarmClockPlus v-else />
         </Button>
 
+        <!-- A link dressed as a button, not a switch: it leaves the view rather than changing it.
+             A new tab so configuring tags never costs the monitor its socket, its replay or the
+             chart's scroll position. -->
+        <Button variant="outline" size="sm" class="text-gray-500" as-child>
+          <NuxtLink to="/tags" target="_blank" rel="noopener" title="Configurar tags de padrões">
+            <TagIcon />
+            Tags
+          </NuxtLink>
+        </Button>
+
         <!-- Left of the instrument rather than beside `Agora`, which is the other switch here: the
              two are opposites — one holds the view on an old bar, the other runs it to the live
              edge — and a pair of contradicting switches side by side reads as a pair of modes. -->
@@ -2932,6 +3018,19 @@ function isVisible(overlay: { producer: string }) {
                     @select="(id: string | null) => onSelect(RULER_KEY, id)"
                     @disarm="rulerArmed = false"
                   />
+                  <!-- The tags, joined exactly as the ruler is. Armed and hidden from the corner. -->
+                  <TagOverlay
+                    :tags="tags"
+                    :bars="barsByTime"
+                    :times="barTimes"
+                    :armed="tagArmed"
+                    :hidden="tagsHidden"
+                    :selected="selectedIn(TAG_KEY)"
+                    @add="(tag: Tag) => { tags.push(tag); onSelect(TAG_KEY, tag.id) }"
+                    @move="(tag: Tag) => { tags = tags.map(item => item.id === tag.id ? tag : item) }"
+                    @select="selectTag"
+                    @disarm="tagArmed = false"
+                  />
                   <!-- The leg whose line the cursor is resting on, washed across its bars. Out
                        here with the levels tool and the ruler rather than in the loop above,
                        because `leg-recap` has no `OVERLAYS` entry and is not in `overlays` — and
@@ -2950,9 +3049,13 @@ function isVisible(overlay: { producer: string }) {
                        that is this strip and not the sidebar. -->
                   <ChartTools
                     :ruler="rulerArmed"
+                    :tag="tagArmed"
+                    :tags-hidden="tagsHidden"
                     :indicators="indicators"
                     :chart-timeframe="timeframe"
-                    @toggle-ruler="rulerArmed = !rulerArmed"
+                    @toggle-ruler="toggleTool('ruler')"
+                    @toggle-tag="toggleTool('tag')"
+                    @toggle-tags-hidden="toggleTagsHidden"
                     @settings="(id: string) => editing = id"
                     @toggle-visible="toggleIndicator"
                     @remove="removeIndicator"

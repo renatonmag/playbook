@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Ruler } from '@lucide/vue'
+import { Eye, EyeOff, Ruler, Tag } from '@lucide/vue'
 import { Button } from '~/components/ui/button'
 import IndicatorLegend from '~/components/IndicatorLegend.vue'
 import type { Timeframe } from '~/types/candle'
@@ -15,7 +15,9 @@ import type { Indicator } from '~/utils/indicator'
  * corner and stays out of the candles, which the price scale has already pushed to the right.
  *
  * It knows only that a tool is on or off. What arming the ruler *means* is the page's — see
- * `RulerOverlay` — which is the same division `ChartToolbar` makes with its `Trash`.
+ * `RulerOverlay` — which is the same division `ChartToolbar` makes with its `Trash`. The tags'
+ * two buttons are the same kind of switch: one arms `TagOverlay`, the other hides every tag at
+ * once. They sit behind a divider because they are a pair about one thing, and the ruler is not it.
  *
  * It also places the indicator legend, which is a different thing and deliberately stays one: the
  * strip is a card of buttons, the legend is bare labels over the candles, and they share only this
@@ -28,6 +30,10 @@ import type { Indicator } from '~/utils/indicator'
 const props = defineProps<{
   /** Whether the ruler is armed — waiting for the two clicks that make a measurement. */
   ruler: boolean
+  /** Whether the tag tool is armed — waiting for the two clicks that lay a tag. */
+  tag: boolean
+  /** Whether every tag is hidden. */
+  tagsHidden: boolean
   /** The indicators on the chart, in the order they were added. One legend row each. */
   indicators: Indicator[]
   /** What the chart is showing, passed through for the legend's labels. */
@@ -37,6 +43,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** The ruler button was pressed. Arming and disarming are both the page's to decide. */
   toggleRuler: []
+  /** The tag button was pressed. */
+  toggleTag: []
+  /** The eye beside it was pressed: hide or show every tag. */
+  toggleTagsHidden: []
   /** An indicator's settings were asked for — the legend's gear. */
   settings: [id: string]
   /** The legend's eye. Hides a line that still exists. */
@@ -63,6 +73,31 @@ const emit = defineEmits<{
         @click="emit('toggleRuler')"
       >
         <Ruler class="size-4" />
+      </Button>
+
+      <span class="mx-0.5 h-5 w-px bg-gray-200" />
+
+      <Button
+        :variant="props.tag ? 'secondary' : 'ghost'"
+        size="icon-sm"
+        :aria-pressed="props.tag"
+        aria-label="adicionar etiqueta"
+        title="Etiqueta — um clique começa, o segundo termina"
+        @click="emit('toggleTag')"
+      >
+        <Tag class="size-4" />
+      </Button>
+      <!-- Pressed means hidden: the switch reads as "the tags are off", with the icon saying so. -->
+      <Button
+        :variant="props.tagsHidden ? 'secondary' : 'ghost'"
+        size="icon-sm"
+        :aria-pressed="props.tagsHidden"
+        :aria-label="props.tagsHidden ? 'mostrar etiquetas' : 'ocultar etiquetas'"
+        :title="props.tagsHidden ? 'Mostrar etiquetas' : 'Ocultar etiquetas'"
+        @click="emit('toggleTagsHidden')"
+      >
+        <EyeOff v-if="props.tagsHidden" class="size-4" />
+        <Eye v-else class="size-4" />
       </Button>
     </div>
 
