@@ -17,8 +17,19 @@ import { Combobox, ComboboxAnchor, ComboboxEmpty, ComboboxGroup, ComboboxInput, 
  * that would go stale behind it.
  *
  * It only reports the new list. The tag is the page's, and so is writing the change into it.
+ *
+ * **A badge can be dragged out**, to pin it onto the chart as a callout — `TagCallout`. A pointer
+ * gesture rather than HTML5 drag and drop: the browser's drag image cannot be styled to look like
+ * the badge, and a native drag swallows the pointer events the chart would otherwise still see. This
+ * side only reports where a badge was let go; whether that is on the chart, and what it means
+ * there, is `TagOverlay`'s.
  */
 const labels = defineModel<string[]>('labels', { required: true })
+
+const emit = defineEmits<{
+  /** A badge was dragged and let go, wherever that was. */
+  drop: [label: string, event: PointerEvent]
+}>()
 
 const { strategies, error } = useStrategies()
 
@@ -56,6 +67,44 @@ function pick(id: string) {
 
 function unpick(id: string) {
   labels.value = labels.value.filter(label => label !== id)
+}
+
+/** How far the pointer must travel with the button down before a press on a badge is a drag. */
+const GRAB_THRESHOLD = 3
+
+/** A button held on a badge that has not travelled far enough to be a drag yet. */
+let pressed: { id: string, x: number, y: number } | null = null
+
+/** The badge being dragged, and where its ghost is — client coordinates, for a `fixed` ghost. */
+const carried = ref<{ id: string, name: string, x: number, y: number } | null>(null)
+
+function onBadgeDown(event: PointerEvent, id: string) {
+  if (event.button !== 0) return
+  pressed = { id, x: event.clientX, y: event.clientY }
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  // Otherwise the drag selects the card's text as it passes over it.
+  event.preventDefault()
+}
+
+function onBadgeMove(event: PointerEvent) {
+  if (!pressed) return
+  if (!carried.value && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < GRAB_THRESHOLD) return
+
+  const name = byId.value.get(pressed.id)?.tag.name ?? ''
+  carried.value = { id: pressed.id, name, x: event.clientX, y: event.clientY }
+}
+
+function onBadgeUp(event: PointerEvent) {
+  const drag = carried.value
+  pressed = null
+  carried.value = null
+  if (drag) emit('drop', drag.id, event)
+}
+
+/** A press that is let go without being a drop — `pointercancel`, or the card closing under it. */
+function onBadgeCancel() {
+  pressed = null
+  carried.value = null
 }
 </script>
 
@@ -111,17 +160,35 @@ function unpick(id: string) {
         :key="tag.id"
         variant="secondary"
         :title="strategy.name"
+        class="cursor-grab touch-none select-none"
+        :class="carried?.id === tag.id ? 'opacity-50' : ''"
+        @pointerdown="onBadgeDown($event, tag.id)"
+        @pointermove="onBadgeMove"
+        @pointerup="onBadgeUp"
+        @pointercancel="onBadgeCancel"
       >
         {{ tag.name }}
         <button
           type="button"
           class="-mr-1 rounded-sm opacity-60 hover:opacity-100"
           :aria-label="`Remover ${tag.name}`"
+          @pointerdown.stop
           @click="unpick(tag.id)"
         >
           <X class="size-3" />
         </button>
       </Badge>
     </div>
+
+    <!-- The dragged badge, under the pointer. `fixed` so neither the card nor the clip layer it sits
+         in can cut it as it leaves them; centred on the pointer, where the callout will land. -->
+    <Badge
+      v-if="carried"
+      variant="secondary"
+      class="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 shadow-md"
+      :style="{ left: `${carried.x}px`, top: `${carried.y}px` }"
+    >
+      {{ carried.name }}
+    </Badge>
   </div>
 </template>

@@ -11,7 +11,7 @@ import type { LegSpan } from '~/utils/leg-spans'
 import { offsetPhrase, reading, recapPhrase } from '~/utils/reading'
 import { MANUAL } from '~/utils/manual-series'
 import type { Ruler } from '~/utils/ruler'
-import type { Tag } from '~/utils/tag'
+import type { Tag, TagCallout } from '~/utils/tag'
 import ZigZagOverlay from '~/components/ZigZagOverlay.vue'
 import SimpleLegOverlay from '~/components/SimpleLegOverlay.vue'
 import BarsOverlay from '~/components/BarsOverlay.vue'
@@ -3030,6 +3030,7 @@ function isVisible(overlay: { producer: string }) {
                     @move="(tag: Tag) => { tags = tags.map(item => item.id === tag.id ? tag : item) }"
                     @select="selectTag"
                     @label="(id: string, labels: string[]) => { tags = tags.map(item => item.id === id ? { ...item, labels } : item) }"
+                    @callouts="(id: string, callouts: TagCallout[]) => { tags = tags.map(item => item.id === id ? { ...item, callouts } : item) }"
                     @disarm="tagArmed = false"
                   />
                   <!-- The leg whose line the cursor is resting on, washed across its bars. Out

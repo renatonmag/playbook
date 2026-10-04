@@ -9,8 +9,10 @@ import type {
   UTCTimestamp,
 } from 'lightweight-charts'
 import type { Candle } from '~/types/candle'
-import type { Tag } from '~/utils/tag'
+import type { Spot, Tag, TagCallout } from '~/utils/tag'
 import { useElementSize } from '@vueuse/core'
+import { X } from '@lucide/vue'
+import { Badge } from '~/components/ui/badge'
 import { LegSpans, type LegSpan } from '~/utils/leg-spans'
 import { barSpacing } from '~/utils/level-segments'
 import { RepaintHook } from '~/utils/repaint-hook'
@@ -47,6 +49,13 @@ import { RepaintHook } from '~/utils/repaint-hook'
  * the bar, or above it where under would run off the pane — the layer clips, so a card past the
  * edge would be cut. The combobox's own list is portaled out of the layer, and flips by itself.
  *
+ * **A badge dragged out of the card is pinned onto the chart** as a callout — `TagCallout`: the
+ * badge itself, a line, and a handle where the line points. It starts with its handle on the tag
+ * and its badge where it was let go. Three grips, the tag's arrangement again: the badge moves on
+ * its own, the handle moves on its own, and the line carries both. They are DOM like the bars, for
+ * the same reasons, except the line, which is SVG so it can be any angle — its hit area is a wide
+ * transparent stroke over the visible one.
+ *
  * **The hover is the leg-recap wash** — the tag's bars, full height, under the candles — drawn by a
  * `LegSpans` on the chart. That one stays a drawing: it is about the candles and belongs under them.
  */
@@ -79,6 +88,8 @@ const emit = defineEmits<{
   disarm: []
   /** The strategy tags filed under this tag changed, from its open panel. */
   label: [id: string, labels: string[]]
+  /** This tag's callouts changed: one pinned, moved, or removed. */
+  callouts: [id: string, callouts: TagCallout[]]
 }>()
 
 const chart = inject(CHART)!
@@ -92,9 +103,6 @@ const HEIGHT = 10
 
 /** The space between a bar and its open card, in CSS pixels. */
 const GAP = 4
-
-/** A bar and a price — where a click lands, or where a dragged tag is carried to. */
-interface Spot { time: UTCTimestamp, price: number }
 
 /** What a press takes hold of: one end, which stretches, or the body, which carries the whole tag. */
 type Hold = 'from' | 'to' | 'body'
@@ -124,6 +132,18 @@ const hoveredId = ref<string | null>(null)
  */
 const pane = shallowRef<{ width: number, height: number }>({ width: 0, height: 0 })
 const boxes = shallowRef<ReadonlyMap<string, Box>>(new Map())
+
+/** A point in pane pixels. */
+interface Pixel { x: number, y: number }
+
+/** A callout's two ends in pane pixels: the handle, and the badge's centre. */
+interface CalloutEnds { dot: Pixel, label: Pixel }
+
+/** Every shown callout's ends, by callout id — refreshed with `boxes`, on the same terms. */
+const calloutEnds = shallowRef<ReadonlyMap<string, CalloutEnds>>(new Map())
+
+/** The handle's diameter, in CSS pixels. */
+const DOT = 8
 
 /** The clip layer — the plot pane's box on the page, which pointer coordinates are measured in. */
 const layer = ref<HTMLElement | null>(null)
@@ -176,7 +196,7 @@ const positions = computed(() => {
 function current(tag: Tag): Tag {
   const drag = dragging.value
   return drag && drag.id === tag.id
-    ? { id: drag.id, from: drag.from, to: drag.to, price: drag.price, labels: drag.labels }
+    ? { id: drag.id, from: drag.from, to: drag.to, price: drag.price, labels: drag.labels, callouts: drag.callouts }
     : tag
 }
 
@@ -186,7 +206,7 @@ const shown = computed<(Tag & { draft?: boolean })[]>(() => {
 
   const list: (Tag & { draft?: boolean })[] = props.tags.map(current)
   const open = draft.value
-  if (open) list.push({ id: 'tag:draft', ...open, labels: [], draft: true })
+  if (open) list.push({ id: 'tag:draft', ...open, labels: [], callouts: [], draft: true })
   return list
 })
 
@@ -226,6 +246,31 @@ function place() {
   }
 
   if (!sameBoxes(next, boxes.value)) boxes.value = next
+
+  const ends = new Map<string, CalloutEnds>()
+  for (const { callout } of pinned.value) {
+    const dot = pixelOf(callout.point, api, series)
+    const label = pixelOf(callout.at, api, series)
+    if (dot && label) ends.set(callout.id, { dot, label })
+  }
+  if (!sameEnds(ends, calloutEnds.value)) calloutEnds.value = ends
+}
+
+/** A spot in pane pixels, or `null` where the scales do not map it. */
+function pixelOf(spot: Spot, api: IChartApi, series: ISeriesApi<SeriesType, Time>): Pixel | null {
+  const x = api.timeScale().timeToCoordinate(spot.time)
+  const y = series.priceToCoordinate(spot.price)
+  return x === null || y === null ? null : { x, y }
+}
+
+function sameEnds(one: ReadonlyMap<string, CalloutEnds>, other: ReadonlyMap<string, CalloutEnds>): boolean {
+  if (one.size !== other.size) return false
+  for (const [id, ends] of one) {
+    const was = other.get(id)
+    if (!was || was.dot.x !== ends.dot.x || was.dot.y !== ends.dot.y
+      || was.label.x !== ends.label.x || was.label.y !== ends.label.y) return false
+  }
+  return true
 }
 
 function sameBoxes(one: ReadonlyMap<string, Box>, other: ReadonlyMap<string, Box>): boolean {
@@ -272,6 +317,189 @@ const panelAt = computed<{ left: number, top: number } | null>(() => {
 
   return { left, top }
 })
+
+/**
+ * The strategy tags, for the callouts' names. Read again whenever a card opens — which is when
+ * `TagLabels` reads its own copy — so a bucket renamed at `/tags` reaches the chart's badges no later
+ * than it reaches the card's.
+ */
+const { strategies, refresh: refreshStrategies } = useStrategies()
+watch(() => openTag.value?.id, (id) => {
+  if (id) refreshStrategies()
+})
+
+/** Strategy tag names by id. A callout whose label no longer resolves is not drawn. */
+const names = computed(() => {
+  const map = new Map<string, string>()
+  for (const strategy of strategies.value) {
+    for (const tag of strategy.tags) map.set(tag.id, tag.name)
+  }
+  return map
+})
+
+/** What part of a callout a press takes hold of — `Hold`'s counterpart. */
+type CalloutHold = 'point' | 'at' | 'line'
+
+/**
+ * The callout being carried, `dragging`'s arrangement: `origin` as the press found it, `anchor` what
+ * was under the pointer then, and the callout as it stands now.
+ */
+const calloutDrag = ref<{
+  tagId: string
+  hold: CalloutHold
+  origin: TagCallout
+  anchor: Spot
+  now: TagCallout
+  changed: boolean
+} | null>(null)
+
+/** A button held on a callout that has not travelled far enough to be a drag yet. */
+let calloutPressed: { tagId: string, callout: TagCallout, hold: CalloutHold, anchor: Spot, x: number, y: number } | null = null
+
+/** Every shown callout with the tag it belongs to — the one being carried as it now stands. */
+const pinned = computed(() => {
+  const drag = calloutDrag.value
+  return shown.value.flatMap(tag => tag.draft
+    ? []
+    : tag.callouts.map(callout => ({
+        tagId: tag.id,
+        callout: drag && drag.now.id === callout.id ? drag.now : callout,
+      })),
+  )
+})
+
+/**
+ * A badge let go from the open card. Pinned when it landed on the pane and outside the card — a
+ * badge dropped back where it came from is a drag that changed its mind. The handle starts on the
+ * tag, at its middle bar, so the new callout points at the stretch it was dragged out of.
+ */
+function onDrop(label: string, event: PointerEvent) {
+  const tag = openTag.value
+  const frame = layer.value?.getBoundingClientRect()
+  if (!tag || !frame) return
+
+  const card = panel.value?.getBoundingClientRect()
+  if (card && inside(event, card)) return
+  if (!inside(event, frame)) return
+
+  const at = spotUnder(event)
+  const start = positions.value.get(tag.from)
+  const end = positions.value.get(tag.to)
+  if (!at || start === undefined || end === undefined) return
+
+  const middle = props.times[Math.round((start + end) / 2)]
+  if (middle === undefined) return
+
+  const callout: TagCallout = {
+    id: nextCalloutId(),
+    label,
+    point: { time: middle as UTCTimestamp, price: tag.price },
+    at,
+  }
+  emit('callouts', tag.id, [...tag.callouts, callout])
+}
+
+function inside(event: PointerEvent, rect: DOMRect): boolean {
+  return event.clientX >= rect.left && event.clientX <= rect.right
+    && event.clientY >= rect.top && event.clientY <= rect.bottom
+}
+
+/** The card's list changed. A label unfiled takes its callouts with it — see `TagCallout`. */
+function onLabels(tag: Tag, labels: string[]) {
+  emit('label', tag.id, labels)
+  const kept = tag.callouts.filter(callout => labels.includes(callout.label))
+  if (kept.length !== tag.callouts.length) emit('callouts', tag.id, kept)
+}
+
+/** The callout's `X`. */
+function unpin(tagId: string, id: string) {
+  const tag = props.tags.find(item => item.id === tagId)
+  if (tag) emit('callouts', tagId, tag.callouts.filter(callout => callout.id !== id))
+}
+
+function onCalloutDown(event: PointerEvent, tagId: string, callout: TagCallout, hold: CalloutHold) {
+  if (event.button !== 0) return
+
+  const anchor = spotUnder(event)
+  if (!anchor) return
+
+  calloutPressed = { tagId, callout, hold, anchor, x: event.clientX, y: event.clientY }
+  ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
+  event.preventDefault()
+}
+
+function onCalloutMove(event: PointerEvent) {
+  const held = calloutPressed
+  if (!held) return
+
+  if (!calloutDrag.value) {
+    if (Math.hypot(event.clientX - held.x, event.clientY - held.y) < GRAB_THRESHOLD) return
+    calloutDrag.value = {
+      tagId: held.tagId,
+      hold: held.hold,
+      origin: held.callout,
+      anchor: held.anchor,
+      now: held.callout,
+      changed: false,
+    }
+  }
+
+  const drag = calloutDrag.value
+  const at = spotUnder(event)
+  if (!drag || !at) return
+
+  const now = drag.hold === 'point'
+    ? { ...drag.now, point: at }
+    : drag.hold === 'at'
+      ? { ...drag.now, at }
+      : carried(drag, at)
+  if (!now) return
+
+  calloutDrag.value = { ...drag, now, changed: true }
+}
+
+/**
+ * Both ends carried by the pointer's travel since the press: the same whole bars across and the same
+ * price up and down, so the callout keeps its shape. The shift is clamped so neither end leaves the
+ * window — `slid`'s arithmetic, with the two ends in place of the tag's two.
+ */
+function carried(drag: { origin: TagCallout, anchor: Spot }, at: Spot): TagCallout | null {
+  const { origin, anchor } = drag
+
+  const held = positions.value.get(anchor.time)
+  const a = positions.value.get(origin.point.time)
+  const b = positions.value.get(origin.at.time)
+  const now = positions.value.get(at.time)
+  if (held === undefined || a === undefined || b === undefined || now === undefined) return null
+
+  const shiftBars = Math.min(
+    Math.max(now - held, -Math.min(a, b)),
+    props.times.length - 1 - Math.max(a, b),
+  )
+
+  const pointTime = props.times[a + shiftBars]
+  const atTime = props.times[b + shiftBars]
+  if (pointTime === undefined || atTime === undefined) return null
+
+  const shift = at.price - anchor.price
+  return {
+    ...origin,
+    point: { time: pointTime as UTCTimestamp, price: origin.point.price + shift },
+    at: { time: atTime as UTCTimestamp, price: origin.at.price + shift },
+  }
+}
+
+function onCalloutUp() {
+  const drag = calloutDrag.value
+  calloutPressed = null
+  calloutDrag.value = null
+  if (!drag?.changed) return
+
+  const tag = props.tags.find(item => item.id === drag.tagId)
+  if (tag) {
+    emit('callouts', tag.id, tag.callouts.map(callout => callout.id === drag.now.id ? drag.now : callout))
+  }
+}
 
 /**
  * The two primitives and the chart they subscribe on. Declared above the `watchEffect` below and
@@ -327,7 +555,7 @@ function onClick(param: MouseEventParams<Time>) {
     return
   }
 
-  const tag: Tag = { id: nextTagId(), from: open.from, to: spot.time, price: open.price, labels: [] }
+  const tag: Tag = { id: nextTagId(), from: open.from, to: spot.time, price: open.price, labels: [], callouts: [] }
   draft.value = null
   // Selected by the page on `add`, not here: this one is a chart click, and only the page can
   // claim it as one. See `selectTag`.
@@ -432,7 +660,7 @@ function onPointerUp() {
   if (!held) return
 
   if (drag?.changed) {
-    emit('move', { id: drag.id, from: drag.from, to: drag.to, price: drag.price, labels: drag.labels })
+    emit('move', { id: drag.id, from: drag.from, to: drag.to, price: drag.price, labels: drag.labels, callouts: drag.callouts })
   }
 
   emit('select', held.tag.id)
@@ -445,6 +673,12 @@ function onKeyDown(event: KeyboardEvent) {
   if (pressed || dragging.value) {
     pressed = null
     dragging.value = null
+    return
+  }
+
+  if (calloutPressed || calloutDrag.value) {
+    calloutPressed = null
+    calloutDrag.value = null
     return
   }
 
@@ -483,6 +717,8 @@ watch(
 // A change on this side — a tag added, moved, dragged, hidden — re-places at once rather than
 // waiting for the chart's next paint, which a still chart may not have for a while.
 watch(shown, place)
+// A callout carried, likewise — the drag lives here and changes nothing in `shown`.
+watch(pinned, place)
 
 // A selection that no longer resolves — removed, or hidden — is handed back, so the page does not
 // float a `Trash` over a tag nobody can see.
@@ -566,6 +802,83 @@ onBeforeUnmount(() => {
       </div>
     </template>
 
+    <!-- The callouts, over the bars — a handle starts on its tag's bar, and has to be grabbable
+         there. The lines are under their handles and badges. The SVG itself takes no pointer; each
+         line's wide transparent twin does, and carries the whole callout. -->
+    <svg
+      class="pointer-events-none absolute left-0 top-0 overflow-visible"
+      :width="pane.width"
+      :height="pane.height"
+    >
+      <template v-for="{ tagId, callout } in pinned" :key="callout.id">
+        <g v-if="calloutEnds.get(callout.id) && names.has(callout.label)">
+          <line
+            :x1="calloutEnds.get(callout.id)!.dot.x"
+            :y1="calloutEnds.get(callout.id)!.dot.y"
+            :x2="calloutEnds.get(callout.id)!.label.x"
+            :y2="calloutEnds.get(callout.id)!.label.y"
+            class="stroke-gray-400"
+            stroke-width="1"
+          />
+          <line
+            :x1="calloutEnds.get(callout.id)!.dot.x"
+            :y1="calloutEnds.get(callout.id)!.dot.y"
+            :x2="calloutEnds.get(callout.id)!.label.x"
+            :y2="calloutEnds.get(callout.id)!.label.y"
+            class="cursor-move touch-none stroke-transparent"
+            style="pointer-events: stroke"
+            stroke-width="8"
+            @pointerdown.stop="onCalloutDown($event, tagId, callout, 'line')"
+            @pointermove="onCalloutMove"
+            @pointerup="onCalloutUp"
+            @pointercancel="onCalloutUp"
+          />
+        </g>
+      </template>
+    </svg>
+
+    <template v-for="{ tagId, callout } in pinned" :key="callout.id">
+      <template v-if="calloutEnds.get(callout.id) && names.has(callout.label)">
+        <div
+          class="pointer-events-auto absolute cursor-move touch-none rounded-full bg-gray-300"
+          :style="{
+            left: `${calloutEnds.get(callout.id)!.dot.x - DOT / 2}px`,
+            top: `${calloutEnds.get(callout.id)!.dot.y - DOT / 2}px`,
+            width: `${DOT}px`,
+            height: `${DOT}px`,
+          }"
+          @pointerdown.stop="onCalloutDown($event, tagId, callout, 'point')"
+          @pointermove="onCalloutMove"
+          @pointerup="onCalloutUp"
+          @pointercancel="onCalloutUp"
+        />
+        <!-- The card's badge, the same component and variant, centred on its spot. -->
+        <Badge
+          variant="secondary"
+          class="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 cursor-move touch-none select-none shadow-sm"
+          :style="{
+            left: `${calloutEnds.get(callout.id)!.label.x}px`,
+            top: `${calloutEnds.get(callout.id)!.label.y}px`,
+          }"
+          @pointerdown.stop="onCalloutDown($event, tagId, callout, 'at')"
+          @pointermove="onCalloutMove"
+          @pointerup="onCalloutUp"
+          @pointercancel="onCalloutUp"
+        >
+          {{ names.get(callout.label) }}
+          <button
+            type="button"
+            class="-mr-1 rounded-sm opacity-60 hover:opacity-100"
+            :aria-label="`Remover ${names.get(callout.label)}`"
+            @pointerdown.stop
+            @click="unpin(tagId, callout.id)"
+          >
+            <X class="size-3" />
+          </button>
+        </Badge>
+      </template>
+    </template>
+
     <!-- The open tag's card, beside its bar rather than inside it. `.stop` on the press: typing,
          picking and removing a label must not start a drag of the tag, nor read as a click that
          selects it again. -->
@@ -578,7 +891,8 @@ onBeforeUnmount(() => {
     >
       <TagLabels
         :labels="openTag.labels"
-        @update:labels="(labels: string[]) => emit('label', openTag!.id, labels)"
+        @update:labels="(labels: string[]) => onLabels(openTag!, labels)"
+        @drop="onDrop"
       />
     </div>
   </div>
