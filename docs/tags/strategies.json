@@ -1,1 +1,88 @@
-[]
+[
+  {
+    "id": "1c7cb7db-2ca1-4d9a-85ca-98b558879a52",
+    "name": "breakout",
+    "tags": [
+      {
+        "id": "63972cd6-e6eb-4b73-bc8c-890099215e2f",
+        "name": "breakout"
+      }
+    ]
+  },
+  {
+    "id": "91d47359-94a5-4a0e-8296-5efa5a29c578",
+    "name": "tight channel",
+    "tags": [
+      {
+        "id": "cd906fe2-b14f-47cc-8f49-38ee1993a194",
+        "name": "tight channel"
+      },
+      {
+        "id": "a273e007-02cd-49f2-93c2-8134ab704fc6",
+        "name": "small pb trend"
+      },
+      {
+        "id": "31ecc234-50eb-4c13-b578-d1a72d31821a",
+        "name": "stairs"
+      }
+    ]
+  },
+  {
+    "id": "fa07745b-e509-4e03-9cc5-df997e2d20c4",
+    "name": "broad channel",
+    "tags": [
+      {
+        "id": "3ad557e1-bd1c-42cc-b988-65a084c9f8f5",
+        "name": "broad channel"
+      }
+    ]
+  },
+  {
+    "id": "9a4f9b4a-4bfb-4a07-a1c9-f2909cc3b48e",
+    "name": "trading range",
+    "tags": [
+      {
+        "id": "364ffe1e-b54c-4336-800b-614913da73e6",
+        "name": "big up big down"
+      },
+      {
+        "id": "5ce10b0f-e985-46b8-b00a-4db78a1443e2",
+        "name": "big down big up"
+      },
+      {
+        "id": "a69447df-ca30-4b63-b901-495df2c3bc6f",
+        "name": "ttr"
+      }
+    ]
+  },
+  {
+    "id": "4c9d8bb0-76f9-486f-8dcb-2730c84791bb",
+    "name": "patterns",
+    "tags": [
+      {
+        "id": "0b5c77f2-2d74-45be-831a-3368aeffffd3",
+        "name": "2 top"
+      },
+      {
+        "id": "b82c7c04-522e-49f5-aa0c-222e2d873302",
+        "name": "2 bottom"
+      },
+      {
+        "id": "47d8bf97-30b4-4a16-8198-3b0cd2d54193",
+        "name": "micro channel"
+      },
+      {
+        "id": "e8811833-61f0-4e45-9ef3-8aea1c1d8a8c",
+        "name": "wedge"
+      },
+      {
+        "id": "9500736a-c3f2-4050-900f-fe50777a79df",
+        "name": "rise above line"
+      },
+      {
+        "id": "e2672e24-2fbe-48be-b74c-64ea58dd247f",
+        "name": "down below line"
+      }
+    ]
+  }
+]

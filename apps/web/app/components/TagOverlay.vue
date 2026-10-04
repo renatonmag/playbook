@@ -10,6 +10,7 @@ import type {
 } from 'lightweight-charts'
 import type { Candle } from '~/types/candle'
 import type { Tag } from '~/utils/tag'
+import { useElementSize } from '@vueuse/core'
 import { LegSpans, type LegSpan } from '~/utils/leg-spans'
 import { barSpacing } from '~/utils/level-segments'
 import { RepaintHook } from '~/utils/repaint-hook'
@@ -37,6 +38,14 @@ import { RepaintHook } from '~/utils/repaint-hook'
  * **Two gestures, told apart by where the press lands.** On either end's grip it stretches that end,
  * bar by bar, and nothing else moves. Anywhere else it carries the whole tag, by whole bars across
  * and any price up and down. Both stay horizontal because `Tag` has one price.
+ *
+ * **The selected tag is open**: a card beside its bar holds a combobox of the strategy tags kept at
+ * `/tags`, and the ones picked, as badges beneath it — `TagLabels`. It rides on the selection rather
+ * than on a state of its own, so everything that already closes a selection — a click on nothing,
+ * on another tag, the `Trash` — closes the card too, and there is one open at most. The card is
+ * not inside the bar, so the bar stays the mark it was and still moves and stretches; it sits under
+ * the bar, or above it where under would run off the pane — the layer clips, so a card past the
+ * edge would be cut. The combobox's own list is portaled out of the layer, and flips by itself.
  *
  * **The hover is the leg-recap wash** — the tag's bars, full height, under the candles — drawn by a
  * `LegSpans` on the chart. That one stays a drawing: it is about the candles and belongs under them.
@@ -68,6 +77,8 @@ const emit = defineEmits<{
   select: [id: string | null]
   /** The tag is finished, or was abandoned: the tool goes back off. */
   disarm: []
+  /** The strategy tags filed under this tag changed, from its open panel. */
+  label: [id: string, labels: string[]]
 }>()
 
 const chart = inject(CHART)!
@@ -78,6 +89,9 @@ const GRAB_THRESHOLD = 3
 
 /** The bar's height, in CSS pixels — fixed at every zoom: a tag is a mark on the picture. */
 const HEIGHT = 10
+
+/** The space between a bar and its open card, in CSS pixels. */
+const GAP = 4
 
 /** A bar and a price — where a click lands, or where a dragged tag is carried to. */
 interface Spot { time: UTCTimestamp, price: number }
@@ -162,7 +176,7 @@ const positions = computed(() => {
 function current(tag: Tag): Tag {
   const drag = dragging.value
   return drag && drag.id === tag.id
-    ? { id: drag.id, from: drag.from, to: drag.to, price: drag.price }
+    ? { id: drag.id, from: drag.from, to: drag.to, price: drag.price, labels: drag.labels }
     : tag
 }
 
@@ -172,7 +186,7 @@ const shown = computed<(Tag & { draft?: boolean })[]>(() => {
 
   const list: (Tag & { draft?: boolean })[] = props.tags.map(current)
   const open = draft.value
-  if (open) list.push({ id: 'tag:draft', ...open, draft: true })
+  if (open) list.push({ id: 'tag:draft', ...open, labels: [], draft: true })
   return list
 })
 
@@ -222,6 +236,42 @@ function sameBoxes(one: ReadonlyMap<string, Box>, other: ReadonlyMap<string, Box
   }
   return true
 }
+
+/** The tag whose card is open: the selected one, as it stands, and never the draft. */
+const openTag = computed(() => shown.value.find(tag => !tag.draft && tag.id === props.selected) ?? null)
+
+/** The open card, measured — its height grows with the badges, and the flip has to follow it. */
+const panel = ref<HTMLElement | null>(null)
+const { width: panelWidth, height: panelHeight } = useElementSize(panel, undefined, { box: 'border-box' })
+
+/**
+ * Where the open card goes in the pane: under its bar, unless it would run past the bottom and
+ * fits above; failing both, on whichever side has more room. Centred on the bar, slid in where
+ * that would cross either side. Read from `boxes` and `pane`, which every repaint refreshes,
+ * so the card follows a pan, a zoom or a drag with nothing of its own subscribed.
+ *
+ * Before its first measurement the card's height reads 0 and it lays out below; the next frame
+ * has the real height and corrects it — which is why the `v-if` cannot wait on a measurement.
+ */
+const panelAt = computed<{ left: number, top: number } | null>(() => {
+  const tag = openTag.value
+  const box = tag ? boxes.value.get(tag.id) : undefined
+  if (!box) return null
+
+  const { width, height } = pane.value
+  const below = box.top + HEIGHT + GAP
+  const above = box.top - GAP - panelHeight.value
+
+  let top: number
+  if (below + panelHeight.value <= height) top = below
+  else if (above >= 0) top = above
+  else top = height - (box.top + HEIGHT) >= box.top ? below : Math.max(above, 0)
+
+  const centred = box.left + box.width / 2 - panelWidth.value / 2
+  const left = Math.min(Math.max(centred, 0), Math.max(0, width - panelWidth.value))
+
+  return { left, top }
+})
 
 /**
  * The two primitives and the chart they subscribe on. Declared above the `watchEffect` below and
@@ -277,7 +327,7 @@ function onClick(param: MouseEventParams<Time>) {
     return
   }
 
-  const tag: Tag = { id: nextTagId(), from: open.from, to: spot.time, price: open.price }
+  const tag: Tag = { id: nextTagId(), from: open.from, to: spot.time, price: open.price, labels: [] }
   draft.value = null
   // Selected by the page on `add`, not here: this one is a chart click, and only the page can
   // claim it as one. See `selectTag`.
@@ -382,7 +432,7 @@ function onPointerUp() {
   if (!held) return
 
   if (drag?.changed) {
-    emit('move', { id: drag.id, from: drag.from, to: drag.to, price: drag.price })
+    emit('move', { id: drag.id, from: drag.from, to: drag.to, price: drag.price, labels: drag.labels })
   }
 
   emit('select', held.tag.id)
@@ -482,8 +532,11 @@ onBeforeUnmount(() => {
     <template v-for="tag in shown" :key="tag.id">
       <div
         v-if="boxes.get(tag.id)"
-        class="absolute bg-gray-400"
-        :class="tag.draft ? 'opacity-55' : 'pointer-events-auto cursor-move touch-none'"
+        class="absolute"
+        :class="[
+          tag.draft ? 'opacity-55' : 'pointer-events-auto cursor-move touch-none',
+          tag.id === openTag?.id ? 'bg-gray-500' : 'bg-gray-400',
+        ]"
         :style="{
           left: `${boxes.get(tag.id)!.left}px`,
           top: `${boxes.get(tag.id)!.top}px`,
@@ -512,5 +565,21 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </template>
+
+    <!-- The open tag's card, beside its bar rather than inside it. `.stop` on the press: typing,
+         picking and removing a label must not start a drag of the tag, nor read as a click that
+         selects it again. -->
+    <div
+      v-if="openTag && panelAt"
+      ref="panel"
+      class="pointer-events-auto absolute z-10 w-72 cursor-default rounded-md border bg-white p-2 shadow-md"
+      :style="{ left: `${panelAt.left}px`, top: `${panelAt.top}px` }"
+      @pointerdown.stop
+    >
+      <TagLabels
+        :labels="openTag.labels"
+        @update:labels="(labels: string[]) => emit('label', openTag!.id, labels)"
+      />
+    </div>
   </div>
 </template>

@@ -3029,6 +3029,7 @@ function isVisible(overlay: { producer: string }) {
                     @add="(tag: Tag) => { tags.push(tag); onSelect(TAG_KEY, tag.id) }"
                     @move="(tag: Tag) => { tags = tags.map(item => item.id === tag.id ? tag : item) }"
                     @select="selectTag"
+                    @label="(id: string, labels: string[]) => { tags = tags.map(item => item.id === id ? { ...item, labels } : item) }"
                     @disarm="tagArmed = false"
                   />
                   <!-- The leg whose line the cursor is resting on, washed across its bars. Out

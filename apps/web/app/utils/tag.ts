@@ -19,6 +19,12 @@ export interface Tag {
   to: UTCTimestamp
   /** Where the bar's centre sits, read off the cursor — unsnapped, `RulerEnd.price`'s reason. */
   price: number
+  /**
+   * The strategy tags (`StrategyTag`, `docs/tags/strategies.json`) the reader filed this stretch
+   * under, in the order picked. Ids, not names: a rename at `/tags` shows through here, and an id
+   * whose strategy tag was since deleted is simply not drawn rather than kept as a stale name.
+   */
+  labels: string[]
 }
 
 /** Counted, not derived from geometry — `nextRulerId`'s reasoning applies word for word. */

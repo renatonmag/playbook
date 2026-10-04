@@ -6,7 +6,7 @@ import { strategyName, type Strategy } from '#shared/utils/strategy'
  */
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ name?: unknown } | undefined>(event)
-  const strategy: Strategy = { id: crypto.randomUUID(), name: strategyName(body?.name) }
+  const strategy: Strategy = { id: crypto.randomUUID(), name: strategyName(body?.name), tags: [] }
 
   await writeStrategies([...(await readStrategies()), strategy])
   setResponseStatus(event, 201)

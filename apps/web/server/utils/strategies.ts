@@ -35,3 +35,12 @@ export function indexOrNotFound(strategies: Strategy[], id: string | undefined):
   }
   return index
 }
+
+/** `indexOrNotFound` one level down: the tag's index within its bucket, or a 404. */
+export function tagIndexOrNotFound(strategy: Strategy, tagId: string | undefined): number {
+  const index = strategy.tags.findIndex(t => t.id === tagId)
+  if (index === -1) {
+    throw createError({ statusCode: 404, message: 'Tag não encontrada.' })
+  }
+  return index
+}

@@ -1,4 +1,4 @@
-import type { Strategy } from '#shared/utils/strategy'
+import type { Strategy, StrategyTag } from '#shared/utils/strategy'
 
 /**
  * The strategy tag buckets, kept in `docs/tags/strategies.json` through `/api/strategies`.
@@ -27,7 +27,7 @@ export function useStrategies() {
       return result
     }
     catch (cause) {
-      error.value = `Falha ao salvar as estratégias: ${(cause as Error).message}`
+      error.value = `Falha ao salvar: ${(cause as Error).message}`
       return undefined
     }
   }
@@ -42,7 +42,7 @@ export function useStrategies() {
   // `<ClientOnly>`, and a server-side read would only be thrown away by it.
   onMounted(refresh)
 
-  /** Makes a bucket and returns it, so the caller can open it — Notion's "New page" does. */
+  /** Makes a bucket and returns it, so the caller can put it straight into rename mode. */
   async function add(name?: string): Promise<Strategy | undefined> {
     const created = await attempt(() =>
       $fetch<Strategy>('/api/strategies', { method: 'POST', body: { name } }),
@@ -63,9 +63,37 @@ export function useStrategies() {
     if (done) strategies.value = strategies.value.filter(s => s.id !== id)
   }
 
+  /** Swaps one bucket's tags for what `change` makes of them — the three tag mutations' last step. */
+  function updateTags(strategyId: string, change: (tags: StrategyTag[]) => StrategyTag[]) {
+    strategies.value = strategies.value.map(s => (s.id === strategyId ? { ...s, tags: change(s.tags) } : s))
+  }
+
+  /** Makes a tag at the end of a bucket and returns it, for the same reason `add` does. */
+  async function addTag(strategyId: string, name?: string): Promise<StrategyTag | undefined> {
+    const created = await attempt(() =>
+      $fetch<StrategyTag>(`/api/strategies/${strategyId}/tags`, { method: 'POST', body: { name } }),
+    )
+    if (created) updateTags(strategyId, tags => [...tags, created])
+    return created
+  }
+
+  async function renameTag(strategyId: string, tagId: string, name: string) {
+    const updated = await attempt(() =>
+      $fetch<StrategyTag>(`/api/strategies/${strategyId}/tags/${tagId}`, { method: 'PUT', body: { name } }),
+    )
+    if (updated) updateTags(strategyId, tags => tags.map(t => (t.id === tagId ? updated : t)))
+  }
+
+  async function removeTag(strategyId: string, tagId: string) {
+    const done = await attempt(() =>
+      $fetch(`/api/strategies/${strategyId}/tags/${tagId}`, { method: 'DELETE' }).then(() => true),
+    )
+    if (done) updateTags(strategyId, tags => tags.filter(t => t.id !== tagId))
+  }
+
   function find(id: string): Strategy | undefined {
     return strategies.value.find(s => s.id === id)
   }
 
-  return { strategies, loaded, error, refresh, add, rename, remove, find }
+  return { strategies, loaded, error, refresh, add, rename, remove, addTag, renameTag, removeTag, find }
 }

@@ -1,6 +1,9 @@
 import { strategyName, type Strategy } from '#shared/utils/strategy'
 
-/** Replaces a bucket's fields — only `name` exists yet. The id is the URL's and does not move. */
+/**
+ * Renames a bucket. Only `name` is taken from the body: the id is the URL's, and the tags have
+ * their own routes under `[id]/tags`, so a rename can never drop them.
+ */
 export default defineEventHandler(async (event) => {
   const strategies = await readStrategies()
   const index = indexOrNotFound(strategies, getRouterParam(event, 'id'))
