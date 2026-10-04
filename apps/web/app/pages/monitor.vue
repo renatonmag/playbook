@@ -364,8 +364,8 @@ watch([symbol, timeframe], () => {
   // old one's points — a wrong answer drawn as confidently as a right one.
   rulers.value = []
   rulerArmed.value = false
-  // The tags too, for the same reason: their bars are this series' bars and their price is this scale's.
-  tags.value = []
+  // The tags are swapped rather than wiped — each series keeps its own, see `useStoredTags`. A tag
+  // half laid on the old one goes with the tool.
   tagArmed.value = false
   // A bar time is only comparable within one Instrument and Timeframe for the replay too: the cut
   // would name a bar in the new series that nobody chose, or no bar at all.
@@ -1881,10 +1881,11 @@ const TAG_KEY = 'tag'
 const tagArmed = ref(false)
 
 /**
- * The tags on the chart. Not stored and not undoable, `rulers`' reasoning: a tag's ends are bars of
- * *this* window and its price is read off *this* scale.
+ * The tags on the chart, for the series on screen. Stored, unlike `rulers` — a tag is a judgement
+ * worth finding again, a ruler a question about the chart in front of you; see `useStoredTags`.
+ * Not undoable: nothing about laying or filing one is a step the selection history tracks.
  */
-const tags = ref<Tag[]>([])
+const { tags } = useStoredTags(symbol, timeframe)
 
 /**
  * Whether every tag is off the chart for now. The tags are kept, only not drawn — the way the

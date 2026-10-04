@@ -55,17 +55,15 @@ export interface TagCallout {
   at: Spot
 }
 
-/** Counted, not derived from geometry — `nextRulerId`'s reasoning applies word for word. */
-let minted = 0
-
+/**
+ * Random, not counted like `nextRulerId`: tags are stored — see `useStoredTags` — and a counter
+ * starts again at 1 on every reload, minting ids the stored tags already hold.
+ */
 export function nextTagId(): string {
-  minted += 1
-  return `tag:${minted}`
+  return `tag:${crypto.randomUUID()}`
 }
 
-let mintedCallouts = 0
-
+/** `nextTagId`'s reason: callouts are stored with their tag. */
 export function nextCalloutId(): string {
-  mintedCallouts += 1
-  return `callout:${mintedCallouts}`
+  return `callout:${crypto.randomUUID()}`
 }
