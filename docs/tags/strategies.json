@@ -52,6 +52,10 @@
       {
         "id": "a69447df-ca30-4b63-b901-495df2c3bc6f",
         "name": "ttr"
+      },
+      {
+        "id": "4bb176e1-0cc1-48d5-9620-f0abb5bb8b83",
+        "name": "trading range"
       }
     ]
   },
@@ -81,7 +85,45 @@
       },
       {
         "id": "e2672e24-2fbe-48be-b74c-64ea58dd247f",
-        "name": "down below line"
+        "name": "fall below line"
+      },
+      {
+        "id": "b36159c9-7b60-46e0-a7f9-88b15e0d8a88",
+        "name": "final flag"
+      },
+      {
+        "id": "31aeb03c-38c8-4fef-87f7-75c043ecf146",
+        "name": "pullback"
+      },
+      {
+        "id": "6c39790a-0d72-4bd3-89e4-5af371bd22a8",
+        "name": "below ma"
+      },
+      {
+        "id": "d9b716b8-3bc6-4ab1-b3ee-dc63842ffab4",
+        "name": "alvo"
+      }
+    ]
+  },
+  {
+    "id": "48663c19-4537-48f9-bec3-097adddaba04",
+    "name": "barras",
+    "tags": [
+      {
+        "id": "5af368bd-dc22-4d87-9778-dc093caad145",
+        "name": "dupla confirmação"
+      },
+      {
+        "id": "9a395f8a-1fe5-4abd-9f3e-591984cd3381",
+        "name": "two bar reversal"
+      },
+      {
+        "id": "2ba99767-dc19-4b21-8ce4-a485fa21d14c",
+        "name": "reversal bar"
+      },
+      {
+        "id": "a63e992a-a94c-475d-9935-aee79515d812",
+        "name": "ii"
       }
     ]
   }

@@ -42,7 +42,7 @@ import { AlarmClockOff, AlarmClockPlus, ChevronRight, Ellipsis, Link2, Link2Off,
  * Today that is the mini index future only, and only on `5m` and `1h` — the other two
  * timeframes render the empty state, which is the honest answer.
  */
-const SYMBOLS = ['WIN@N'] as const
+const SYMBOLS = ['WIN@N', "WINZ26"] as const
 
 const DEFAULT_SYMBOL = 'WIN@N'
 const DEFAULT_TIMEFRAME: Timeframe = '5m'

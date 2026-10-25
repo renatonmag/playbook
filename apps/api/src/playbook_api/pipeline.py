@@ -78,7 +78,7 @@ from pattern_engine.patterns import (
 )
 
 #: The only ticker the database is known to hold. Becomes a parameter when a second one lands.
-SYMBOL = "WIN@N"
+SYMBOL = "WINZ26"
 
 #: The Forma rule the bench on `/rules` currently favours, copied from `docs/forma/rules.json`.
 #:
